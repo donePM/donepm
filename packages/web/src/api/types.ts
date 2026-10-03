@@ -1,4 +1,4 @@
-import type { Repo, TranscriptMessage, WorkItem } from "@donepm/core";
+import type { Draft, Event, PermissionAsk, PrDraftPayload, Repo, TranscriptMessage, WorkItem } from "@donepm/core";
 
 // Mirrors of what the daemon's HTTP API returns (packages/daemon/src/http/server.ts).
 
@@ -16,11 +16,35 @@ export interface AgentView {
   currentTool?: CurrentTool;
 }
 
+/** What a Needs You card shows. */
+export type Attention =
+  | { kind: "ask"; askId: string; toolName: string; input: unknown }
+  | { kind: "draft"; draftId: string; title: string }
+  | { kind: "failed"; reason: string; stderrTail?: string };
+
 export interface ItemView extends WorkItem {
   repo: Pick<Repo, "id" | "path" | "originUrl" | "defaultBranch"> | null;
   badges: ItemBadge[];
   agent: AgentView;
+  attention?: Attention;
 }
+
+/** `GET /api/items/:id`. */
+export interface ItemDetail extends ItemView {
+  events: Event[];
+  drafts: Draft[];
+  asks: PermissionAsk[];
+}
+
+/** `GET /api/items/:id/diff`: merge base against the working tree, untracked files included. */
+export interface ItemDiff {
+  base: string;
+  branch: string;
+  commits: number;
+  patch: string;
+}
+
+export type OpenTarget = "finder" | "terminal";
 
 export type AskAnswer = { behavior: "allow" } | { behavior: "deny"; message?: string };
 
@@ -63,4 +87,4 @@ export interface Settings {
   maxConcurrentAgents: number;
 }
 
-export type { Repo, TranscriptMessage };
+export type { Draft, Event, PermissionAsk, PrDraftPayload, Repo, TranscriptMessage };

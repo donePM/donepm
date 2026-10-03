@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, statSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -381,12 +381,21 @@ describe("daemon", () => {
     const post = (path: string, body: unknown) =>
       get(d, path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const draftId = detail.drafts[0].id;
+    // The board card knows what to show without loading the detail.
+    expect(detail.attention).toEqual({ kind: "draft", draftId, title: "Fix search" });
+    writeFileSync(join(detail.worktreePath, "fix.txt"), "fixed\n");
+    const diff = (await get(d, `/api/items/${item.id}/diff`)).body;
+    expect(diff).toMatchObject({ base: "origin/main", branch: detail.branch, commits: 0 });
+    expect(diff.patch).toContain("+++ b/fix.txt");
+    expect((await post(`/api/items/${item.id}/open`, { target: "browser" })).status).toBe(400);
+    expect((await post(`/api/drafts/${draftId}/approve`, {})).status).toBe(501);
     expect((await post(`/api/drafts/${draftId}/edit`, { payload: { title: "" } })).status).toBe(400);
     expect((await post(`/api/drafts/${draftId}/edit`, { payload: { title: "Fix the search" } })).body.userEdits.title).toBe("Fix the search");
     expect((await post(`/api/drafts/${draftId}/reject`, { reason: "Add a test" })).body.state).toBe("rejected");
     expect(proc.sent().at(-1).message.content[0].text).toContain("Add a test");
     detail = (await get(d, `/api/items/${item.id}`)).body;
     expect(detail.state).toBe("running");
+    expect(detail.attention).toBeUndefined();
     expect(detail.events.map((e: any) => e.type).slice(-3)).toEqual(["draft.created", "draft.edited", "draft.rejected"]);
     expect((await post(`/api/drafts/${draftId}/reject`, {})).status).toBe(409);
     expect((await post("/api/drafts/nope/edit", { payload: {} })).status).toBe(404);
