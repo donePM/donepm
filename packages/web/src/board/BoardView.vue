@@ -4,12 +4,14 @@ import { api } from "../api/client";
 import { COLUMNS, groupByColumn } from "./columns";
 import ItemCard from "./ItemCard.vue";
 import { items, itemsError, itemsLoaded, watchItems } from "./items";
+import { useNow } from "../time/now";
 
 watchItems();
 
 const repoRoot = ref<string>();
 onMounted(() => api.settings().then((s) => (repoRoot.value = s.repoRoot), () => undefined));
 
+const now = useNow(1000);
 const grouped = computed(() => groupByColumn(items.value));
 </script>
 
@@ -21,7 +23,7 @@ const grouped = computed(() => groupByColumn(items.value));
         <h2 :id="`col-${col.key}`" :class="{ amber: col.key === 'needs_you' }">{{ col.title }}</h2>
         <span class="count">{{ grouped[col.key].length }}</span>
       </div>
-      <ItemCard v-for="item in grouped[col.key]" :key="item.id" :item="item" :repo-root="repoRoot" />
+      <ItemCard v-for="item in grouped[col.key]" :key="item.id" :item="item" :repo-root="repoRoot" :now="now" />
       <p v-if="itemsLoaded && col.key === 'ready' && !grouped.ready.length" class="empty">
         No open issues assigned to you.
       </p>

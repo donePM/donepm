@@ -21,7 +21,8 @@ import { makeGuard } from "./http/guard.js";
 import { itemWriter } from "./items/commit.js";
 import { ItemStore } from "./items/store.js";
 import { relinkItems } from "./items/sync.js";
-import { toItemView } from "./items/view.js";
+import { agentHistory } from "./items/agent-info.js";
+import { toItemView, type CurrentTool } from "./items/view.js";
 import type { Exec } from "./process/exec.js";
 import { ensureDefaultPlaybook } from "./playbooks/load.js";
 import { discoverRepos } from "./repos/discover.js";
@@ -62,6 +63,8 @@ export interface Daemon {
   pollNow(): Promise<void>;
 }
 
+const withCurrentTool = (currentTool: CurrentTool | undefined) => (currentTool ? { currentTool } : {});
+
 export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const paths = pathsFor(opts.home);
   let { config } = await loadConfig(paths.configFile);
@@ -81,8 +84,13 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const guard = makeGuard(boundPort, opts.extraOrigins);
   const hub = new Hub((req) => guard(req.headers));
 
-  const pushItem = (item: WorkItem) =>
-    hub.push("item.updated", toItemView(item, item.repoId ? repos.get(item.repoId) : undefined));
+  const view = (item: WorkItem) =>
+    toItemView(item, item.repoId ? repos.get(item.repoId) : undefined, {
+      ...agentHistory(events.forItem(item.id)),
+      running: runner.isRunning(item.id),
+      ...withCurrentTool(runner.currentTool(item.id)),
+    });
+  const pushItem = (item: WorkItem) => hub.push("item.updated", view(item));
   status.onChange((s) => hub.push("status.changed", s));
 
   /** Starts still preparing their worktree; shutdown waits for them before stopping agents. */
@@ -101,6 +109,10 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     env: () => agentEnv(opts.env ?? process.env, join(paths.dataDir, "bin-filtered")),
     maxConcurrent: () => config.maxConcurrentAgents,
     onCountChanged: (runningAgents) => status.update({ runningAgents }),
+    onActivity: (itemId) => {
+      const stored = items.get(itemId);
+      if (stored) pushItem(stored.item);
+    },
   });
 
   const rescan = async () => {
@@ -154,6 +166,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       void done.finally(() => starting.delete(done));
       return item;
     },
+    stopItem: (id) => runner.stop(id),
+    view,
     answerAsk: (id, answer) => runner.answer(id, answer),
     publicDir: opts.publicDir ?? fileURLToPath(new URL("../public", import.meta.url)),
     ...(opts.extraOrigins ? { extraOrigins: opts.extraOrigins } : {}),

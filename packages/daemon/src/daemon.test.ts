@@ -262,6 +262,30 @@ describe("daemon", () => {
     expect((await get(d, "/api/status")).body.runningAgents).toBe(1);
   });
 
+  it("shows agent info on the item and stops the agent over HTTP", async () => {
+    const spawn = fakeProcesses();
+    const d = await start(await homeWithHistory(), undefined, undefined, spawn);
+    const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
+    expect(item.agent).toEqual({ running: false });
+    expect((await get(d, `/api/items/${item.id}/stop`, { method: "POST" })).status).toBe(409);
+
+    await get(d, `/api/items/${item.id}/start`, { method: "POST" });
+    await vi.waitFor(() => expect(spawn.spawned).toHaveLength(1));
+    spawn.last().emit({
+      type: "assistant", session_id: "s1",
+      message: { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "pnpm test" } }] },
+    });
+    const running = (await get(d, `/api/items/${item.id}`)).body;
+    expect(running.agent).toMatchObject({ running: true, startedAt: expect.any(String), currentTool: { name: "Bash", summary: "pnpm test" } });
+
+    const stopped = await get(d, `/api/items/${item.id}/stop`, { method: "POST" });
+    expect(stopped.status).toBe(200);
+    expect(stopped.body).toMatchObject({ state: "failed", agent: { running: false } });
+    expect(stopped.body.agent.currentTool).toBeUndefined();
+    expect(spawn.last().signals).toEqual(["SIGTERM"]);
+    expect((await get(d, "/api/items/nope/stop", { method: "POST" })).status).toBe(404);
+  });
+
   it("refuses to start twice, items without a clone, and a second agent", async () => {
     const d = await start(await homeWithHistory());
     const items = (await get(d, "/api/items")).body;

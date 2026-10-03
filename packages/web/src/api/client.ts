@@ -1,4 +1,4 @@
-import type { ItemView, Repo, Settings, Status } from "./types";
+import type { AskAnswer, ItemView, Repo, Settings, Status, TranscriptMessage } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -26,6 +26,14 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 export const api = {
   items: () => call<ItemView[]>("GET", "/api/items"),
+  start: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/start`),
+  stop: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/stop`),
+  transcript: (id: string, after?: string) =>
+    call<TranscriptMessage[]>(
+      "GET",
+      `/api/items/${encodeURIComponent(id)}/transcript${after ? `?after=${encodeURIComponent(after)}` : ""}`,
+    ),
+  answer: (askId: string, answer: AskAnswer) => call<{ ok: true }>("POST", `/api/asks/${encodeURIComponent(askId)}/answer`, answer),
   repos: () => call<Repo[]>("GET", "/api/repos"),
   rescan: () => call<Repo[]>("POST", "/api/repos/rescan"),
   status: () => call<Status>("GET", "/api/status"),
