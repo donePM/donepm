@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 import { agentEnv } from "./agent/env.js";
 import { spawnProcess, type ProcessFactory } from "./agent/process.js";
 import { AgentRunner } from "./agent/runner.js";
-import { startItem } from "./agent/start.js";
+import { recoverAfterRestart } from "./agent/restart.js";
+import { resumeItem, startItem, type StartDeps } from "./agent/start.js";
 import { AskStore } from "./asks/store.js";
 import { writeMcpConfig } from "./bridge/mcp-config.js";
 import { listenBridge } from "./bridge/server.js";
@@ -38,6 +39,8 @@ import { discoverRepos } from "./repos/discover.js";
 import { RepoStore } from "./repos/store.js";
 import { StatusStore } from "./status/status.js";
 import { TranscriptStore } from "./transcript/store.js";
+import { failMissingWorktrees, findOrphans } from "./worktrees/reconcile.js";
+import { removeItemWorktree, removeOrphan } from "./worktrees/remove.js";
 import { Hub } from "./ws/hub.js";
 
 export interface DaemonOptions {
@@ -113,14 +116,20 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
         running: runner.isRunning(item.id),
         ...withCurrentTool(runner.currentTool(item.id)),
       },
-      attentionOf({ state: item.state, asks: asks.forItem(item.id), drafts: itemDrafts, events: itemEvents }),
+      attentionOf({
+        state: item.state,
+        agentAlive: runner.isRunning(item.id),
+        hasSession: item.agentSessionId !== undefined,
+        asks: asks.forItem(item.id),
+        drafts: itemDrafts,
+        events: itemEvents,
+      }),
       itemDrafts.findLast((d) => d.state === "executed")?.result,
     );
   };
   const pushItem = (item: WorkItem) => hub.push("item.updated", view(item));
   status.onChange((s) => hub.push("status.changed", s));
 
-  /** Starts still preparing their worktree; shutdown waits for them before stopping agents. */
   const starting = new Set<Promise<void>>();
   const writer = itemWriter({ db, items, events, onItem: pushItem, onEvent: () => {} });
   const runner = new AgentRunner({
@@ -156,6 +165,22 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   });
   const draftDeps = { items, repos, drafts, writer, ctx: opts.ctx };
   failInterrupted(draftDeps);
+
+  const worktreeRoot = () => expandHome(config.worktreeRoot, opts.home);
+  const orphans = () => findOrphans({ exec: opts.exec, repos, items, worktreeRoot: worktreeRoot(), log: app.log });
+  const startDeps = (): StartDeps => ({
+    items, repos, writer, runner, transcript, exec: opts.exec, ctx: opts.ctx, log: app.log,
+    push: (type, payload) => hub.push(type, payload),
+    playbooksDir: paths.playbooksDir,
+    worktreeRoot,
+    branchPrefix: () => config.branchPrefix,
+  });
+  /** Starts still preparing their worktree; shutdown waits for them before stopping agents. */
+  const track = ({ item, done }: { item: WorkItem; done: Promise<void> }) => {
+    starting.add(done);
+    void done.finally(() => starting.delete(done));
+    return item;
+  };
 
   const rescan = async () => {
     await discoverRepos({ root: expandHome(config.repoRoot, opts.home), exec: opts.exec, repos, ctx: opts.ctx, log: app.log });
@@ -193,21 +218,12 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     },
     rescan,
     recheck,
-    startItem: async (id) => {
-      const { item, done } = await startItem(
-        {
-          items, repos, writer, runner, transcript, exec: opts.exec, ctx: opts.ctx, log: app.log,
-          push: (type, payload) => hub.push(type, payload),
-          playbooksDir: paths.playbooksDir,
-          worktreeRoot: () => expandHome(config.worktreeRoot, opts.home),
-          branchPrefix: () => config.branchPrefix,
-        },
-        id,
-      );
-      starting.add(done);
-      void done.finally(() => starting.delete(done));
-      return item;
-    },
+    startItem: async (id) => track(await startItem(startDeps(), id)),
+    resumeItem: async (id) => track(await resumeItem(startDeps(), id)),
+    removeWorktree: (id) =>
+      removeItemWorktree({ items, repos, writer, exec: opts.exec, ctx: opts.ctx, agentActive: (i) => runner.isRunning(i) }, id),
+    orphans,
+    removeOrphan: (path) => removeOrphan({ exec: opts.exec, orphans }, path),
     stopItem: (id) => runner.stop(id),
     view,
     answerAsk: (id, answer) => runner.answer(id, answer),
@@ -244,6 +260,9 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     config: () => config,
     address: () => `http://127.0.0.1:${boundPort()}`,
     async start() {
+      // No agent survives a restart (spec 7.5, 9.5): settle what the last run left behind.
+      failMissingWorktrees({ items, writer, ctx: opts.ctx, log: app.log });
+      recoverAfterRestart({ items, asks, writer, ctx: opts.ctx, log: app.log });
       await ensureDefaultPlaybook(paths.playbooksDir, DEFAULT_PLAYBOOK).catch((e) =>
         app.log.warn({ err: e }, "could not write the default playbook"),
       );

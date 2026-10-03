@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import type { Settings } from "../api/types";
 import { recheck, status } from "../status/status";
 import GeneralForm from "./GeneralForm.vue";
+import OrphansPanel from "./OrphansPanel.vue";
 import ReposPanel from "./ReposPanel.vue";
 import SourcesPanel from "./SourcesPanel.vue";
 
@@ -27,6 +28,7 @@ onMounted(async () => {
     <div class="main">
       <SourcesPanel :poll-seconds="settings?.pollIntervalSeconds" />
       <ReposPanel :repo-root="settings?.repoRoot" />
+      <OrphansPanel :worktree-root="settings?.worktreeRoot" />
     </div>
     <div class="side">
       <GeneralForm v-if="settings" :settings="settings" @saved="settings = $event" />

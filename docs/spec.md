@@ -86,7 +86,8 @@ ready → running → needs_you → running → ... → done
 
 Transitions are functions in `core`: `start(item)`, `agentAsked(item)`, `answered(item)`,
 `draftCreated(item)`, `draftApproved(item)`, `draftExecuted(item)`, `draftExecutionFailed(item)`,
-`draftRejected(item)`, `agentFailed(item)`.
+`draftRejected(item)`, `agentFailed(item)`, `interrupted(item)`, `resume(item)`,
+`worktreeRemoved(item)`.
 Invalid transitions throw.
 
 ### 4.3 Event
@@ -105,7 +106,8 @@ Append-only. Never updated or deleted.
 
 Event types in MVP: `item.collected`, `item.playbook_changed`, `agent.started`, `agent.resumed`,
 `agent.turn_started`, `agent.turn_ended`, `agent.failed`, `permission.asked`, `permission.answered`, `draft.created`,
-`draft.edited`, `draft.approved`, `draft.rejected`, `draft.executed`, `draft.execution_failed`.
+`draft.edited`, `draft.approved`, `draft.rejected`, `draft.executed`, `draft.execution_failed`,
+`agent.interrupted`, `worktree.removed`.
 
 ### 4.4 Draft
 
@@ -128,7 +130,7 @@ Event types in MVP: `item.collected`, `item.playbook_changed`, `agent.started`, 
 | requestId | string (from CLI) |
 | toolName | string |
 | input | JSON |
-| state | `pending` \| `allowed` \| `denied` |
+| state | `pending` \| `allowed` \| `denied` \| `expired` (pending when the daemon restarted) |
 
 ### 4.6 Repo
 
@@ -421,7 +423,9 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/drafts/:id/approve` | executes |
 | POST | `/api/drafts/:id/reject` | `{ reason }`; reason is sent to the agent as next message |
 | POST | `/api/items/:id/resume` | after daemon restart |
-| POST | `/api/items/:id/worktree/remove` | |
+| POST | `/api/items/:id/worktree/remove` | only `done` or `failed`; the branch stays |
+| GET | `/api/worktrees/orphaned` | worktrees under the root that no item uses |
+| POST | `/api/worktrees/orphaned/remove` | `{ path }`; only paths from the orphan list |
 | GET | `/api/repos` | |
 | POST | `/api/repos/rescan` | |
 | GET/PUT | `/api/settings` | |

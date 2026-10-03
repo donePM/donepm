@@ -34,6 +34,11 @@ export class AskStore {
     return row && fromRow(row);
   }
 
+  inState(state: PermissionAskState): PermissionAsk[] {
+    const rows = this.db.prepare("SELECT * FROM asks WHERE state = ? ORDER BY created_at, rowid").all(state) as unknown as AskRow[];
+    return rows.map(fromRow);
+  }
+
   pending(itemId: string): PermissionAsk[] {
     return this.forItem(itemId).filter((a) => a.state === "pending");
   }

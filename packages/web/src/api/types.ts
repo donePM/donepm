@@ -20,7 +20,16 @@ export interface AgentView {
 export type Attention =
   | { kind: "ask"; askId: string; toolName: string; input: unknown }
   | { kind: "draft"; draftId: string; title: string; executing?: true; error?: string }
-  | { kind: "failed"; reason: string; stderrTail?: string };
+  | { kind: "failed"; reason: string; stderrTail?: string }
+  | { kind: "resume"; reason: string };
+
+/** `GET /api/worktrees/orphaned`: under donePM's root, used by no item. */
+export interface OrphanWorktree {
+  repoId: string;
+  repoPath: string;
+  path: string;
+  branch?: string;
+}
 
 export interface ItemView extends WorkItem {
   repo: Pick<Repo, "id" | "path" | "originUrl" | "defaultBranch"> | null;

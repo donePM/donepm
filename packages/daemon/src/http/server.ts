@@ -6,6 +6,9 @@ import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { z } from "zod";
 import { AskError, StopError } from "../agent/runner.js";
 import { StartError } from "../agent/start.js";
+import { WorktreeError } from "../worktrees/create.js";
+import type { OrphanWorktree } from "../worktrees/reconcile.js";
+import { RemoveError } from "../worktrees/remove.js";
 import type { AskStore } from "../asks/store.js";
 import { ConfigSchema, type Config } from "../config/config.js";
 import { DraftError } from "../drafts/actions.js";
@@ -38,6 +41,14 @@ export interface ServerDeps {
   recheck: () => Promise<void>;
   /** Throws StartError; resolves once the item is `running`, the rest happens in the background. */
   startItem: (id: string) => Promise<unknown>;
+  /** Same contract as startItem, for a waiting item whose process is gone (`--resume`). */
+  resumeItem: (id: string) => Promise<unknown>;
+  /** Throws RemoveError or WorktreeError. Resolves with the item once git is done. */
+  removeWorktree: (id: string) => Promise<WorkItem>;
+  /** Worktrees under donePM's root that no item uses. */
+  orphans: () => Promise<OrphanWorktree[]>;
+  /** Throws RemoveError (404 for paths that are not orphans) or WorktreeError. */
+  removeOrphan: (path: string) => Promise<void>;
   /** Throws StopError when no agent process is alive. Resolves once it exited. */
   stopItem: (id: string) => Promise<void>;
   /** The item as the API shows it: clone, badges, agent. */
@@ -77,6 +88,18 @@ const DraftEditSchema = z
 
 const OpenSchema = z.object({ target: z.enum(["finder", "terminal"]) }).strict();
 export type OpenTarget = z.infer<typeof OpenSchema>["target"];
+
+const OrphanRemoveSchema = z.object({ path: z.string().min(1) }).strict();
+
+async function removeCall<T>(reply: FastifyReply, fn: () => Promise<T>) {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof RemoveError) return reply.code(e.status).send({ error: e.message });
+    if (e instanceof WorktreeError) return reply.code(502).send({ error: e.output.trim() ? `${e.message}: ${e.output.trim()}` : e.message });
+    throw e;
+  }
+}
 
 const DraftRejectSchema = z.object({ reason: z.string().optional() }).strict();
 
@@ -125,6 +148,30 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       if (e instanceof StartError) return reply.code(e.status).send({ error: e.message });
       throw e;
     }
+  });
+
+  app.post<{ Params: { id: string } }>("/api/items/:id/resume", async (req, reply) => {
+    try {
+      return reply.code(202).send(await deps.resumeItem(req.params.id));
+    } catch (e) {
+      if (e instanceof StartError) return reply.code(e.status).send({ error: e.message });
+      throw e;
+    }
+  });
+
+  app.post<{ Params: { id: string } }>("/api/items/:id/worktree/remove", async (req, reply) =>
+    removeCall(reply, async () => deps.view(await deps.removeWorktree(req.params.id))),
+  );
+
+  app.get("/api/worktrees/orphaned", async () => deps.orphans());
+
+  app.post("/api/worktrees/orphaned/remove", async (req, reply) => {
+    const body = OrphanRemoveSchema.safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "body must be {path: string}" });
+    return removeCall(reply, async () => {
+      await deps.removeOrphan(body.data.path);
+      return { ok: true };
+    });
   });
 
   app.post<{ Params: { id: string } }>("/api/items/:id/stop", async (req, reply) => {

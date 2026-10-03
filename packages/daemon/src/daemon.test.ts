@@ -274,6 +274,113 @@ describe("daemon", () => {
     expect((await get(d, "/api/items")).body).toHaveLength(4);
   });
 
+  it("after a restart a running item waits with Resume, which continues the session with --resume", async () => {
+    const h = await homeWithHistory();
+    const first = fakeProcesses();
+    let d = await start(h, undefined, undefined, first);
+    const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
+    await get(d, `/api/items/${item.id}/start`, { method: "POST" });
+    await vi.waitFor(() => expect(first.spawned).toHaveLength(1));
+    first.last().emit(
+      { type: "system", subtype: "init", session_id: "s1" },
+      { type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" } } },
+    );
+    await get(d, `/api/asks/${(await get(d, `/api/items/${item.id}`)).body.asks[0].id}/answer`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ behavior: "allow" }),
+    });
+    first.last().emit({ type: "control_request", request_id: "r2", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "rm x" } } });
+    expect((await get(d, `/api/items/${item.id}`)).body.state).toBe("needs_you");
+    // An agent mid-turn: the ask is answered later, the state is what shutdown keeps.
+    await daemon!.stop();
+    expect(first.last().signals).toEqual(["SIGTERM"]);
+
+    const second = fakeProcesses();
+    daemon = undefined;
+    d = await start(h, undefined, undefined, second);
+    const after = (await get(d, `/api/items/${item.id}`)).body;
+    expect(after.state).toBe("needs_you");
+    expect(after.attention).toEqual({ kind: "resume", reason: "daemon restarted" });
+    expect(after.asks.map((a: any) => a.state)).toEqual(["allowed", "expired"]);
+    expect(second.spawned).toHaveLength(0);
+
+    const resumed = await get(d, `/api/items/${item.id}/resume`, { method: "POST" });
+    expect(resumed.status).toBe(202);
+    expect(resumed.body.state).toBe("running");
+    await vi.waitFor(() => expect(second.spawned).toHaveLength(1));
+    const proc = second.last();
+    expect(proc.args).toEqual(expect.arrayContaining(["--resume", "s1"]));
+    expect(proc.opts.cwd).toBe(after.worktreePath);
+    expect(proc.sent()[0].message.content[0].text).toBe("Continue where you left off.");
+    expect((await get(d, `/api/items/${item.id}/resume`, { method: "POST" })).status).toBe(409);
+    expect((await get(d, `/api/items/${item.id}`)).body.events.map((e: any) => e.type).slice(-1)).toEqual(["agent.resumed"]);
+  });
+
+  it("interrupts running items on start: no session fails, a missing worktree fails with the reason", async () => {
+    const h = await homeWithHistory();
+    const spawn = fakeProcesses();
+    let d = await start(h, undefined, undefined, spawn);
+    const items = (await get(d, "/api/items")).body.filter((i: any) => i.repo);
+    const [a, b] = items;
+    await get(d, "/api/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ maxConcurrentAgents: 2 }) });
+    for (const i of [a, b]) {
+      await get(d, `/api/items/${i.id}/start`, { method: "POST" });
+      await vi.waitFor(() => expect(spawn.spawned.length).toBeGreaterThan(i === a ? 0 : 1));
+    }
+    // a never reported a session; b did, but its worktree disappears while donePM is down.
+    spawn.spawned[1]!.emit({ type: "system", subtype: "init", session_id: "s2" });
+    const bPath = (await get(d, `/api/items/${b.id}`)).body.worktreePath;
+    await daemon!.stop();
+    execFileSync("rm", ["-rf", bPath]);
+
+    daemon = undefined;
+    d = await start(h, undefined, undefined, fakeProcesses());
+    const aNow = (await get(d, `/api/items/${a.id}`)).body;
+    expect(aNow.state).toBe("failed");
+    expect(aNow.attention.reason).toBe("donePM restarted before the agent started");
+    const bNow = (await get(d, `/api/items/${b.id}`)).body;
+    expect(bNow.state).toBe("failed");
+    expect(bNow.attention.reason).toBe(`worktree ${bPath} is missing`);
+    expect(bNow.worktreePath).toBeUndefined();
+    expect(bNow.agentSessionId).toBeUndefined();
+    expect((await get(d, `/api/items/${b.id}/resume`, { method: "POST" })).status).toBe(409);
+  });
+
+  it("removes a failed item's worktree and lists and removes orphaned ones", async () => {
+    const h = await homeWithHistory();
+    const spawn = fakeProcesses();
+    const d = await start(h, undefined, undefined, spawn);
+    const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
+    await get(d, `/api/items/${item.id}/start`, { method: "POST" });
+    await vi.waitFor(() => expect(spawn.spawned).toHaveLength(1));
+    const { worktreePath, branch } = (await get(d, `/api/items/${item.id}`)).body;
+    expect((await get(d, `/api/items/${item.id}/worktree/remove`, { method: "POST" })).status).toBe(409);
+    await get(d, `/api/items/${item.id}/stop`, { method: "POST" });
+
+    const clone = join(h, "Code", "acme", "widgets");
+    const orphan = join(h, ".local/share/donepm/worktrees/acme-widgets/leftover");
+    git(clone, "worktree", "add", "-q", "-b", "leftover", orphan);
+    // Worktrees outside donePM's root are the user's.
+    git(clone, "worktree", "add", "-q", "-b", "mine", join(h, "elsewhere"));
+    const listed = (await get(d, "/api/worktrees/orphaned")).body;
+    expect(listed.map((o: any) => [o.path.endsWith("/leftover"), o.branch])).toEqual([[true, "leftover"]]);
+
+    const removed = await get(d, `/api/items/${item.id}/worktree/remove`, { method: "POST" });
+    expect(removed.status).toBe(200);
+    expect(removed.body).toMatchObject({ state: "failed" });
+    expect(removed.body.worktreePath).toBeUndefined();
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(git(clone, "branch", "--list", branch).trim()).not.toBe("");
+    expect(git(clone, "worktree", "list")).not.toContain(worktreePath);
+
+    const post = (path: string) =>
+      get(d, "/api/worktrees/orphaned/remove", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) });
+    expect((await post(join(h, "elsewhere"))).status).toBe(404);
+    expect((await post(listed[0].path)).body).toEqual({ ok: true });
+    expect(existsSync(orphan)).toBe(false);
+    expect((await get(d, "/api/worktrees/orphaned")).body).toEqual([]);
+    expect(existsSync(join(h, "elsewhere"))).toBe(true);
+  });
+
   it("starts an agent: worktree, setup, claude in the worktree, transcript stored", async () => {
     const h = await homeWithHistory();
     const spawn = fakeProcesses();

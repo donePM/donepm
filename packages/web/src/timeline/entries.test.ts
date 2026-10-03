@@ -35,6 +35,19 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("describes restarts, resumes and removed worktrees", () => {
+    const events = [
+      ev("agent.interrupted", { reason: "daemon restarted" }),
+      ev("agent.resumed", {}, { actor: "user" }),
+      ev("worktree.removed", { path: "/wt", branch: "dp/1-x" }, { actor: "user" }),
+    ];
+    expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail }))).toEqual([
+      { tone: "user", text: "You removed the worktree", detail: "Branch dp/1-x kept" },
+      { tone: "user", text: "You resumed the agent", detail: undefined },
+      { tone: "attention", text: "Agent interrupted", detail: "daemon restarted" },
+    ]);
+  });
+
   it("keeps insertion order for events in the same instant", () => {
     const at = "2026-10-03T10:00:00Z";
     const events = [ev("draft.created", {}, { at, id: "first" }), ev("draft.edited", {}, { at, id: "second" })];

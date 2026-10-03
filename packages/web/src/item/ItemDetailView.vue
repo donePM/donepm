@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useRoute } from "vue-router";
-import { pending, startAgent } from "../agents/actions";
+import { pending, resumeAgent, startAgent } from "../agents/actions";
 import { errorText } from "../api/errors";
 import AskPanel from "../asks/AskPanel.vue";
 import { displayId } from "../board/columns";
@@ -43,17 +43,19 @@ const badge = computed(() => {
   const label = STATE_LABEL[d.state] ?? d.state;
   if (d.attention?.kind === "draft") return `${label} · PR draft`;
   if (d.attention?.kind === "ask") return `${label} · permission`;
+  if (d.attention?.kind === "resume") return `${label} · interrupted`;
   return label;
 });
 const retryError = ref<string>();
-async function retry(id: string) {
+async function retry(id: string, call = startAgent) {
   retryError.value = undefined;
   try {
-    await startAgent(id);
+    await call(id);
   } catch (e) {
     retryError.value = errorText(e);
   }
 }
+const interrupted = computed(() => (detail.value?.attention?.kind === "resume" ? detail.value.attention : undefined));
 const failure = computed(() => (detail.value?.attention?.kind === "failed" ? detail.value.attention : undefined));
 </script>
 
@@ -93,6 +95,14 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
             <h2 id="pr-h">Pull request</h2>
             <a :href="detail.pr.url" target="_blank" rel="noreferrer" class="mono">#{{ detail.pr.number }} · {{ detail.pr.url }}</a>
           </section>
+          <section v-if="interrupted" class="needs" aria-label="Interrupted">
+            <h2>The agent stopped: {{ interrupted.reason }}</h2>
+            <p class="hint">Resume continues its session in the same worktree.</p>
+            <div>
+              <button class="btn btn-primary" type="button" :disabled="pending.has(detail.id)" @click="retry(detail.id, resumeAgent)">Resume</button>
+            </div>
+            <p v-if="retryError" class="alert" role="alert">{{ retryError }}</p>
+          </section>
           <section v-if="failure" class="needs" aria-label="Failure">
             <h2>The agent failed: {{ failure.reason }}</h2>
             <pre v-if="failure.stderrTail" class="stderr mono">{{ failure.stderrTail }}</pre>
@@ -109,7 +119,13 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
         </div>
         <aside class="side">
           <TimelineList :events="detail.events" :asks="detail.asks" :now="now" />
-          <WorktreeBlock v-if="detail.worktreePath" :item-id="detail.id" :path="detail.worktreePath" />
+          <WorktreeBlock
+            v-if="detail.worktreePath"
+            :item-id="detail.id"
+            :path="detail.worktreePath"
+            :removable="(detail.state === 'done' || detail.state === 'failed') && !detail.agent.running"
+            @removed="reload"
+          />
         </aside>
       </div>
     </template>
@@ -137,6 +153,7 @@ h1 { margin: 12px 0 6px; font-size: 22px; font-weight: 600; line-height: 1.3; ov
   flex-direction: column;
   gap: 12px;
 }
+.hint { margin: 0; font-size: 13px; color: var(--ink-2); }
 .needs h2, .panel h2 { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
 .stderr {
   margin: 0;
