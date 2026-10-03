@@ -14,6 +14,8 @@ const daemon = await createDaemon({
   ctx: systemCtx,
   version,
   logger: true,
+  // The Vite dev server (pnpm dev) proxies to us from another origin.
+  ...(process.env.DONEPM_DEV_ORIGIN ? { extraOrigins: [process.env.DONEPM_DEV_ORIGIN] } : {}),
 });
 
 let stopping = false;
