@@ -11,6 +11,8 @@ export interface PollStatus {
 
 export interface Status {
   version: string;
+  /** The daemon's process id; `donepm stop` signals it. */
+  pid: number;
   gh: GhStatus | undefined;
   claude: ClaudeStatus | undefined;
   lastPoll: PollStatus | undefined;
@@ -26,8 +28,8 @@ export class StatusStore {
   private status: Status;
   private readonly listeners = new Set<Listener>();
 
-  constructor(version: string) {
-    this.status = { version, gh: undefined, claude: undefined, lastPoll: undefined, lastScan: undefined, runningAgents: 0 };
+  constructor(version: string, pid = process.pid) {
+    this.status = { version, pid, gh: undefined, claude: undefined, lastPoll: undefined, lastScan: undefined, runningAgents: 0 };
   }
 
   get(): Status {
