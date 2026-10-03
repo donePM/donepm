@@ -3,6 +3,9 @@ import { computed, ref, watch } from "vue";
 import { api } from "../api/client";
 import { errorText, isPublishFailure } from "../api/errors";
 import type { Draft, PrDraftPayload } from "../api/types";
+import MarkdownView from "../markdown/MarkdownView.vue";
+import type { RepoRef } from "../markdown/render";
+import { draftTab, type DraftTab } from "./draft-tab";
 
 const props = defineProps<{
   draft: Draft;
@@ -11,12 +14,16 @@ const props = defineProps<{
   canReject: boolean;
   /** Why publishing failed last time; approving again retries. */
   publishError?: string;
+  /** For `#123` and relative links in the preview. */
+  repo?: RepoRef;
 }>();
 const emit = defineEmits<{ changed: [] }>();
 
 const current = computed<PrDraftPayload>(() => props.draft.userEdits ?? props.draft.payload);
 const title = ref("");
 const body = ref("");
+const tab = ref<DraftTab>("preview");
+const dirty = computed(() => title.value !== current.value.title || body.value !== current.value.body);
 // A changed draft (the user's own save, or a new draft) resets the form to what is stored.
 // Watching the values, not the object: every pushed reload brings a new object.
 watch(
@@ -27,8 +34,9 @@ watch(
   },
   { immediate: true },
 );
+// Only a new draft picks the tab again; the user's own save keeps the one they are on.
+watch(() => props.draft.id, () => (tab.value = draftTab(dirty.value)), { immediate: true });
 
-const dirty = computed(() => title.value !== current.value.title || body.value !== current.value.body);
 const rejecting = ref(false);
 const reason = ref("");
 const busy = ref(false);
@@ -86,10 +94,36 @@ const reject = () => run(async () => {
       <span>Title</span>
       <input v-model="title" class="input" type="text" :disabled="busy || publishing" />
     </label>
-    <label class="field">
-      <span>Body</span>
-      <textarea v-model="body" class="textarea" rows="10" :disabled="busy || publishing"></textarea>
-    </label>
+    <div class="field">
+      <div class="body-head">
+        <span id="draft-body-l">Body</span>
+        <div class="tabs" role="tablist" aria-labelledby="draft-body-l">
+          <button
+            v-for="t in (['write', 'preview'] as const)"
+            :key="t"
+            type="button"
+            role="tab"
+            class="tab"
+            :aria-selected="tab === t"
+            @click="tab = t"
+          >
+            {{ t === "write" ? "Write" : "Preview" }}
+          </button>
+        </div>
+      </div>
+      <textarea
+        v-if="tab === 'write'"
+        v-model="body"
+        class="textarea"
+        rows="10"
+        aria-labelledby="draft-body-l"
+        :disabled="busy || publishing"
+      ></textarea>
+      <div v-else class="preview" role="tabpanel">
+        <MarkdownView v-if="body.trim()" :source="body" :repo="repo" />
+        <p v-else class="empty">Nothing to preview.</p>
+      </div>
+    </div>
     <form v-if="rejecting" class="reject" @submit.prevent="reject">
       <label class="field">
         <span>Reason, sent to the agent as its next message</span>
@@ -134,6 +168,24 @@ const reject = () => run(async () => {
 .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 h2 { margin: 0; font-size: 15px; font-weight: 600; }
 .meta { font-size: 12px; color: var(--ink-3); }
+.body-head { display: flex; justify-content: space-between; align-items: end; gap: 12px; }
+.body-head > span { font-size: 13px; color: var(--ink-2); }
+.tabs { display: flex; gap: 2px; }
+.tab {
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.tab:hover { color: var(--ink); }
+.tab[aria-selected="true"] { border-color: var(--border-control); background: var(--card-muted); color: var(--ink); font-weight: 500; }
+.tab:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.preview { min-height: 120px; max-height: 480px; overflow: auto; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 6px; }
+.empty { margin: 0; color: var(--ink-3); }
 .reject { display: flex; flex-direction: column; gap: 10px; }
 .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--border-soft); }
 .runs { margin-left: auto; font-size: 12px; color: var(--ink-3); }
