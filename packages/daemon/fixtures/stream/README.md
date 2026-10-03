@@ -10,6 +10,7 @@ Recorded from `claude 2.1.288` with `model: haiku`, invoked with the argv from `
 | `ask-deny.jsonl` | the same ask, answered with deny |
 | `deny-gh.jsonl` | `gh` is refused by the `Bash(gh *)` deny rule without asking |
 | `subagent.jsonl` | the main agent starts one `Agent` subagent (13 tool calls, asks answered with allow), then drafts a PR |
+| `ask-question.jsonl` | `AskUserQuestion` with two questions (one single, one multi select), answered with allow and `answers` |
 
 Redacted before committing: absolute paths (`/tmp/donepm-fixture`, `/Users/someone`), the
 user's MCP servers, slash commands, agents, skills and plugins in `init`, and hook output

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fixture } from "../test-support/fake-exec.js";
-import { parentToolUseId, taskEvent } from "@donepm/core";
+import { parentToolUseId, questionsOf, taskEvent } from "@donepm/core";
 import { decodeLine, type Decoded } from "./decode.js";
 
 const lines = (name: string) => fixture(`stream/${name}`).split("\n").filter(Boolean);
@@ -71,7 +71,7 @@ describe("decodeLine against recorded sessions", () => {
   });
 
   it("never fails on any recorded line", () => {
-    for (const name of ["basic.jsonl", "ask-allow.jsonl", "ask-deny.jsonl", "deny-gh.jsonl", "subagent.jsonl"]) {
+    for (const name of ["basic.jsonl", "ask-allow.jsonl", "ask-deny.jsonl", "deny-gh.jsonl", "subagent.jsonl", "ask-question.jsonl"]) {
       for (const d of decodeAll(name)) expect(d.type).not.toBe("malformed");
     }
   });
@@ -108,6 +108,25 @@ describe("a session with a subagent", () => {
     expect(asks.map((a) => (a.type === "ask" ? a.toolName : ""))).toEqual([
       "WebFetch", "WebFetch", "WebFetch", "WebFetch", "Bash", "SandboxNetworkAccess", "Bash", "SandboxNetworkAccess",
     ]);
+  });
+});
+
+describe("a session with AskUserQuestion", () => {
+  it("lifts the question as an ask and keeps the answer the CLI hands back", () => {
+    const decoded = decodeAll("ask-question.jsonl");
+    const asks = decoded.filter((d) => d.type === "ask");
+    expect(asks).toHaveLength(1);
+    const ask = asks[0]!;
+    if (ask.type !== "ask") throw new Error("not an ask");
+    expect(ask.toolName).toBe("AskUserQuestion");
+    expect(questionsOf(ask.input).map((q) => [q.header, q.multiSelect, q.options.length])).toEqual([
+      ["Color", false, 3],
+      ["Sizes", true, 3],
+    ]);
+
+    const result = decoded.find((d) => d.type === "message" && d.kind === "tool_result");
+    expect(JSON.stringify(result)).toContain('Your questions have been answered: \\"Which color do you prefer?\\"=\\"Green\\"');
+    expect(decoded.at(-1)).toMatchObject({ type: "result", isError: false });
   });
 });
 

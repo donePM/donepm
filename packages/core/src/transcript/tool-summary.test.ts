@@ -17,6 +17,9 @@ describe("toolSummary", () => {
 
   it("counts todos", () => {
     expect(toolSummary("TodoWrite", { todos: [{}, {}] })).toBe("2 todos");
+    expect(toolSummary("AskUserQuestion", { questions: [{ question: "Which color?" }, { question: "Which size?" }] })).toBe("Which color? (+1 more)");
+    expect(toolSummary("AskUserQuestion", { questions: [{ question: "Which color?" }] })).toBe("Which color?");
+    expect(toolSummary("AskUserQuestion", { questions: [] })).toBe("");
   });
 
   it("falls back to the first string for unknown tools", () => {

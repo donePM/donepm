@@ -58,7 +58,9 @@ export interface ItemDiff {
 export type OpenTarget = "finder" | "terminal";
 
 /** `scope: "run"` also grants the ask's suggested rules until the agent's session ends. */
-export type AskAnswer = { behavior: "allow"; scope?: "run" } | { behavior: "deny"; message?: string };
+export type AskAnswer =
+  | { behavior: "allow"; scope?: "run"; /** AskUserQuestion only, by question text. */ answers?: Record<string, string> }
+  | { behavior: "deny"; message?: string };
 
 export type CliState = "not_installed" | "not_logged_in" | "ready";
 

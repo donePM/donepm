@@ -47,6 +47,23 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("shows questions and the user's answers", () => {
+    const q: PermissionAsk = {
+      id: "q1", itemId: "i", requestId: "r3", toolName: "AskUserQuestion", state: "allowed", rules: [],
+      input: { questions: [{ question: "Which color?", header: "Color", options: [] }, { question: "Which sizes?", options: [] }] },
+    };
+    const events = [
+      ev("permission.asked", { toolName: "AskUserQuestion" }, { refId: "q1", actor: "agent" }),
+      ev("permission.answered", { behavior: "allow", rules: [], answers: { "Which sizes?": "S, L", "Which color?": "Green" } }, { refId: "q1", actor: "user" }),
+      ev("permission.answered", { behavior: "deny" }, { refId: "q1", actor: "user" }),
+    ];
+    expect(timelineEntries(events, [q]).map(({ tone, text, code, detail }) => ({ tone, text, code, detail }))).toEqual([
+      { tone: "user", text: "You declined the questions", code: "Which color? (+1 more)", detail: undefined },
+      { tone: "user", text: "You answered", code: "Which color? (+1 more)", detail: "Color: Green · Which sizes?: S, L" },
+      { tone: "attention", text: "Agent asked you", code: "Which color? (+1 more)", detail: undefined },
+    ]);
+  });
+
   it("describes assigning the issue on start", () => {
     const events = [ev("item.assigned", { assignee: "@me" }), ev("item.assign_failed", { reason: "HTTP 403" })];
     expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail }))).toEqual([

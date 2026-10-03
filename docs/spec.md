@@ -453,6 +453,22 @@ credentials qualify. The list is never turned into rules in `--settings`: Claude
 asking (D27). Remaining risk, owned by the user per host: a URL can carry repository content out
 in its path or query.
 
+Questions (`AskUserQuestion`). The agent's questions to the user arrive as a `can_use_tool` ask
+with `input.questions[]`, each `{ question, header, options: [{ label, description, preview? }],
+multiSelect }`. A plain allow is no answer: the CLI then tells the agent "The user did not answer
+the questions." The answer is an allow whose `updatedInput` is the input plus `answers`, one
+string per question keyed by the question's text:
+
+```json
+{"behavior":"allow","updatedInput":{"questions":[…],"answers":{"Which color do you prefer?":"Green","Which sizes do you want?":"Small, Large"}}}
+```
+
+Several choices are joined with `", "` in the order of the options; text the user typed instead
+of an option goes in as typed. The CLI hands them back as the tool result ("Your questions have
+been answered: …", recorded in `fixtures/stream/ask-question.jsonl`). The daemon refuses an allow
+without an answer for every question, and `answers` on any other tool. Deny declines the
+questions with the user's message. The `permission.answered` payload carries `answers`.
+
 ### 9.5 Process lifecycle
 
 - One child process per running item.
@@ -499,7 +515,7 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/items/:id/start` | create worktree, run setup, start agent |
 | POST | `/api/items/:id/playbook` | `{ name }` |
 | GET | `/api/items/:id/transcript?after=<id>` | paged transcript |
-| POST | `/api/asks/:id/answer` | `{ behavior: allow\|deny, message? }` |
+| POST | `/api/asks/:id/answer` | `{ behavior: allow\|deny, scope?: run, answers?, message? }` |
 | POST | `/api/drafts/:id/edit` | `{ payload }` |
 | POST | `/api/drafts/:id/approve` | executes |
 | POST | `/api/drafts/:id/reject` | `{ reason }`; reason is sent to the agent as next message. Without a live process (e.g. after a restart) the session is resumed with `--resume` and the reason as its first message |
