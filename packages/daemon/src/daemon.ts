@@ -142,7 +142,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     log: { info: (o, m) => app.log.info(o, m), warn: (o, m) => app.log.warn(o, m), error: (o, m) => app.log.error(o, m) },
     spawn: opts.spawn ?? spawnProcess,
     claudePath: () => status.get().claude?.path ?? "claude",
-    env: () => agentEnv(opts.env ?? process.env, join(paths.dataDir, "bin-filtered")),
+    env: () =>
+      agentEnv(opts.env ?? process.env, { shimRoot: join(paths.dataDir, "bin-filtered"), emptyConfigDir: join(paths.dataDir, "no-credentials") }),
     maxConcurrent: () => config.maxConcurrentAgents,
     onCountChanged: (runningAgents) => status.update({ runningAgents }),
     onActivity: (itemId) => {

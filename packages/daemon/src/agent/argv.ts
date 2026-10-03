@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { Playbook } from "@donepm/core";
 
 /** Commands that reach a forge or tracker with the user's credentials. Never in the agent's reach. */
@@ -12,11 +13,32 @@ export const DENY_RULES = [...BLOCKED_COMMANDS.map((c) => `Bash(${c} *)`), "Bash
 /** donePM's own MCP server. Its tools only create drafts, so they need no question per call. */
 export const ALLOW_RULES = ["mcp__donepm"] as const;
 
+/**
+ * Claude Code's Bash sandbox (D27). The deny rules and `PATH` only stop `gh` spelled the usual way;
+ * `/opt/homebrew/bin/gh`, `env gh` or `git -c … push` slip past them (#16). Inside the sandbox
+ * every connection to a host asks first (`SandboxNetworkAccess`), and that question reaches the user
+ * like any other: nothing leaves the machine without them. There is no allowlist on purpose: a
+ * package registry also takes `npm publish`. No way out of the sandbox for the model.
+ */
+export function sandboxSettings(home: string | undefined) {
+  return {
+    enabled: true,
+    autoAllowBashIfSandboxed: true,
+    allowUnsandboxedCommands: false,
+    // Writes outside the worktree fail inside the sandbox; build tools keep their caches here.
+    ...(home ? { filesystem: { allowWrite: CACHE_DIRS.map((d) => join(home, d)) } } : {}),
+  };
+}
+
+const CACHE_DIRS = ["Library/Caches", ".cache", ".npm"] as const;
+
 export interface ArgvInput {
   playbook: Pick<Playbook, "model" | "effort" | "permissionMode">;
   /** Per-session MCP config file (mode 0600), never inline JSON: argv is visible in `ps`. */
   mcpConfigPath?: string;
   resumeSessionId?: string;
+  /** The agent's home, for the sandbox's writable cache directories. */
+  home?: string;
 }
 
 /** Arguments for `claude` (spec 9.1, Bloom PROTOCOL.md "How Bloom invokes it"). */
@@ -35,7 +57,7 @@ export function claudeArgv(input: ArgvInput): string[] {
   ];
   if (playbook.effort) args.push("--effort", playbook.effort);
   // One object: --settings does not accumulate.
-  args.push("--settings", JSON.stringify({ permissions: { allow: ALLOW_RULES, deny: DENY_RULES } }));
+  args.push("--settings", JSON.stringify({ permissions: { allow: ALLOW_RULES, deny: DENY_RULES }, sandbox: sandboxSettings(input.home) }));
   if (input.mcpConfigPath) args.push("--mcp-config", input.mcpConfigPath);
   if (input.resumeSessionId) args.push("--resume", input.resumeSessionId);
   return args;

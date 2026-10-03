@@ -13,6 +13,8 @@ const FIELD: Record<string, string> = {
   WebSearch: "query",
   Task: "description",
   Agent: "description",
+  // The Bash sandbox asking to connect (D27).
+  SandboxNetworkAccess: "host",
 };
 
 function oneLine(s: string): string {
