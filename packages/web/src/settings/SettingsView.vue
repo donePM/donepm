@@ -26,8 +26,8 @@ onMounted(async () => {
   <main class="settings">
     <p v-if="error" class="error" role="alert">Could not load settings: {{ error }}</p>
     <div class="main">
-      <SourcesPanel :poll-seconds="settings?.pollIntervalSeconds" />
-      <ReposPanel :repo-root="settings?.repoRoot" />
+      <SourcesPanel :poll-seconds="settings?.pollIntervalSeconds" :queries="Object.values(settings?.sources ?? {}).filter((s) => s.query).length" />
+      <ReposPanel :repo-root="settings?.repoRoot" :sources="settings?.sources" @saved="settings = $event" />
       <OrphansPanel :worktree-root="settings?.worktreeRoot" />
     </div>
     <div class="side">

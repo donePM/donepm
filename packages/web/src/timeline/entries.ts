@@ -29,6 +29,10 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>): Omit<Timelin
       return { tone: "system", text: "Collected from GitHub" };
     case "item.playbook_changed":
       return { tone: "user", text: "You changed the playbook", ...(str(p.name) ? { code: str(p.name) } : {}) };
+    case "item.assigned":
+      return { tone: "system", text: "Assigned the issue to you on GitHub" };
+    case "item.assign_failed":
+      return { tone: "attention", text: "Assigning the issue to you failed", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
     case "agent.started":
       return { tone: e.actor === "user" ? "user" : "system", text: "Agent started" };
     case "agent.resumed":

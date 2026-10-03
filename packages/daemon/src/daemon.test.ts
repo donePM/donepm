@@ -29,6 +29,10 @@ function execWith(search: () => string): Exec {
     "gh auth status": ok(fixture("gh/auth-status-ok.stdout")),
     "gh search issues": () => ok(search()),
     "gh issue view": ok(fixture("gh/issue-view-open.json")),
+    "gh issue list": ok(JSON.stringify([
+      { number: 200, title: "Unassigned bug", body: "", labels: [], url: "https://github.com/acme/widgets/issues/200" },
+    ])),
+    "gh issue edit": ok("https://github.com/acme/widgets/issues/161\n"),
     "which claude": ok("/usr/local/bin/claude\n"),
     "claude --version": ok("2.1.288 (Claude Code)\n"),
     "claude auth status": ok(fixture("claude/auth-status-logged-in.json")),
@@ -434,6 +438,43 @@ describe("daemon", () => {
     expect(after).toHaveLength(transcript.length - 2);
     expect((await get(d, `/api/items/${item.id}`)).body.state).toBe("needs_you");
     expect((await get(d, "/api/status")).body.runningAgents).toBe(1);
+  });
+
+  it("collects a repository's own query, tests it over HTTP and assigns on start when opted in", async () => {
+    const h = await homeWithHistory();
+    await mkdir(join(h, ".config/donepm"), { recursive: true });
+    await writeFile(join(h, ".config/donepm/config.json"), JSON.stringify({
+      sources: { "github.com/acme/widgets": { query: "is:issue no:assignee", assignOnStart: true } },
+    }));
+    const spawn = fakeProcesses();
+    const d = await start(h, undefined, undefined, spawn);
+    const items = (await get(d, "/api/items")).body;
+    expect(items.map((i: any) => i.externalId)).toContain("acme/widgets#200");
+    expect((await get(d, "/api/status")).body.lastPoll).toMatchObject({
+      ok: true, issues: 5, sources: { "github.com/acme/widgets": { ok: true, issues: 1 } },
+    });
+
+    const json = { "content-type": "application/json" };
+    const tested = await get(d, "/api/sources/test", {
+      method: "POST", headers: json, body: JSON.stringify({ origin: "github.com/acme/widgets", query: "label:bug" }),
+    });
+    expect(tested.body).toEqual({
+      count: 1, issues: [{ number: 200, title: "Unassigned bug", url: "https://github.com/acme/widgets/issues/200" }],
+    });
+    const foreign = await get(d, "/api/sources/test", {
+      method: "POST", headers: json, body: JSON.stringify({ origin: "gitlab.com/a/b", query: "x" }),
+    });
+    expect(foreign.status).toBe(400);
+
+    const item = items.find((i: any) => i.externalId === "acme/widgets#161");
+    await get(d, `/api/items/${item.id}/start`, { method: "POST" });
+    await vi.waitFor(async () =>
+      expect((await get(d, `/api/items/${item.id}`)).body.events.map((e: any) => e.type)).toContain("item.assigned"),
+    );
+
+    const put = await get(d, "/api/settings", { method: "PUT", headers: json, body: JSON.stringify({ sources: {} }) });
+    expect(put.body.settings.sources).toEqual({});
+    expect(JSON.parse(await readFile(join(h, ".config/donepm/config.json"), "utf8")).sources).toEqual({});
   });
 
   it("shows agent info on the item and stops the agent over HTTP", async () => {

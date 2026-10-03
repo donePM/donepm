@@ -48,10 +48,39 @@ export async function fetchAssignedIssues(exec: Exec, knownRepos: () => string[]
   return { ok: true, issues: parsed.value.map((i) => toSourceIssue(i, i.repository.nameWithOwner)) };
 }
 
+/**
+ * Issue #32: the open issues of one repository matching a query pasted from GitHub's issue search.
+ * `--repo` pins the repository, so a query cannot reach into others; pull requests are excluded.
+ */
+export async function fetchQueryIssues(exec: Exec, origin: string, query: string): Promise<FetchResult> {
+  const r = await exec("gh", [
+    "issue", "list", "--repo", origin, "--search", query, "--state", "open",
+    "--json", "number,title,body,labels,url", "--limit", ISSUE_LIMIT,
+  ]);
+  if (r.code !== 0) return { ok: false, kind: "command", error: r.stderr.trim() || `gh exited with ${r.code}` };
+  const parsed = parseJson(ListIssuesSchema, r.stdout);
+  if (!parsed.ok) return parsed;
+  return { ok: true, issues: parsed.value.map((i) => toSourceIssue(i, repositoryOfUrl(i.url) ?? repositoryOf(origin))) };
+}
+
+/**
+ * `Owner/Repo` as GitHub spells it, from the issue URL. Origins are lower case, but `externalId`
+ * keeps GitHub's spelling; the same issue from search and from a query must get the same id.
+ */
+function repositoryOfUrl(url: string): string | undefined {
+  const [owner, repo] = new URL(url).pathname.split("/").filter(Boolean);
+  return owner && repo ? `${owner}/${repo}` : undefined;
+}
+
+/** `owner/repo` from `host/owner/repo`. */
+function repositoryOf(origin: string): string {
+  return origin.split("/").slice(1).join("/");
+}
+
 async function listPerRepo(exec: Exec, origins: string[]): Promise<FetchResult> {
   const issues: SourceIssue[] = [];
   for (const origin of [...new Set(origins)]) {
-    const repository = origin.split("/").slice(1).join("/");
+    const repository = repositoryOf(origin);
     const r = await exec("gh", [
       "issue", "list", "--assignee", "@me", "--state", "open", "--repo", origin,
       "--json", "number,title,body,labels,url", "--limit", ISSUE_LIMIT,
@@ -74,4 +103,14 @@ export async function fetchIssueState(
   if (r.code !== 0) return undefined;
   const parsed = parseJson(IssueStateSchema, r.stdout);
   return parsed.ok ? parsed.value.state : undefined;
+}
+
+/** Assign an issue to the gh user. Only the daemon calls this, on start, when the repo opted in. */
+export async function assignIssueToMe(
+  exec: Exec,
+  repository: string,
+  number: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const r = await exec("gh", ["issue", "edit", String(number), "--repo", repository, "--add-assignee", "@me"]);
+  return r.code === 0 ? { ok: true } : { ok: false, error: r.stderr.trim() || `gh exited with ${r.code}` };
 }

@@ -35,6 +35,14 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("describes assigning the issue on start", () => {
+    const events = [ev("item.assigned", { assignee: "@me" }), ev("item.assign_failed", { reason: "HTTP 403" })];
+    expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail }))).toEqual([
+      { tone: "attention", text: "Assigning the issue to you failed", detail: "HTTP 403" },
+      { tone: "system", text: "Assigned the issue to you on GitHub", detail: undefined },
+    ]);
+  });
+
   it("describes restarts, resumes and removed worktrees", () => {
     const events = [
       ev("agent.interrupted", { reason: "daemon restarted" }),

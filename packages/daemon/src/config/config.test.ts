@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ConfigError, DEFAULT_CONFIG, loadConfig, parseConfig } from "./config.js";
+import { ConfigError, DEFAULT_CONFIG, loadConfig, parseConfig, providerOf } from "./config.js";
 import { expandHome, pathsFor } from "./paths.js";
 
 describe("config", () => {
@@ -14,6 +14,7 @@ describe("config", () => {
       branchPrefix: "dp/",
       pollIntervalSeconds: 60,
       maxConcurrentAgents: 1,
+      sources: {},
     });
   });
 
@@ -37,6 +38,32 @@ describe("config", () => {
     expect(() => parseConfig("{")).toThrow(ConfigError);
     expect(() => parseConfig('{"port":"x"}')).toThrow(/port/);
     expect(() => parseConfig('{"prot":1}')).toThrow(ConfigError);
+  });
+});
+
+describe("sources", () => {
+  it("accepts a query and the assign opt-in per normalised origin", () => {
+    const c = parseConfig(JSON.stringify({
+      sources: { "github.com/spatie/bloom": { query: " is:issue no:assignee ", assignOnStart: true }, "github.com/o/r": {} },
+    }));
+    expect(c.sources).toEqual({
+      "github.com/spatie/bloom": { query: "is:issue no:assignee", assignOnStart: true },
+      "github.com/o/r": { assignOnStart: false },
+    });
+  });
+
+  it("rejects keys that are not normalised, other providers and unknown fields", () => {
+    expect(() => parseConfig('{"sources":{"https://github.com/o/r":{}}}')).toThrow(/normalised origin/);
+    expect(() => parseConfig('{"sources":{"GitHub.com/o/r":{}}}')).toThrow(/normalised origin/);
+    expect(() => parseConfig('{"sources":{"gitlab.com/o/r":{}}}')).toThrow(/only github.com/);
+    expect(() => parseConfig('{"sources":{"github.com/o/r":{"query":""}}}')).toThrow(/query/);
+    expect(() => parseConfig('{"sources":{"github.com/o/r":{"jql":"x"}}}')).toThrow(ConfigError);
+  });
+
+  it("derives the provider from the host", () => {
+    expect(providerOf("github.com/o/r")).toBe("github");
+    expect(providerOf("gitlab.com/o/r")).toBeUndefined();
+    expect(providerOf("constructor/o/r")).toBeUndefined();
   });
 });
 

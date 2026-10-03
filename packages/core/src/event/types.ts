@@ -3,6 +3,8 @@ export type EventActor = "user" | "agent" | "system";
 export const EVENT_TYPES = [
   "item.collected",
   "item.playbook_changed",
+  "item.assigned",
+  "item.assign_failed",
   "agent.started",
   "agent.resumed",
   "agent.turn_started",

@@ -107,7 +107,8 @@ Append-only. Never updated or deleted.
 Event types in MVP: `item.collected`, `item.playbook_changed`, `agent.started`, `agent.resumed`,
 `agent.turn_started`, `agent.turn_ended`, `agent.failed`, `permission.asked`, `permission.answered`, `draft.created`,
 `draft.edited`, `draft.approved`, `draft.rejected`, `draft.executed`, `draft.execution_failed`,
-`agent.interrupted`, `worktree.removed`.
+`agent.interrupted`, `worktree.removed`, `item.assigned`, `item.assign_failed` (assign on start,
+see 6.4).
 
 ### 4.4 Draft
 
@@ -141,6 +142,17 @@ Event types in MVP: `item.collected`, `item.playbook_changed`, `agent.started`, 
 | originUrl | string | normalised: `github.com/owner/repo` |
 | defaultBranch | string | from `git symbolic-ref refs/remotes/origin/HEAD` |
 | setup | JSON? | from `.donepm/setup.yml`, see 7.3 |
+
+What donePM collects for a repo is the user's business, not the repo's: it lives in the user
+config under `sources`, keyed by `originUrl`, not in `.donepm/` (see 14). Per repo:
+
+| field | type | notes |
+|---|---|---|
+| query | string? | the provider's issue search, pasted from its UI. Absent: issues assigned to me |
+| assignOnStart | boolean | default `false`; see 6.4 |
+
+The provider follows from the host. Only `github.com` is supported; GitLab (issue list params via
+`glab api`) and Jira (JQL) can be added without changing the format. Other hosts are rejected.
 
 ### 4.7 Transcript message
 
@@ -191,6 +203,17 @@ On start and on Settings open:
 - Upsert items by `externalId`. New issue → `item.collected` event, state `ready`. Closed issue
   that is not `done` → keep item, add badge "closed upstream".
 - Never delete items automatically.
+- Repos with a `query` (4.6) are polled in addition, one call each:
+  ```
+  gh issue list --repo <origin> --search "<query>" --state open --json number,title,body,labels,url
+  ```
+  `--repo` pins the repository, so a pasted query cannot reach into others, and pull requests are
+  excluded. GitHub's search syntax including `OR` and parentheses passes through unchanged.
+  (`gh search issues "<query>"` quotes the whole string as one term and does not work.) The
+  repository name is taken from each issue URL, so an issue found by both the default search and a
+  query keeps GitHub's spelling and stays one item.
+- A failing source does not stop the others; its error shows on its repo in Settings. Items are
+  only checked for "closed upstream" when every source answered.
 
 ### 6.3 Execution (after draft approval)
 
@@ -202,6 +225,13 @@ gh pr create --repo <owner/repo> --head <branch> --base <base> --title <t> --bod
 ```
 
 Store the PR URL in the draft result. Add `draft.executed` event. Set item to `done`.
+
+### 6.4 Assign on start
+
+When the item's repo has `assignOnStart`, `start` also runs
+`gh issue edit <n> --repo <owner/repo> --add-assignee @me` in the background and records
+`item.assigned` or `item.assign_failed` (with the reason). Neither changes the state; a failure does
+not stop the agent. The daemon runs this, never the agent (decision D28).
 
 ## 7. Worktrees
 
@@ -433,7 +463,8 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/worktrees/orphaned/remove` | `{ path }`; only paths from the orphan list |
 | GET | `/api/repos` | |
 | POST | `/api/repos/rescan` | |
-| GET/PUT | `/api/settings` | |
+| GET/PUT | `/api/settings` | PUT is partial; `sources` is replaced as a whole |
+| POST | `/api/sources/test` | `{ origin, query }`; runs the query once: `{ count, issues }` (first 10) |
 | GET | `/api/status` | CLI detection, daemon version, running agents |
 
 WebSocket `/ws`: server pushes `{ type, payload }` for `item.updated`, `event.appended`,
@@ -477,6 +508,10 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
 - Repo root, worktree root, branch prefix, port, poll interval, max agents.
 - CLI status for `gh` and `claude`, with hints and "Check again".
 - Repos list with rescan. Orphaned worktrees.
+- Per repo: what it collects (query or "assigned to you"), and an editor with the query field, a
+  Test button (count and first titles), "Open in GitHub" (the repo's issue list with this query, to
+  refine it there and paste it back) and the assign-on-start checkbox. A failed query shows on its
+  row.
 
 ## 13. CLI
 
@@ -499,7 +534,16 @@ and `PATH`, because launchd starts jobs with a bare `PATH` and the daemon needs 
   "worktreeRoot": "~/.local/share/donepm/worktrees",
   "branchPrefix": "dp/",
   "pollIntervalSeconds": 60,
-  "maxConcurrentAgents": 1
+  "maxConcurrentAgents": 1,
+  "sources": {}
+}
+```
+
+`sources` example (4.6):
+
+```json
+"sources": {
+  "github.com/spatie/bloom": { "query": "is:issue state:open no:assignee", "assignOnStart": true }
 }
 ```
 

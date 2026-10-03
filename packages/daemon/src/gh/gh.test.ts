@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fail, fakeExec, fixture, ok } from "../test-support/fake-exec.js";
 import { detectGh } from "./detect.js";
-import { fetchAssignedIssues, fetchIssueState } from "./issues.js";
+import { assignIssueToMe, fetchAssignedIssues, fetchIssueState, fetchQueryIssues } from "./issues.js";
 
 describe("detectGh", () => {
   it("not installed when which fails", async () => {
@@ -109,5 +109,44 @@ describe("fetchIssueState", () => {
 
   it("is undefined when gh fails", async () => {
     expect(await fetchIssueState(fakeExec({ "gh issue view": fail("GraphQL: Could not resolve") }), "o/r", 1)).toBeUndefined();
+  });
+});
+
+describe("fetchQueryIssues", () => {
+  it("runs the pasted query against one repository and maps the result", async () => {
+    const exec = fakeExec({ "gh issue list": ok(fixture("gh/issue-list.json")) });
+    const r = await fetchQueryIssues(exec, "github.com/acme/widgets", "is:issue (label:bug OR label:docs) no:assignee");
+    expect(r.ok && r.issues.map((i) => [i.repository, i.number])).toEqual([["acme/widgets", 69]]);
+    expect(exec.calls[0]!.args).toEqual([
+      "issue", "list", "--repo", "github.com/acme/widgets",
+      "--search", "is:issue (label:bug OR label:docs) no:assignee", "--state", "open",
+      "--json", "number,title,body,labels,url", "--limit", "1000",
+    ]);
+  });
+
+  it("keeps GitHub's spelling of the repository from the issue URL", async () => {
+    const raw = JSON.stringify([{ number: 7, title: "T", body: "", labels: [], url: "https://github.com/Acme/API/issues/7" }]);
+    const r = await fetchQueryIssues(fakeExec({ "gh issue list": ok(raw) }), "github.com/acme/api", "x");
+    expect(r.ok && r.issues[0]!.repository).toBe("Acme/API");
+  });
+
+  it("reports a failing command and schema failures", async () => {
+    expect(await fetchQueryIssues(fakeExec({ "gh issue list": fail("invalid search query") }), "github.com/o/r", "x"))
+      .toEqual({ ok: false, kind: "command", error: "invalid search query" });
+    expect(await fetchQueryIssues(fakeExec({ "gh issue list": ok("{}") }), "github.com/o/r", "x"))
+      .toMatchObject({ ok: false, kind: "schema", raw: "{}" });
+  });
+});
+
+describe("assignIssueToMe", () => {
+  it("adds the gh user as assignee", async () => {
+    const exec = fakeExec({ "gh issue edit": ok("https://github.com/o/r/issues/3\n") });
+    expect(await assignIssueToMe(exec, "o/r", 3)).toEqual({ ok: true });
+    expect(exec.calls[0]!.args).toEqual(["issue", "edit", "3", "--repo", "o/r", "--add-assignee", "@me"]);
+  });
+
+  it("returns gh's error", async () => {
+    expect(await assignIssueToMe(fakeExec({ "gh issue edit": fail("HTTP 403: forbidden") }), "o/r", 3))
+      .toEqual({ ok: false, error: "HTTP 403: forbidden" });
   });
 });

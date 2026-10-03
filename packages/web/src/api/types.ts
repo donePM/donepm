@@ -73,11 +73,19 @@ export interface ClaudeStatus {
   version?: string;
 }
 
+export interface SourcePollStatus {
+  ok: boolean;
+  error?: string;
+  issues?: number;
+}
+
 export interface PollStatus {
   at: string;
   ok: boolean;
   error?: string;
   issues?: number;
+  /** Repositories with their own query, keyed by normalised origin. */
+  sources?: Record<string, SourcePollStatus>;
 }
 
 export interface Status {
@@ -97,6 +105,20 @@ export interface Settings {
   branchPrefix: string;
   pollIntervalSeconds: number;
   maxConcurrentAgents: number;
+  /** Per repository, keyed by normalised origin (`github.com/owner/repo`). */
+  sources: Record<string, SourceSettings>;
+}
+
+export interface SourceSettings {
+  /** GitHub issue search, as pasted. Absent: issues assigned to me. */
+  query?: string;
+  assignOnStart: boolean;
+}
+
+/** `POST /api/sources/test`. */
+export interface SourceTest {
+  count: number;
+  issues: { number: number; title: string; url: string }[];
 }
 
 export type { Draft, Event, PermissionAsk, PrDraftPayload, Repo, TranscriptMessage };
