@@ -10,12 +10,13 @@ import { WorktreeError } from "../worktrees/create.js";
 import type { OrphanWorktree } from "../worktrees/reconcile.js";
 import { RemoveError } from "../worktrees/remove.js";
 import type { AskStore } from "../asks/store.js";
-import { ConfigSchema, type Config } from "../config/config.js";
+import { ConfigSchema, SourceKey, type Config } from "../config/config.js";
 import { DraftError } from "../drafts/actions.js";
 import { ExecutionError } from "../drafts/execute.js";
 import type { DraftStore } from "../drafts/store.js";
 import type { ItemDiff } from "../diff/item-diff.js";
 import type { EventStore } from "../events/store.js";
+import type { FetchResult } from "../gh/issues.js";
 import type { ItemStore } from "../items/store.js";
 import type { ItemView } from "../items/view.js";
 import type { RepoStore } from "../repos/store.js";
@@ -66,6 +67,8 @@ export interface ServerDeps {
   openPath: (path: string, target: OpenTarget) => Promise<void>;
   /** Throws AskError. */
   answerAsk: (id: string, answer: AskAnswer) => void;
+  /** Runs a repository query once, for the Test button in Settings (issue #32). */
+  testSource: (origin: string, query: string) => Promise<FetchResult>;
   /** Built web UI (`packages/web` builds into it). Served at `/` when it exists. */
   publicDir?: string;
   extraOrigins?: readonly string[];
@@ -103,6 +106,11 @@ async function removeCall<T>(reply: FastifyReply, fn: () => Promise<T>) {
 }
 
 const DraftRejectSchema = z.object({ reason: z.string().optional() }).strict();
+
+const SourceTestSchema = z.object({ origin: SourceKey, query: z.string().trim().min(1) }).strict();
+
+/** How many matches the Test button lists. */
+const SOURCE_TEST_SAMPLE = 10;
 
 /** Partial update; unknown keys are rejected. */
 const SettingsPatch = ConfigSchema.partial().strict();
@@ -251,6 +259,17 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.post("/api/repos/rescan", async () => {
     await deps.rescan();
     return deps.repos.all();
+  });
+
+  app.post("/api/sources/test", async (req, reply) => {
+    const body = SourceTestSchema.safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: body.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") });
+    const r = await deps.testSource(body.data.origin, body.data.query);
+    if (!r.ok) return reply.code(502).send({ error: r.error });
+    return {
+      count: r.issues.length,
+      issues: r.issues.slice(0, SOURCE_TEST_SAMPLE).map(({ number, title, url }) => ({ number, title, url })),
+    };
   });
 
   app.get("/api/status", async () => deps.status.get());

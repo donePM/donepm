@@ -271,3 +271,30 @@ export function worktreeRemoved(item: WorkItem, ctx: Ctx, payload: Record<string
   const { worktreePath: _path, agentSessionId: _session, ...rest } = t.item;
   return { ...t, item: rest };
 }
+
+const ALL_STATES: ItemState[] = ["ready", "running", "needs_you", "done", "failed"];
+
+/**
+ * The daemon assigned the issue to the user on start (opt-in per repository, decision D28). Not a
+ * state change; the item stays where the agent took it meanwhile.
+ */
+export function issueAssigned(item: WorkItem, ctx: Ctx, payload: Record<string, unknown> = {}): Transition {
+  return apply(
+    { name: "issueAssigned", from: ALL_STATES, to: item.state, actor: "system", event: "item.assigned" },
+    item,
+    ctx,
+    undefined,
+    payload,
+  );
+}
+
+/** Assigning on start failed. The agent keeps running; the event shows why. */
+export function issueAssignFailed(item: WorkItem, ctx: Ctx, reason: string): Transition {
+  return apply(
+    { name: "issueAssignFailed", from: ALL_STATES, to: item.state, actor: "system", event: "item.assign_failed" },
+    item,
+    ctx,
+    undefined,
+    { reason },
+  );
+}

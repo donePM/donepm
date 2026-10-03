@@ -1,4 +1,4 @@
-import type { AskAnswer, Draft, ItemDetail, ItemDiff, ItemView, OpenTarget, OrphanWorktree, PrDraftPayload, Repo, Settings, Status, TranscriptMessage } from "./types";
+import type { AskAnswer, Draft, ItemDetail, ItemDiff, ItemView, OpenTarget, OrphanWorktree, PrDraftPayload, Repo, Settings, SourceTest, Status, TranscriptMessage } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -53,4 +53,5 @@ export const api = {
   settings: () => call<Settings>("GET", "/api/settings"),
   saveSettings: (patch: Partial<Settings>) =>
     call<{ settings: Settings; restartRequired: boolean }>("PUT", "/api/settings", patch),
+  testSource: (origin: string, query: string) => call<SourceTest>("POST", "/api/sources/test", { origin, query }),
 };

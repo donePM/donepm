@@ -128,6 +128,14 @@ directories (`~/Library/Caches`, `~/.cache`, `~/.npm`) stay writable so installs
 `GH_CONFIG_DIR` and `GLAB_CONFIG_DIR` point at an empty directory. WebFetch and MCP servers are not
 covered by the sandbox; they stay behind their normal permission asks.
 
+**D28. The daemon may assign the issue on start; the opt-in and the click are the approval.**
+"Drafts are the only way out" is about the agent. Assigning an issue to the user is a small outward
+action the user asked for per repository (`assignOnStart`, default off) and triggers by pressing
+Start, so it needs no draft. The daemon runs `gh issue edit --add-assignee @me`; the agent never
+does. The outcome is recorded as `item.assigned` or `item.assign_failed`, and a failure does not
+stop the agent. Which issues a repo collects (`sources`) lives in the user config, not in
+`.donepm/`, because it is a personal choice and `.donepm/` is shared with contributors.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

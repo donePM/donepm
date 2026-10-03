@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Ctx } from "../ids.js";
 import {
   InvalidTransitionError, agentAsked, agentFailed, answered, draftApproved, draftCreated, draftEdited, draftExecuted,
-  draftExecutionFailed, draftRejected, interrupted, resume, start, worktreeRemoved,
+  draftExecutionFailed, draftRejected, interrupted, issueAssignFailed, issueAssigned, resume, start, worktreeRemoved,
   turnEnded, turnStarted,
 } from "./transitions.js";
 import type { ItemState, WorkItem } from "./types.js";
@@ -112,5 +112,19 @@ describe("worktreeRemoved", () => {
 
   it.each(["ready", "running", "needs_you"] as const)("throws from %s", (state) => {
     expect(() => worktreeRemoved(item(state), makeCtx())).toThrow(InvalidTransitionError);
+  });
+});
+
+describe("issueAssigned / issueAssignFailed", () => {
+  it.each(ALL)("records the assignment without leaving %s", (state) => {
+    const { item: after, events } = issueAssigned(item(state), makeCtx(), { assignee: "@me" });
+    expect(after.state).toBe(state);
+    expect(events[0]).toMatchObject({ type: "item.assigned", actor: "system", payload: { assignee: "@me" } });
+  });
+
+  it.each(ALL)("records a failed assignment without leaving %s", (state) => {
+    const { item: after, events } = issueAssignFailed(item(state), makeCtx(), "HTTP 403");
+    expect(after.state).toBe(state);
+    expect(events[0]).toMatchObject({ type: "item.assign_failed", actor: "system", payload: { reason: "HTTP 403" } });
   });
 });

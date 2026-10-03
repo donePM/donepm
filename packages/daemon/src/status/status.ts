@@ -1,12 +1,22 @@
 import type { ClaudeStatus } from "../claude/detect.js";
 import type { GhStatus } from "../gh/detect.js";
 
+/** How one repository's own query fared in the last poll. */
+export interface SourcePollStatus {
+  ok: boolean;
+  error?: string;
+  issues?: number;
+}
+
 export interface PollStatus {
   at: string;
   ok: boolean;
   /** Command or schema error, shown as a badge in Settings. */
   error?: string;
+  /** Distinct issues across all sources. */
   issues?: number;
+  /** Per repository with its own query, keyed by normalised origin. */
+  sources?: Record<string, SourcePollStatus>;
 }
 
 export interface Status {

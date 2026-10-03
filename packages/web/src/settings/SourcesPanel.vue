@@ -6,7 +6,7 @@ import { ago } from "../time/relative";
 import CliCard from "./CliCard.vue";
 import { claudeHint, ghHint } from "./hints";
 
-defineProps<{ pollSeconds?: number }>();
+defineProps<{ pollSeconds?: number; queries?: number }>();
 
 const busy = ref(false);
 const error = ref<string>();
@@ -39,11 +39,15 @@ const poll = computed(() => status.value?.lastPoll);
     <div class="list">
       <CliCard name="GitHub" :detail="ghDetail" :hint="gh && ghHint(gh.state)" :busy="busy" @recheck="check">
         <div v-if="gh?.state === 'ready'" class="line">
-          Collecting: issues assigned to you<template v-if="pollSeconds"> · every {{ pollSeconds }} s</template>
+          Collecting: issues assigned to you<template v-if="queries">
+            and {{ queries }} repository {{ queries === 1 ? "query" : "queries" }}</template><template v-if="pollSeconds"> · every {{ pollSeconds }} s</template>
           <template v-if="poll">
             · last run {{ ago(poll.at, now) }},
-            <span v-if="poll.ok">{{ poll.issues ?? 0 }} issues</span>
-            <span v-else class="failed" :title="poll.error">failed</span>
+            <span v-if="poll.issues !== undefined">{{ poll.issues }} issues</span>
+            <template v-if="!poll.ok">
+              <template v-if="poll.issues !== undefined">, </template>
+              <span class="failed" :title="poll.error">{{ poll.issues !== undefined ? "partly failed" : "failed" }}</span>
+            </template>
           </template>
         </div>
       </CliCard>

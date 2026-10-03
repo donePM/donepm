@@ -3,6 +3,8 @@ import {
   agentFailed, placeholderValues, renderPlaybookBody, resume, selectPlaybook, start,
   type Ctx, type Playbook, type Transition, type TranscriptMessage, type WorkItem,
 } from "@donepm/core";
+import type { Config } from "../config/config.js";
+import { assignOnStart } from "../gh/assign-on-start.js";
 import type { ItemWriter } from "../items/commit.js";
 import type { ItemStore } from "../items/store.js";
 import type { Log } from "../log.js";
@@ -41,6 +43,8 @@ export interface StartDeps {
   playbooksDir: string;
   worktreeRoot: () => string;
   branchPrefix: () => string;
+  /** Per-repository source settings; `assignOnStart` lives there (issue #32). */
+  sources: () => Config["sources"];
 }
 
 /**
@@ -56,12 +60,16 @@ export async function startItem(deps: StartDeps, itemId: string): Promise<{ item
   const playbook = await playbookFor(deps, item);
   const slot = reserve(deps, item.id);
   const running = deps.writer.commit(start(item, deps.ctx));
-  const done = prepareAndLaunch(deps, running, playbook)
+  const launched = prepareAndLaunch(deps, running, playbook)
     .catch((e: unknown) => {
       const output = e instanceof WorktreeError ? e.output : undefined;
       fail(deps, itemId, (e as Error).message, output ? { output } : {});
     })
     .finally(() => slot.release());
+  const assigned = assignOnStart(deps, itemId, deps.repos.get(item.repoId!)!.originUrl).catch((e: unknown) =>
+    deps.log.error({ err: e, itemId }, "assign on start crashed"),
+  );
+  const done = Promise.all([launched, assigned]).then(() => undefined);
   return { item: running, done };
 }
 

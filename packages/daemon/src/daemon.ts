@@ -24,6 +24,7 @@ import { itemDiff } from "./diff/item-diff.js";
 import { EventStore } from "./events/store.js";
 import { collectIssues } from "./gh/collect-issues.js";
 import { detectGh } from "./gh/detect.js";
+import { fetchQueryIssues } from "./gh/issues.js";
 import { Poller } from "./gh/poller.js";
 import { buildServer } from "./http/server.js";
 import { makeGuard } from "./http/guard.js";
@@ -175,6 +176,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     playbooksDir: paths.playbooksDir,
     worktreeRoot,
     branchPrefix: () => config.branchPrefix,
+    sources: () => config.sources,
   });
   /** Starts still preparing their worktree; shutdown waits for them before stopping agents. */
   const track = ({ item, done }: { item: WorkItem; done: Promise<void> }) => {
@@ -195,7 +197,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   };
 
   const poller = new Poller(
-    () => collectIssues({ db, exec: opts.exec, items, events, repos, status, ctx: opts.ctx, log: app.log, onItemUpdated: pushItem }),
+    () => collectIssues({ db, exec: opts.exec, items, events, repos, status, ctx: opts.ctx, log: app.log, sources: () => config.sources, onItemUpdated: pushItem }),
     config.pollIntervalSeconds * 1000,
   );
 
@@ -229,6 +231,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     view,
     answerAsk: (id, answer) => runner.answer(id, answer),
     diff: (input) => itemDiff(opts.exec, input),
+    testSource: (origin, query) => fetchQueryIssues(opts.exec, origin, query),
     openPath: async (path, target) => {
       const r = await opts.exec("open", target === "terminal" ? ["-a", "Terminal", path] : [path]);
       if (r.code !== 0) throw new Error(r.stderr.trim() || `open exited with ${r.code}`);

@@ -1,4 +1,5 @@
 import type { WorkItem } from "@donepm/core";
+import type { Config } from "../config/config.js";
 import { describe, expect, it } from "vitest";
 import { openDb } from "../db/database.js";
 import { EventStore } from "../events/store.js";
@@ -13,11 +14,11 @@ import { collectIssues } from "./collect-issues.js";
 
 const ready = { "which gh": ok("/opt/homebrew/bin/gh\n"), "gh auth status": ok(fixture("gh/auth-status-ok.stdout")) };
 
-function setup(exec: Exec, log: Log = silentLog) {
+function setup(exec: Exec, log: Log = silentLog, sources: Config["sources"] = {}) {
   const db = openDb(":memory:");
   const pushed: WorkItem[] = [];
   const deps = {
-    db, exec, log, ctx: testCtx(),
+    db, exec, log, ctx: testCtx(), sources: () => sources,
     items: new ItemStore(db), events: new EventStore(db), repos: new RepoStore(db), status: new StatusStore("0.0.0"),
     onItemUpdated: (i: WorkItem) => pushed.push(i),
   };
@@ -70,5 +71,50 @@ describe("collectIssues", () => {
     await collectIssues(deps);
     expect(pushed.map((i) => [i.externalId, i.closedUpstream])).toEqual([["acme/widgets#161", true]]);
     expect(deps.items.all()).toHaveLength(4);
+  });
+
+  it("adds the issues of a repository query to the default search, one item per issue", async () => {
+    const queried = JSON.stringify([
+      { number: 161, title: "[Feature] Support nested relations", body: "", labels: [], url: "https://github.com/acme/widgets/issues/161" },
+      { number: 200, title: "Unassigned bug", body: "", labels: [{ name: "bug" }], url: "https://github.com/acme/widgets/issues/200" },
+    ]);
+    const exec = fakeExec({
+      ...ready,
+      "gh search issues": ok(fixture("gh/search-issues.json")),
+      "gh issue list --repo github.com/acme/widgets": ok(queried),
+    });
+    const { deps } = setup(exec, silentLog, {
+      "github.com/acme/widgets": { query: "is:issue no:assignee", assignOnStart: false },
+      "github.com/solo/tool": { assignOnStart: true },
+    });
+    await collectIssues(deps);
+    expect(deps.items.all().map((s) => s.item.externalId).sort()).toEqual([
+      "Acme/API#12", "acme/widgets#157", "acme/widgets#161", "acme/widgets#200", "solo/tool#61",
+    ]);
+    expect(exec.calls.filter((c) => c.args[0] === "issue" && c.args[1] === "list")).toHaveLength(1);
+    expect(deps.status.get().lastPoll).toEqual({
+      at: "2026-10-03T12:00:00.000Z", ok: true, issues: 5, sources: { "github.com/acme/widgets": { ok: true, issues: 2 } },
+    });
+  });
+
+  it("keeps the other sources when one query fails and does not treat its items as missing", async () => {
+    let out = fixture("gh/search-issues.json");
+    const exec = fakeExec({
+      ...ready,
+      "gh search issues": () => ok(out),
+      "gh issue list --repo github.com/solo/tool": fail("invalid search query"),
+    });
+    const { deps } = setup(exec, silentLog, { "github.com/solo/tool": { query: "bad(", assignOnStart: false } });
+    await collectIssues(deps);
+    expect(deps.items.all()).toHaveLength(4);
+    out = fixture("gh/search-issues-empty.json");
+    await collectIssues(deps);
+    expect(exec.calls.some((c) => c.args[1] === "view")).toBe(false);
+    expect(deps.status.get().lastPoll).toMatchObject({
+      ok: false,
+      issues: 0,
+      error: "github.com/solo/tool: invalid search query",
+      sources: { "github.com/solo/tool": { ok: false, error: "invalid search query" } },
+    });
   });
 });

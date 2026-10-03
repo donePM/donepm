@@ -15,7 +15,7 @@ watch(
 const saving = ref(false);
 const message = ref<{ text: string; tone: "ok" | "error" }>();
 
-const fields: { key: keyof Settings; label: string; type: "text" | "number"; min?: number }[] = [
+const fields: { key: Exclude<keyof Settings, "sources">; label: string; type: "text" | "number"; min?: number }[] = [
   { key: "repoRoot", label: "Repository root", type: "text" },
   { key: "worktreeRoot", label: "Worktree root", type: "text" },
   { key: "branchPrefix", label: "Branch prefix", type: "text" },
@@ -28,7 +28,9 @@ async function save() {
   saving.value = true;
   message.value = undefined;
   try {
-    const { settings, restartRequired } = await api.saveSettings({ ...form });
+    // Only this form's fields: the repositories panel saves `sources` on its own.
+    const patch = Object.fromEntries(fields.map((f) => [f.key, form[f.key]]));
+    const { settings, restartRequired } = await api.saveSettings(patch);
     emit("saved", settings);
     message.value = { text: restartRequired ? "Saved. The new port applies after a restart." : "Saved.", tone: "ok" };
   } catch (e) {
