@@ -32,7 +32,9 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>): Omit<Timelin
     case "agent.started":
       return { tone: e.actor === "user" ? "user" : "system", text: "Agent started" };
     case "agent.resumed":
-      return { tone: "system", text: "Agent resumed" };
+      return { tone: e.actor === "user" ? "user" : "system", text: e.actor === "user" ? "You resumed the agent" : "Agent resumed" };
+    case "agent.interrupted":
+      return { tone: "attention", text: "Agent interrupted", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
     case "agent.turn_started":
       return { tone: "system", text: "Agent continued" };
     case "agent.turn_ended":
@@ -59,6 +61,8 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>): Omit<Timelin
       return { tone: "system", text: "Pull request created", ...(str(p.url) ? { detail: str(p.url) } : {}) };
     case "draft.execution_failed":
       return { tone: "danger", text: "Creating the pull request failed", ...(str(p.error) ? { detail: str(p.error) } : {}) };
+    case "worktree.removed":
+      return { tone: "user", text: "You removed the worktree", ...(str(p.branch) ? { detail: `Branch ${str(p.branch)} kept` } : {}) };
     default:
       // Newer daemons may write types this UI does not know yet.
       return { tone: "system", text: String(e.type) };

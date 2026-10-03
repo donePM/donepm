@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Ctx } from "../ids.js";
 import {
   InvalidTransitionError, agentAsked, agentFailed, answered, draftApproved, draftCreated, draftEdited, draftExecuted,
-  draftExecutionFailed, draftRejected, start,
+  draftExecutionFailed, draftRejected, interrupted, resume, start, worktreeRemoved,
   turnEnded, turnStarted,
 } from "./transitions.js";
 import type { ItemState, WorkItem } from "./types.js";
@@ -41,6 +41,8 @@ const table: Array<{
   { name: "draftExecuted", run: (i) => draftExecuted(i, makeCtx(), "d-1", { url: "u", number: 1 }), from: ["needs_you"], to: "done", type: "draft.executed", actor: "system" },
   { name: "draftExecutionFailed", run: (i) => draftExecutionFailed(i, makeCtx(), "d-1", { step: "push" }), from: ["needs_you"], to: "needs_you", type: "draft.execution_failed", actor: "system" },
   { name: "draftRejected", run: (i) => draftRejected(i, makeCtx(), "d-1", "nope"), from: ["needs_you"], to: "running", type: "draft.rejected", actor: "user" },
+  { name: "interrupted", run: (i) => interrupted(i, makeCtx(), "daemon restarted"), from: ["running", "needs_you"], to: "needs_you", type: "agent.interrupted", actor: "system" },
+  { name: "resume", run: (i) => resume({ ...i, agentSessionId: "sess" }, makeCtx()), from: ["needs_you"], to: "running", type: "agent.resumed", actor: "user" },
   { name: "agentFailed", run: (i) => agentFailed(i, makeCtx(), "boom"), from: ["running", "needs_you"], to: "failed", type: "agent.failed", actor: "system" },
 ];
 
@@ -85,5 +87,30 @@ describe("details", () => {
   });
   it("agentFailed has no refId", () => {
     expect(agentFailed(item("running"), makeCtx()).events[0]).not.toHaveProperty("refId");
+  });
+
+  it("interrupted carries the reason", () => {
+    expect(interrupted(item("running"), makeCtx(), "daemon restarted").events[0]?.payload).toEqual({ reason: "daemon restarted" });
+  });
+
+  it("resume needs a session", () => {
+    expect(() => resume(item("needs_you"), makeCtx())).toThrow(InvalidTransitionError);
+  });
+});
+
+describe("worktreeRemoved", () => {
+  it.each(["done", "failed"] as const)("keeps %s and clears the worktree path and session", (state) => {
+    const before = item(state, { worktreePath: "/wt/1", branch: "dp/1-t", agentSessionId: "sess" });
+    const { item: after, events } = worktreeRemoved(before, makeCtx(), { path: "/wt/1" });
+    expect(after.state).toBe(state);
+    expect(after).not.toHaveProperty("worktreePath");
+    expect(after).not.toHaveProperty("agentSessionId");
+    expect(after.branch).toBe("dp/1-t");
+    expect(before.worktreePath).toBe("/wt/1");
+    expect(events[0]).toMatchObject({ type: "worktree.removed", actor: "user", payload: { path: "/wt/1" } });
+  });
+
+  it.each(["ready", "running", "needs_you"] as const)("throws from %s", (state) => {
+    expect(() => worktreeRemoved(item(state), makeCtx())).toThrow(InvalidTransitionError);
   });
 });

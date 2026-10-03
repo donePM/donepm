@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { pending, startAgent, stopAgent } from "../agents/actions";
+import { pending, removeWorktree, resumeAgent, startAgent, stopAgent } from "../agents/actions";
 import { api } from "../api/client";
 import { errorText, isPublishFailure } from "../api/errors";
 import type { ItemView } from "../api/types";
@@ -17,6 +17,8 @@ const column = computed(() => columnOf(props.item));
 const busy = computed(() => pending.value.has(props.item.id));
 /** Ready and failed items can start; a failed one starts again from its worktree. */
 const startable = computed(() => (props.item.state === "ready" || props.item.state === "failed") && !noClone.value);
+/** Never automatic (spec 7.4): the user removes a finished or failed item's worktree. */
+const removable = computed(() => (props.item.state === "done" || props.item.state === "failed") && !!props.item.worktreePath && !props.item.agent.running);
 const elapsed = computed(() =>
   props.item.agent.startedAt ? clock(props.now - Date.parse(props.item.agent.startedAt)) : undefined,
 );
@@ -26,6 +28,7 @@ const flag = computed(() => {
   const a = attention.value;
   if (!a) return undefined;
   if (a.kind === "draft") return a.error ? "PR failed" : a.executing ? "Publishing" : "PR draft";
+  if (a.kind === "resume") return "Interrupted";
   return a.kind === "ask" ? "Permission" : "Failed";
 });
 
@@ -123,6 +126,13 @@ async function act(fn: (id: string) => Promise<void>) {
       <p class="reason">{{ attention.reason }}</p>
       <pre v-if="stderrTail" class="stderr mono">{{ stderrTail }}</pre>
     </template>
+    <template v-else-if="attention?.kind === 'resume'">
+      <p class="reason">{{ attention.reason }}. The session can continue where it stopped.</p>
+      <div class="actions">
+        <button class="btn btn-primary" type="button" :disabled="busy" @click="act(resumeAgent)">Resume</button>
+        <RouterLink :to="{ name: 'agent', params: { id: item.id } }" class="btn">Transcript</RouterLink>
+      </div>
+    </template>
     <a v-if="item.pr" :href="item.pr.url" target="_blank" rel="noreferrer" class="pr mono">PR #{{ item.pr.number }}</a>
     <div v-if="startable" class="actions">
       <label :for="`pb-${item.id}`" class="sr-only">Playbook</label>
@@ -136,6 +146,9 @@ async function act(fn: (id: string) => Promise<void>) {
     <div v-else-if="item.state === 'running' || (item.agent.running && column === 'needs_you' && attention?.kind !== 'draft')" class="actions">
       <RouterLink :to="{ name: 'agent', params: { id: item.id } }" class="btn">Transcript</RouterLink>
       <button v-if="item.agent.running" class="btn stop" type="button" :disabled="busy" @click="act(stopAgent)">Stop</button>
+    </div>
+    <div v-if="removable" class="actions">
+      <button class="btn subtle" type="button" :disabled="busy" title="git worktree remove; the branch is kept" @click="act(removeWorktree)">Remove worktree</button>
     </div>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
   </article>
@@ -212,6 +225,7 @@ h3 { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; overflow-wr
   color: var(--ink);
 }
 .stop { color: var(--danger); font-weight: 400; }
+.subtle { font-weight: 400; color: var(--ink-2); }
 .error { margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--danger-tint); color: var(--danger); font-size: 12px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 </style>

@@ -1,4 +1,5 @@
-export type PermissionAskState = "pending" | "allowed" | "denied";
+/** `expired`: the process that asked is gone (daemon restart); nobody can answer it any more. */
+export type PermissionAskState = "pending" | "allowed" | "denied" | "expired";
 
 export interface PermissionAsk {
   id: string;

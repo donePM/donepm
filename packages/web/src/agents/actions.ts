@@ -2,7 +2,7 @@ import { ref } from "vue";
 import { api } from "../api/client";
 import { upsert } from "../board/items";
 
-/** Items with a start or stop request in flight, so buttons can show it. */
+/** Items with a start, stop, resume or remove request in flight, so buttons can show it. */
 export const pending = ref(new Set<string>());
 
 async function run(id: string, call: (id: string) => Promise<Parameters<typeof upsert>[0]>): Promise<void> {
@@ -19,3 +19,5 @@ async function run(id: string, call: (id: string) => Promise<Parameters<typeof u
 /** Throws ApiError, e.g. when the agent limit is reached. */
 export const startAgent = (id: string) => run(id, api.start);
 export const stopAgent = (id: string) => run(id, api.stop);
+export const resumeAgent = (id: string) => run(id, api.resume);
+export const removeWorktree = (id: string) => run(id, api.removeWorktree);

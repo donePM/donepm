@@ -28,6 +28,8 @@ async function shutdown(signal: string): Promise<void> {
 }
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
+// A stray rejection in one subsystem (a poll, a setup step) must not take running agents down.
+process.on("unhandledRejection", (err) => daemon.app.log.error({ err }, "unhandled rejection"));
 
 try {
   await daemon.start();

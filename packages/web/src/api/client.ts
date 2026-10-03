@@ -1,4 +1,4 @@
-import type { AskAnswer, Draft, ItemDetail, ItemDiff, ItemView, OpenTarget, PrDraftPayload, Repo, Settings, Status, TranscriptMessage } from "./types";
+import type { AskAnswer, Draft, ItemDetail, ItemDiff, ItemView, OpenTarget, OrphanWorktree, PrDraftPayload, Repo, Settings, Status, TranscriptMessage } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -35,6 +35,10 @@ export const api = {
   rejectDraft: (id: string, reason?: string) =>
     call<Draft>("POST", `/api/drafts/${encodeURIComponent(id)}/reject`, reason ? { reason } : {}),
   start: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/start`),
+  resume: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/resume`),
+  removeWorktree: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/worktree/remove`),
+  orphans: () => call<OrphanWorktree[]>("GET", "/api/worktrees/orphaned"),
+  removeOrphan: (path: string) => call<{ ok: true }>("POST", "/api/worktrees/orphaned/remove", { path }),
   stop: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/stop`),
   transcript: (id: string, after?: string) =>
     call<TranscriptMessage[]>(

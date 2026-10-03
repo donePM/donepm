@@ -14,15 +14,21 @@ export type Attention =
       /** The last execution failed; approving again retries. */
       error?: string;
     }
-  | { kind: "failed"; reason: string; stderrTail?: string };
+  | { kind: "failed"; reason: string; stderrTail?: string }
+  /** No process is left for the waiting item (daemon restart); Resume continues its session. */
+  | { kind: "resume"; reason: string };
 
 /**
  * A pending permission question first (the agent is blocked on it), then an open draft (pending,
- * being executed, or failed to execute), then the latest failure. Nothing for items that do not
- * wait on the user.
+ * being executed, or failed to execute), then a session to resume, then the latest failure.
+ * Nothing for items that do not wait on the user.
  */
 export function attentionOf(input: {
   state: ItemState;
+  /** A `claude` process is alive for the item. */
+  agentAlive: boolean;
+  /** The item has a session `--resume` can continue. */
+  hasSession: boolean;
   asks: readonly PermissionAsk[];
   drafts: readonly Draft[];
   events: readonly Event[];
@@ -36,6 +42,11 @@ export function attentionOf(input: {
       if (draft.state === "approved") return { kind: "draft", draftId: draft.id, title, executing: true };
       if (draft.state === "failed") return { kind: "draft", draftId: draft.id, title, error: executionError(draft.id, input.events) };
       return { kind: "draft", draftId: draft.id, title };
+    }
+    if (!input.agentAlive && input.hasSession) {
+      const stopped = input.events.findLast((e) => e.type === "agent.interrupted");
+      const reason = typeof stopped?.payload.reason === "string" ? stopped.payload.reason : "the agent is not running";
+      return { kind: "resume", reason };
     }
     return undefined;
   }

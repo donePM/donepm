@@ -111,6 +111,13 @@ still commit on its own; the daemon only picks up what is left. Files that `.don
 copied into the worktree (`.env` and the like) are excluded from that commit: they are secrets
 from the user's clone, not the agent's work.
 
+**D26. Restart recovery resumes sessions and expires asks.** On start the daemon marks pending
+permission asks `expired` (the CLI that asked is gone) and moves `running` items, and `needs_you`
+items whose asks just expired, to `needs_you` with an `agent.interrupted` event. Items without a
+session fail instead: there is nothing to resume. Resume, and a retry that reuses an existing
+session and worktree, send "Continue where you left off." instead of the playbook prompt. A freshly
+created worktree discards the old session, since the files it knew are gone.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

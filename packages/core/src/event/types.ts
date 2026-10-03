@@ -8,6 +8,7 @@ export const EVENT_TYPES = [
   "agent.turn_started",
   "agent.turn_ended",
   "agent.failed",
+  "agent.interrupted",
   "permission.asked",
   "permission.answered",
   "draft.created",
@@ -16,6 +17,7 @@ export const EVENT_TYPES = [
   "draft.rejected",
   "draft.executed",
   "draft.execution_failed",
+  "worktree.removed",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

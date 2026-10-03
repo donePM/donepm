@@ -98,6 +98,30 @@ export function answered(
 }
 
 /**
+ * The daemon restarted while the agent was running or mid-turn waiting on a question (spec 9.5).
+ * The process is gone; the item waits for the user to resume the session.
+ */
+export function interrupted(item: WorkItem, ctx: Ctx, reason: string): Transition {
+  return apply(
+    { name: "interrupted", from: ["running", "needs_you"], to: "needs_you", actor: "system", event: "agent.interrupted" },
+    item,
+    ctx,
+    undefined,
+    { reason },
+  );
+}
+
+/** User resumed a waiting item whose process is gone: `--resume` with the stored session. */
+export function resume(item: WorkItem, ctx: Ctx): Transition {
+  if (!item.agentSessionId) throw new InvalidTransitionError("resume", item.state);
+  return apply(
+    { name: "resume", from: ["needs_you"], to: "running", actor: "user", event: "agent.resumed" },
+    item,
+    ctx,
+  );
+}
+
+/**
  * The agent's turn ended without a pending ask or draft (spec 9.3, `result`). The user decides
  * what happens next, so the item waits in Needs You.
  */
@@ -230,4 +254,20 @@ export function agentFailed(
     undefined,
     reason === undefined ? details : { ...details, reason },
   );
+}
+
+/**
+ * User removed the item's worktree (spec 7.4). The state stays; the worktree path and the session
+ * (which belongs to that directory) are cleared, so a retry starts fresh. The branch is kept.
+ */
+export function worktreeRemoved(item: WorkItem, ctx: Ctx, payload: Record<string, unknown> = {}): Transition {
+  const t = apply(
+    { name: "worktreeRemoved", from: ["done", "failed"], to: item.state, actor: "user", event: "worktree.removed" },
+    item,
+    ctx,
+    undefined,
+    payload,
+  );
+  const { worktreePath: _path, agentSessionId: _session, ...rest } = t.item;
+  return { ...t, item: rest };
 }
