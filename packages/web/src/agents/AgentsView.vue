@@ -134,7 +134,7 @@ watch([() => rows.value.length, live], async () => {
 </template>
 
 <style scoped>
-.agents { display: flex; align-items: stretch; height: calc(100vh - 53px); min-height: 0; }
+.agents { display: flex; align-items: stretch; height: 100%; min-height: 0; }
 .list {
   flex: 0 0 320px;
   min-width: 0;
