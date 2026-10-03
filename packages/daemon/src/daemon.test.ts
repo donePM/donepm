@@ -1,0 +1,170 @@
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import WebSocket from "ws";
+import { createDaemon, type Daemon } from "./daemon.js";
+import { testCtx } from "./test-support/ctx.js";
+import { fakeExec, fixture, ok } from "./test-support/fake-exec.js";
+import { exec as realExec, type Exec } from "./process/exec.js";
+
+let daemon: Daemon | undefined;
+afterEach(async () => {
+  await daemon?.stop();
+  daemon = undefined;
+});
+
+/** Real git for repo discovery, recorded gh output for everything else. */
+function execWith(search: () => string): Exec {
+  const gh = fakeExec({
+    "which gh": ok("/opt/homebrew/bin/gh\n"),
+    "gh auth status": ok(fixture("gh/auth-status-ok.stdout")),
+    "gh search issues": () => ok(search()),
+    "gh issue view": ok(fixture("gh/issue-view-open.json")),
+  });
+  return (cmd, args, opts) => (cmd === "git" ? realExec(cmd, args, opts) : gh(cmd, args, opts));
+}
+
+async function home(): Promise<string> {
+  const h = await mkdtemp(join(tmpdir(), "donepm-home-"));
+  const clone = join(h, "Code", "acme", "widgets");
+  await mkdir(clone, { recursive: true });
+  execFileSync("git", ["init", "-q"], { cwd: clone });
+  execFileSync("git", ["remote", "add", "origin", "git@github.com:acme/widgets.git"], { cwd: clone });
+  return h;
+}
+
+async function start(h: string, search = () => fixture("gh/search-issues.json")): Promise<Daemon> {
+  daemon = await createDaemon({ home: h, exec: execWith(search), ctx: testCtx(), version: "0.0.0-test", port: 0 });
+  await daemon.start();
+  await daemon.pollNow();
+  return daemon;
+}
+
+async function get(d: Daemon, path: string, init?: RequestInit): Promise<{ status: number; body: any }> {
+  const res = await fetch(d.address() + path, init);
+  return { status: res.status, body: await res.json() };
+}
+
+describe("daemon", () => {
+  it("creates the config on first start and serves polled items", async () => {
+    const h = await home();
+    const d = await start(h);
+    expect(JSON.parse(await readFile(join(h, ".config/donepm/config.json"), "utf8")).port).toBe(6174);
+
+    const { status, body } = await get(d, "/api/items");
+    expect(status).toBe(200);
+    expect(body.map((i: any) => [i.externalId, i.state, i.badges])).toEqual([
+      ["acme/widgets#161", "ready", []],
+      ["acme/widgets#157", "ready", []],
+      ["solo/tool#61", "ready", ["no-local-clone"]],
+      ["Acme/API#12", "ready", ["no-local-clone"]],
+    ]);
+    expect(body[0].repo.path).toBe(join(h, "Code", "acme", "widgets"));
+  });
+
+  it("returns one item with events, drafts and asks, and 404 for unknown ids", async () => {
+    const d = await start(await home());
+    const [first] = (await get(d, "/api/items")).body;
+    const { body } = await get(d, `/api/items/${first.id}`);
+    expect(body.events.map((e: any) => e.type)).toEqual(["item.collected"]);
+    expect(body.drafts).toEqual([]);
+    expect(body.asks).toEqual([]);
+    expect((await get(d, "/api/items/nope")).status).toBe(404);
+  });
+
+  it("lists and rescans repos, linking items to new clones", async () => {
+    const h = await home();
+    const d = await start(h);
+    expect((await get(d, "/api/repos")).body.map((r: any) => r.originUrl)).toEqual(["github.com/acme/widgets"]);
+
+    const clone = join(h, "Code", "solo", "tool");
+    await mkdir(clone, { recursive: true });
+    execFileSync("git", ["init", "-q"], { cwd: clone });
+    execFileSync("git", ["remote", "add", "origin", "https://github.com/solo/tool"], { cwd: clone });
+    const rescan = await get(d, "/api/repos/rescan", { method: "POST" });
+    expect(rescan.body.map((r: any) => r.originUrl)).toEqual(["github.com/acme/widgets", "github.com/solo/tool"]);
+    const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "solo/tool#61");
+    expect(item.badges).toEqual([]);
+  });
+
+  it("reports status", async () => {
+    const d = await start(await home());
+    const { body } = await get(d, "/api/status");
+    expect(body).toMatchObject({
+      version: "0.0.0-test",
+      gh: { state: "ready", account: "octocat" },
+      lastPoll: { ok: true, issues: 4 },
+      runningAgents: 0,
+    });
+  });
+
+  it("reads and updates settings, persisting them", async () => {
+    const h = await home();
+    const d = await start(h);
+    expect((await get(d, "/api/settings")).body.branchPrefix).toBe("dp/");
+    const put = await get(d, "/api/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ branchPrefix: "rk/", port: 7000 }),
+    });
+    expect(put.body).toMatchObject({ settings: { branchPrefix: "rk/", port: 7000 }, restartRequired: true });
+    expect(JSON.parse(await readFile(join(h, ".config/donepm/config.json"), "utf8")).branchPrefix).toBe("rk/");
+
+    const bad = await get(d, "/api/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pollIntervalSeconds: 1, nope: true }),
+    });
+    expect(bad.status).toBe(400);
+  });
+
+  it("rejects requests from foreign origins", async () => {
+    const d = await start(await home());
+    const res = await fetch(d.address() + "/api/items", { headers: { origin: "https://evil.example" } });
+    expect(res.status).toBe(403);
+  });
+
+  it("pushes item.updated over the websocket when a poll changes an item", async () => {
+    let out = fixture("gh/search-issues.json");
+    const d = await start(await home(), () => out);
+    const ws = new WebSocket(d.address().replace("http", "ws") + "/ws");
+    await new Promise((r) => ws.once("open", r));
+    const messages: any[] = [];
+    const statusPushed = new Promise<void>((resolve) =>
+      ws.on("message", (m) => {
+        const msg = JSON.parse(String(m));
+        messages.push(msg);
+        // The poll pushes item updates first and the poll status last.
+        if (msg.type === "status.changed" && msg.payload.lastPoll) resolve();
+      }),
+    );
+
+    const changed = JSON.parse(out);
+    changed[0].title = "Renamed";
+    out = JSON.stringify(changed);
+    await d.pollNow();
+    await statusPushed;
+    ws.close();
+
+    const updates = messages.filter((m) => m.type === "item.updated");
+    expect(updates.map((m) => m.payload.title)).toEqual(["Renamed"]);
+  });
+
+  it("refuses websocket upgrades from foreign origins", async () => {
+    const d = await start(await home());
+    const ws = new WebSocket(d.address().replace("http", "ws") + "/ws", { origin: "https://evil.example" });
+    const err = await new Promise<Error>((r) => ws.once("error", r));
+    expect(err.message).toMatch(/403/);
+  });
+
+  it("keeps items across restarts", async () => {
+    const h = await home();
+    await start(h);
+    await daemon!.stop();
+    daemon = undefined;
+    const d = await start(h, () => fixture("gh/search-issues-empty.json"));
+    expect((await get(d, "/api/items")).body).toHaveLength(4);
+  });
+});

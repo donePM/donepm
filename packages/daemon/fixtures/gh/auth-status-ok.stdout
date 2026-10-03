@@ -1,0 +1,6 @@
+github.com
+  ✓ Logged in to github.com account octocat (keyring)
+  - Active account: true
+  - Git operations protocol: ssh
+  - Token: gho_************************************
+  - Token scopes: 'admin:org', 'admin:public_key', 'gist', 'repo', 'workflow'

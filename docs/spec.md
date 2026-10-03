@@ -508,8 +508,9 @@ Database: `~/.local/share/donepm/donepm.db`.
 
 ## 17. Open questions
 
-- Does `gh search issues --assignee=@me` return bodies, or is a second call per issue needed?
-  Check on the installed `gh` version.
+- ~~Does `gh search issues --assignee=@me` return bodies, or is a second call per issue needed?~~
+  Answered (gh 2.102.0, #2): it returns `body`; one call is enough. Default `--limit` is 30, so
+  the daemon passes `--limit 1000`.
 - Does the installed `claude` still accept `--permission-prompt-tool stdio`? Bloom measured it on
   2.1.x. Verify first, before building the runner.
 - Diff in the UI: render with a library (e.g. `diff2html`) or own component? Start with the
