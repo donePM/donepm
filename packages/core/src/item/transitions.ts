@@ -312,3 +312,35 @@ export function autoAllowed(item: WorkItem, ctx: Ctx, askId: string, payload: Re
     payload,
   );
 }
+
+/** Work an agent may have left: a worktree or a session. Such an item is never closed for the user. */
+export function wasStarted(item: WorkItem): boolean {
+  return item.worktreePath !== undefined || item.agentSessionId !== undefined;
+}
+
+/**
+ * The issue of a never-started item was closed upstream (decision D32). Nothing can be lost, so the
+ * daemon moves it to Done itself. A started item only gets the badge (`markClosedUpstream`).
+ */
+export function closedUpstream(item: WorkItem, ctx: Ctx): Transition {
+  if (wasStarted(item)) throw new InvalidTransitionError("closedUpstream", item.state);
+  const t = apply(
+    { name: "closedUpstream", from: ["ready"], to: "done", actor: "system", event: "item.closed_upstream" },
+    item,
+    ctx,
+  );
+  return { ...t, item: { ...t.item, closedUpstream: true } };
+}
+
+/**
+ * The user moved an item whose issue was closed upstream to Done (decision D32). Not while the agent
+ * runs: the user stops it first. The worktree stays until the user removes it.
+ */
+export function dismissed(item: WorkItem, ctx: Ctx): Transition {
+  if (item.closedUpstream !== true) throw new InvalidTransitionError("dismissed", item.state);
+  return apply(
+    { name: "dismissed", from: ["ready", "needs_you", "failed"], to: "done", actor: "user", event: "item.dismissed" },
+    item,
+    ctx,
+  );
+}

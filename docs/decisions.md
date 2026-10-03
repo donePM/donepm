@@ -168,6 +168,14 @@ whose host (or parent domain) is on `allowedWebFetchDomains` the moment it arriv
 `permission.auto_allowed`. The default list holds GitHub and documentation hosts; an empty list
 asks for every page. The cost is one round trip per fetch, which nobody sees.
 
+**D32. A closed issue closes a never-started item; a started one waits for the user's Dismiss.**
+An item whose issue is closed on GitHub used to stay on the board forever with a "closed upstream"
+badge, and a `ready` item had no way out (#44). A `ready` item without worktree or agent session has
+no work to lose, so the poll moves it to Done itself (`item.closed_upstream`). A started item may
+hold commits, drafts or a session the user still wants, so it keeps the badge and the card offers
+Dismiss, which moves it to Done (`item.dismissed`). Dismiss is refused while the agent runs; the
+user stops it first. Neither touches the worktree: removing it stays the user's button.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

@@ -3,7 +3,7 @@ import type { Ctx } from "../ids.js";
 import {
   InvalidTransitionError, agentAsked, agentFailed, answered, autoAllowed, draftApproved, draftCreated, draftEdited, draftExecuted,
   draftExecutionFailed, draftRejected, interrupted, issueAssignFailed, issueAssigned, resume, start, worktreeRemoved,
-  turnEnded, turnStarted,
+  turnEnded, turnStarted, closedUpstream, dismissed, wasStarted,
 } from "./transitions.js";
 import type { ItemState, WorkItem } from "./types.js";
 
@@ -140,5 +140,38 @@ describe("autoAllowed", () => {
 
   it.each(["ready", "done", "failed"] as const)("throws from %s", (state) => {
     expect(() => autoAllowed(item(state), makeCtx(), "ask-1")).toThrow(InvalidTransitionError);
+  });
+});
+
+describe("closedUpstream", () => {
+  it("moves a never-started ready item to done with the badge", () => {
+    const { item: after, events } = closedUpstream(item("ready"), makeCtx());
+    expect(after).toMatchObject({ state: "done", closedUpstream: true });
+    expect(events[0]).toMatchObject({ type: "item.closed_upstream", actor: "system" });
+  });
+
+  it.each([{ worktreePath: "/wt/1" }, { agentSessionId: "sess" }])("leaves a started item alone (%o)", (extra) => {
+    expect(wasStarted(item("ready", extra))).toBe(true);
+    expect(() => closedUpstream(item("ready", extra), makeCtx())).toThrow(InvalidTransitionError);
+  });
+
+  it.each(["running", "needs_you", "done", "failed"] as const)("throws from %s", (state) => {
+    expect(() => closedUpstream(item(state), makeCtx())).toThrow(InvalidTransitionError);
+  });
+});
+
+describe("dismissed", () => {
+  it.each(["ready", "needs_you", "failed"] as const)("moves a closed-upstream item from %s to done, keeping its worktree", (state) => {
+    const { item: after, events } = dismissed(item(state, { closedUpstream: true, worktreePath: "/wt/1" }), makeCtx());
+    expect(after).toMatchObject({ state: "done", worktreePath: "/wt/1" });
+    expect(events[0]).toMatchObject({ type: "item.dismissed", actor: "user" });
+  });
+
+  it.each(["running", "done"] as const)("throws from %s", (state) => {
+    expect(() => dismissed(item(state, { closedUpstream: true }), makeCtx())).toThrow(InvalidTransitionError);
+  });
+
+  it("throws when the issue is not closed upstream", () => {
+    expect(() => dismissed(item("ready"), makeCtx())).toThrow(InvalidTransitionError);
   });
 });

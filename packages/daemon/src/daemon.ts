@@ -29,6 +29,7 @@ import { Poller } from "./gh/poller.js";
 import { buildServer } from "./http/server.js";
 import { makeGuard } from "./http/guard.js";
 import { itemWriter } from "./items/commit.js";
+import { dismissItem } from "./items/dismiss.js";
 import { ItemStore } from "./items/store.js";
 import { relinkItems } from "./items/sync.js";
 import { agentHistory } from "./items/agent-info.js";
@@ -229,6 +230,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     orphans,
     removeOrphan: (path) => removeOrphan({ exec: opts.exec, orphans }, path),
     stopItem: (id) => runner.stop(id),
+    dismissItem: (id) => dismissItem({ items, writer, ctx: opts.ctx, agentActive: (i) => runner.isRunning(i) }, id),
     view,
     answerAsk: (id, answer) => runner.answer(id, answer),
     diff: (input) => itemDiff(opts.exec, input),

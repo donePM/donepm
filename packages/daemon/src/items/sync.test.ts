@@ -70,12 +70,25 @@ describe("syncIssues", () => {
     expect(d.items.all()).toHaveLength(2);
   });
 
-  it("flags closed upstream and clears the flag when the issue shows up open again", () => {
+  it("moves a never-started item to done when its issue was closed upstream", () => {
     const d = setup();
     syncIssues([a], d);
     const id = d.items.byExternalId("Acme/Widgets#1")!.item.id;
-    expect(applyClosedUpstream(id, d)?.closedUpstream).toBe(true);
+    expect(applyClosedUpstream(id, d)).toMatchObject({ state: "done", closedUpstream: true });
+    expect(d.items.get(id)!.item.state).toBe("done");
+    expect(d.events.forItem(id).map((e) => e.type)).toEqual(["item.collected", "item.closed_upstream"]);
+    expect(syncIssues([], d).missing).toEqual([]);
+  });
+
+  it("flags a started item closed upstream and clears the flag when the issue shows up open again", () => {
+    const d = setup();
+    syncIssues([a], d);
+    const stored = d.items.byExternalId("Acme/Widgets#1")!.item;
+    d.items.update({ ...stored, worktreePath: "/wt/1" });
+    const id = stored.id;
+    expect(applyClosedUpstream(id, d)).toMatchObject({ state: "ready", closedUpstream: true });
     expect(applyClosedUpstream(id, d)).toBeUndefined();
+    expect(d.events.forItem(id).map((e) => e.type)).toEqual(["item.collected"]);
     expect(syncIssues([], d).missing).toEqual([]);
     expect(syncIssues([a], d).updated[0]).not.toHaveProperty("closedUpstream");
   });

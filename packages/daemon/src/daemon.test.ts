@@ -23,12 +23,12 @@ afterEach(async () => {
 });
 
 /** Real git for repo discovery, recorded gh output for everything else. */
-function execWith(search: () => string): Exec {
+function execWith(search: () => string, view = () => fixture("gh/issue-view-open.json")): Exec {
   const gh = fakeExec({
     "which gh": ok("/opt/homebrew/bin/gh\n"),
     "gh auth status": ok(fixture("gh/auth-status-ok.stdout")),
     "gh search issues": () => ok(search()),
-    "gh issue view": ok(fixture("gh/issue-view-open.json")),
+    "gh issue view": () => ok(view()),
     "gh issue list": ok(JSON.stringify([
       { number: 200, title: "Unassigned bug", body: "", labels: [], url: "https://github.com/acme/widgets/issues/200" },
     ])),
@@ -70,9 +70,10 @@ async function start(
   search = () => fixture("gh/search-issues.json"),
   publicDir = join(h, "no-ui"),
   spawn = fakeProcesses(),
+  view?: () => string,
 ): Promise<Daemon> {
   daemon = await createDaemon({
-    home: h, exec: execWith(search), ctx: testCtx(), version: "0.0.0-test", port: 0, publicDir, spawn,
+    home: h, exec: execWith(search, view), ctx: testCtx(), version: "0.0.0-test", port: 0, publicDir, spawn,
     env: { PATH: "/usr/bin:/bin", GH_TOKEN: "secret" },
   });
   await daemon.start();
@@ -499,6 +500,36 @@ describe("daemon", () => {
     expect(stopped.body.agent.currentTool).toBeUndefined();
     expect(spawn.last().signals).toEqual(["SIGTERM"]);
     expect((await get(d, "/api/items/nope/stop", { method: "POST" })).status).toBe(404);
+  });
+
+  it("closes never-started items closed upstream and lets the user dismiss a started one", async () => {
+    let search = fixture("gh/search-issues.json");
+    let view = fixture("gh/issue-view-open.json");
+    const spawn = fakeProcesses();
+    const d = await start(await homeWithHistory(), () => search, undefined, spawn, () => view);
+    const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
+    await get(d, `/api/items/${item.id}/start`, { method: "POST" });
+    await vi.waitFor(() => expect(spawn.spawned).toHaveLength(1));
+    expect((await get(d, `/api/items/${item.id}/dismiss`, { method: "POST" })).body).toEqual({ error: "the issue is not closed upstream" });
+
+    search = fixture("gh/search-issues-empty.json");
+    view = fixture("gh/issue-view-closed.json");
+    await d.pollNow();
+    const items = (await get(d, "/api/items")).body;
+    expect(items.filter((i: any) => i.id !== item.id).map((i: any) => i.state)).toEqual(["done", "done", "done"]);
+    const other = items.find((i: any) => i.id !== item.id);
+    expect((await get(d, `/api/items/${other.id}`)).body.events.map((e: any) => e.type)).toEqual(["item.collected", "item.closed_upstream"]);
+    expect(items.find((i: any) => i.id === item.id)).toMatchObject({ state: "running", badges: expect.arrayContaining(["closed-upstream"]) });
+
+    expect((await get(d, `/api/items/${item.id}/dismiss`, { method: "POST" })).body).toEqual({ error: "stop the agent first" });
+    await get(d, `/api/items/${item.id}/stop`, { method: "POST" });
+    const dismissed = await get(d, `/api/items/${item.id}/dismiss`, { method: "POST" });
+    expect(dismissed.status).toBe(200);
+    expect(dismissed.body).toMatchObject({ state: "done" });
+    expect(dismissed.body.worktreePath).toBeDefined();
+    expect(existsSync(dismissed.body.worktreePath)).toBe(true);
+    expect((await get(d, `/api/items/${item.id}/dismiss`, { method: "POST" })).status).toBe(409);
+    expect((await get(d, "/api/items/nope/dismiss", { method: "POST" })).status).toBe(404);
   });
 
   it("refuses to start twice, items without a clone, and a second agent", async () => {
