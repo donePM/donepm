@@ -9,6 +9,9 @@ export const BLOCKED_COMMANDS = ["gh", "glab", "jira"] as const;
  */
 export const DENY_RULES = [...BLOCKED_COMMANDS.map((c) => `Bash(${c} *)`), "Bash(git push*)"] as const;
 
+/** donePM's own MCP server. Its tools only create drafts, so they need no question per call. */
+export const ALLOW_RULES = ["mcp__donepm"] as const;
+
 export interface ArgvInput {
   playbook: Pick<Playbook, "model" | "effort" | "permissionMode">;
   /** Per-session MCP config file (mode 0600), never inline JSON: argv is visible in `ps`. */
@@ -32,7 +35,7 @@ export function claudeArgv(input: ArgvInput): string[] {
   ];
   if (playbook.effort) args.push("--effort", playbook.effort);
   // One object: --settings does not accumulate.
-  args.push("--settings", JSON.stringify({ permissions: { deny: DENY_RULES } }));
+  args.push("--settings", JSON.stringify({ permissions: { allow: ALLOW_RULES, deny: DENY_RULES } }));
   if (input.mcpConfigPath) args.push("--mcp-config", input.mcpConfigPath);
   if (input.resumeSessionId) args.push("--resume", input.resumeSessionId);
   return args;

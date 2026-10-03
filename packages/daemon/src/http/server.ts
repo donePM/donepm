@@ -1,13 +1,14 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { WorkItem } from "@donepm/core";
+import type { Draft, PrDraftPayload, WorkItem } from "@donepm/core";
 import fastifyStatic from "@fastify/static";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { z } from "zod";
 import { AskError, StopError } from "../agent/runner.js";
 import { StartError } from "../agent/start.js";
 import type { AskStore } from "../asks/store.js";
 import { ConfigSchema, type Config } from "../config/config.js";
+import { DraftError } from "../drafts/actions.js";
 import type { DraftStore } from "../drafts/store.js";
 import type { EventStore } from "../events/store.js";
 import type { ItemStore } from "../items/store.js";
@@ -39,6 +40,10 @@ export interface ServerDeps {
   stopItem: (id: string) => Promise<void>;
   /** The item as the API shows it: clone, badges, agent. */
   view: (item: WorkItem) => ItemView;
+  /** Throws DraftError. */
+  editDraft: (id: string, edits: Partial<PrDraftPayload>) => Draft;
+  /** Throws DraftError. The reason goes to the agent as its next message. */
+  rejectDraft: (id: string, reason: string | undefined) => Draft;
   /** Throws AskError. */
   answerAsk: (id: string, answer: AskAnswer) => void;
   /** Built web UI (`packages/web` builds into it). Served at `/` when it exists. */
@@ -53,8 +58,32 @@ const AskAnswerSchema = z.discriminatedUnion("behavior", [
 ]);
 export type AskAnswer = z.infer<typeof AskAnswerSchema>;
 
+const DraftEditSchema = z
+  .object({
+    payload: z
+      .object({ title: z.string().trim().min(1), body: z.string(), base: z.string().trim().min(1) })
+      .partial()
+      .strict(),
+  })
+  .strict();
+
+const DraftRejectSchema = z.object({ reason: z.string().optional() }).strict();
+
 /** Partial update; unknown keys are rejected. */
 const SettingsPatch = ConfigSchema.partial().strict();
+
+function draftCall(reply: FastifyReply, fn: () => Draft) {
+  try {
+    return fn();
+  } catch (e) {
+    if (e instanceof DraftError) return reply.code(e.status).send({ error: e.message });
+    throw e;
+  }
+}
+
+function stripUndefined<T extends object>(o: T): { [K in keyof T]: Exclude<T[K], undefined> } {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as never;
+}
 
 export function buildServer(deps: ServerDeps): FastifyInstance {
   const app = Fastify({ logger: deps.logger ?? false });
@@ -113,6 +142,18 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       throw e;
     }
     return { ok: true };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/drafts/:id/edit", async (req, reply) => {
+    const body = DraftEditSchema.safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "body must be {payload: {title?, body?, base?}}" });
+    return draftCall(reply, () => deps.editDraft(req.params.id, stripUndefined(body.data.payload)));
+  });
+
+  app.post<{ Params: { id: string } }>("/api/drafts/:id/reject", async (req, reply) => {
+    const body = DraftRejectSchema.safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "body must be {reason?: string}" });
+    return draftCall(reply, () => deps.rejectDraft(req.params.id, body.data.reason?.trim() || undefined));
   });
 
   app.get("/api/repos", async () => deps.repos.all());

@@ -34,6 +34,8 @@ export interface RunnerDeps {
   onCountChanged?: (running: number) => void;
   /** The current tool of an item changed; the board shows it. */
   onActivity?: (itemId: string) => void;
+  /** Opens the draft gate for one process: writes its `--mcp-config` file, `close` revokes it. */
+  mcp?: (item: WorkItem, playbook: Playbook) => { configPath: string; close: () => void };
 }
 
 export interface LaunchInput {
@@ -122,16 +124,20 @@ export class AgentRunner {
   async launch(input: LaunchInput): Promise<void> {
     const session = this.sessions.get(input.item.id);
     if (!session) throw new Error("launch without reserve");
+    const env = await this.deps.env();
+    const mcp = this.deps.mcp?.(input.item, input.playbook);
     const args = claudeArgv({
       playbook: input.playbook,
+      ...(mcp ? { mcpConfigPath: mcp.configPath } : {}),
       ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
     });
-    const proc = this.deps.spawn(this.deps.claudePath(), args, { cwd: input.cwd, env: await this.deps.env() });
+    const proc = this.deps.spawn(this.deps.claudePath(), args, { cwd: input.cwd, env });
     session.proc = proc;
     if (input.resumeSessionId) session.sessionId = input.resumeSessionId;
 
     session.exited = new Promise((resolve) => {
       proc.onExit((code, signal) => {
+        mcp?.close();
         this.exited(session, code, signal);
         resolve();
       });
@@ -151,6 +157,15 @@ export class AgentRunner {
 
     const line = userTurnLine(input.prompt);
     proc.write(line);
+    this.store(session, "user", JSON.parse(line));
+  }
+
+  /** Send the agent its next user message, e.g. the reason a draft was rejected. */
+  say(itemId: string, text: string): void {
+    const session = this.sessions.get(itemId);
+    if (!session?.proc) throw new Error("the agent for this item is not running");
+    const line = userTurnLine(text);
+    session.proc.write(line);
     this.store(session, "user", JSON.parse(line));
   }
 

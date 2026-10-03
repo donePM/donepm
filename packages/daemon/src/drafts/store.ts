@@ -24,12 +24,41 @@ function fromRow(r: DraftRow): Draft {
   return d;
 }
 
-/** Read side only for now; drafts are written once the MCP server exists. */
 export class DraftStore {
   constructor(private readonly db: Db) {}
 
   forItem(itemId: string): Draft[] {
-    const rows = this.db.prepare("SELECT * FROM drafts WHERE item_id = ? ORDER BY created_at").all(itemId) as unknown as DraftRow[];
+    const rows = this.db.prepare("SELECT * FROM drafts WHERE item_id = ? ORDER BY created_at, rowid").all(itemId) as unknown as DraftRow[];
     return rows.map(fromRow);
+  }
+
+  get(id: string): Draft | undefined {
+    const row = this.db.prepare("SELECT * FROM drafts WHERE id = ?").get(id) as DraftRow | undefined;
+    return row && fromRow(row);
+  }
+
+  pending(itemId: string): Draft[] {
+    return this.forItem(itemId).filter((d) => d.state === "pending");
+  }
+
+  insert(draft: Draft, at: string): void {
+    this.db
+      .prepare(
+        "INSERT INTO drafts (id, item_id, type, payload, state, user_edits, result, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        draft.id, draft.itemId, draft.type, JSON.stringify(draft.payload), draft.state,
+        draft.userEdits ? JSON.stringify(draft.userEdits) : null,
+        draft.result ? JSON.stringify(draft.result) : null,
+        at, at,
+      );
+  }
+
+  setState(id: string, state: DraftState, at: string): void {
+    this.db.prepare("UPDATE drafts SET state = ?, updated_at = ? WHERE id = ?").run(state, at, id);
+  }
+
+  setUserEdits(id: string, edits: Draft["payload"], at: string): void {
+    this.db.prepare("UPDATE drafts SET user_edits = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(edits), at, id);
   }
 }

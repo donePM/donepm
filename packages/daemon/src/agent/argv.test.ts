@@ -14,7 +14,7 @@ describe("claudeArgv", () => {
       "--permission-mode", "acceptEdits",
       "--permission-prompt-tool", "stdio",
       "--model", "opus",
-      "--settings", '{"permissions":{"deny":["Bash(gh *)","Bash(glab *)","Bash(jira *)","Bash(git push*)"]}}',
+      "--settings", '{"permissions":{"allow":["mcp__donepm"],"deny":["Bash(gh *)","Bash(glab *)","Bash(jira *)","Bash(git push*)"]}}',
     ]);
   });
 
