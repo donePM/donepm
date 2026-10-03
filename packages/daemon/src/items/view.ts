@@ -1,5 +1,6 @@
 import type { Repo, WorkItem } from "@donepm/core";
 import type { AgentHistory } from "./agent-info.js";
+import type { Attention } from "./attention.js";
 
 export type ItemBadge = "no-local-clone" | "closed-upstream";
 
@@ -21,9 +22,16 @@ export interface ItemView extends WorkItem {
   repo: Pick<Repo, "id" | "path" | "originUrl" | "defaultBranch"> | null;
   badges: ItemBadge[];
   agent: AgentView;
+  /** Set while the item waits on the user (Needs You). */
+  attention?: Attention;
 }
 
-export function toItemView(item: WorkItem, repo: Repo | undefined, agent: AgentView = { running: false }): ItemView {
+export function toItemView(
+  item: WorkItem,
+  repo: Repo | undefined,
+  agent: AgentView = { running: false },
+  attention?: Attention,
+): ItemView {
   const badges: ItemBadge[] = [];
   if (!repo) badges.push("no-local-clone");
   if (item.closedUpstream) badges.push("closed-upstream");
@@ -32,5 +40,6 @@ export function toItemView(item: WorkItem, repo: Repo | undefined, agent: AgentV
     repo: repo ? { id: repo.id, path: repo.path, originUrl: repo.originUrl, defaultBranch: repo.defaultBranch } : null,
     badges,
     agent,
+    ...(attention ? { attention } : {}),
   };
 }

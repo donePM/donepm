@@ -1,4 +1,4 @@
-import type { AskAnswer, ItemView, Repo, Settings, Status, TranscriptMessage } from "./types";
+import type { AskAnswer, Draft, ItemDetail, ItemDiff, ItemView, OpenTarget, PrDraftPayload, Repo, Settings, Status, TranscriptMessage } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -26,6 +26,14 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 export const api = {
   items: () => call<ItemView[]>("GET", "/api/items"),
+  item: (id: string) => call<ItemDetail>("GET", `/api/items/${encodeURIComponent(id)}`),
+  diff: (id: string) => call<ItemDiff>("GET", `/api/items/${encodeURIComponent(id)}/diff`),
+  open: (id: string, target: OpenTarget) => call<{ ok: true }>("POST", `/api/items/${encodeURIComponent(id)}/open`, { target }),
+  editDraft: (id: string, payload: Partial<PrDraftPayload>) =>
+    call<Draft>("POST", `/api/drafts/${encodeURIComponent(id)}/edit`, { payload }),
+  approveDraft: (id: string) => call<Draft>("POST", `/api/drafts/${encodeURIComponent(id)}/approve`, {}),
+  rejectDraft: (id: string, reason?: string) =>
+    call<Draft>("POST", `/api/drafts/${encodeURIComponent(id)}/reject`, reason ? { reason } : {}),
   start: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/start`),
   stop: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/stop`),
   transcript: (id: string, after?: string) =>

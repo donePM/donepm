@@ -18,6 +18,7 @@ import { expandHome, pathsFor } from "./config/paths.js";
 import { openDb, type Db } from "./db/database.js";
 import { editDraft, rejectDraft } from "./drafts/actions.js";
 import { DraftStore } from "./drafts/store.js";
+import { itemDiff } from "./diff/item-diff.js";
 import { EventStore } from "./events/store.js";
 import { collectIssues } from "./gh/collect-issues.js";
 import { detectGh } from "./gh/detect.js";
@@ -28,6 +29,7 @@ import { itemWriter } from "./items/commit.js";
 import { ItemStore } from "./items/store.js";
 import { relinkItems } from "./items/sync.js";
 import { agentHistory } from "./items/agent-info.js";
+import { attentionOf } from "./items/attention.js";
 import { toItemView, type CurrentTool } from "./items/view.js";
 import type { Exec } from "./process/exec.js";
 import { ensureDefaultPlaybook } from "./playbooks/load.js";
@@ -99,12 +101,19 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const guard = makeGuard(boundPort, opts.extraOrigins);
   const hub = new Hub((req) => guard(req.headers));
 
-  const view = (item: WorkItem) =>
-    toItemView(item, item.repoId ? repos.get(item.repoId) : undefined, {
-      ...agentHistory(events.forItem(item.id)),
-      running: runner.isRunning(item.id),
-      ...withCurrentTool(runner.currentTool(item.id)),
-    });
+  const view = (item: WorkItem) => {
+    const itemEvents = events.forItem(item.id);
+    return toItemView(
+      item,
+      item.repoId ? repos.get(item.repoId) : undefined,
+      {
+        ...agentHistory(itemEvents),
+        running: runner.isRunning(item.id),
+        ...withCurrentTool(runner.currentTool(item.id)),
+      },
+      attentionOf({ state: item.state, asks: asks.forItem(item.id), drafts: drafts.forItem(item.id), events: itemEvents }),
+    );
+  };
   const pushItem = (item: WorkItem) => hub.push("item.updated", view(item));
   status.onChange((s) => hub.push("status.changed", s));
 
@@ -198,6 +207,11 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     stopItem: (id) => runner.stop(id),
     view,
     answerAsk: (id, answer) => runner.answer(id, answer),
+    diff: (input) => itemDiff(opts.exec, input),
+    openPath: async (path, target) => {
+      const r = await opts.exec("open", target === "terminal" ? ["-a", "Terminal", path] : [path]);
+      if (r.code !== 0) throw new Error(r.stderr.trim() || `open exited with ${r.code}`);
+    },
     editDraft: (id, edits) => editDraft(draftDeps, id, edits),
     rejectDraft: (id, reason) =>
       rejectDraft(

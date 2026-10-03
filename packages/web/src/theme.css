@@ -88,3 +88,21 @@ a:hover { color: var(--blue-hover); }
 .sr-only {
   position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
 }
+
+.btn-amber { border: 0; background: var(--amber); color: #fff; }
+.btn-amber:hover:not(:disabled) { background: #8a3f04; }
+.btn-danger { color: var(--danger); font-weight: 400; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field > span { font-size: 13px; color: var(--ink-2); }
+.input, .textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border-control);
+  border-radius: 6px;
+  background: var(--card);
+  font: inherit;
+  color: var(--ink);
+}
+.textarea { resize: vertical; line-height: 1.5; }
+.input:focus-visible, .textarea:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.alert { margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--danger-tint); color: var(--danger); font-size: 12px; }

@@ -10,6 +10,7 @@ import type { AskStore } from "../asks/store.js";
 import { ConfigSchema, type Config } from "../config/config.js";
 import { DraftError } from "../drafts/actions.js";
 import type { DraftStore } from "../drafts/store.js";
+import type { ItemDiff } from "../diff/item-diff.js";
 import type { EventStore } from "../events/store.js";
 import type { ItemStore } from "../items/store.js";
 import type { ItemView } from "../items/view.js";
@@ -44,6 +45,10 @@ export interface ServerDeps {
   editDraft: (id: string, edits: Partial<PrDraftPayload>) => Draft;
   /** Throws DraftError. The reason goes to the agent as its next message. */
   rejectDraft: (id: string, reason: string | undefined) => Draft;
+  /** Branch against base, committed and uncommitted. Rejects with DiffError. */
+  diff: (input: { worktreePath: string; branch: string; defaultBranch: string }) => Promise<ItemDiff>;
+  /** Opens a folder on the user's machine (Finder, Terminal). */
+  openPath: (path: string, target: OpenTarget) => Promise<void>;
   /** Throws AskError. */
   answerAsk: (id: string, answer: AskAnswer) => void;
   /** Built web UI (`packages/web` builds into it). Served at `/` when it exists. */
@@ -66,6 +71,9 @@ const DraftEditSchema = z
       .strict(),
   })
   .strict();
+
+const OpenSchema = z.object({ target: z.enum(["finder", "terminal"]) }).strict();
+export type OpenTarget = z.infer<typeof OpenSchema>["target"];
 
 const DraftRejectSchema = z.object({ reason: z.string().optional() }).strict();
 
@@ -132,6 +140,26 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     return deps.transcript.page(req.params.id, req.query.after || undefined);
   });
 
+  app.get<{ Params: { id: string } }>("/api/items/:id/diff", async (req, reply) => {
+    const item = deps.items.get(req.params.id)?.item;
+    if (!item) return reply.code(404).send({ error: "item not found" });
+    const repo = item.repoId ? deps.repos.get(item.repoId) : undefined;
+    if (!repo || !item.worktreePath || !item.branch || !existsSync(item.worktreePath)) {
+      return reply.code(409).send({ error: "the item has no worktree" });
+    }
+    return deps.diff({ worktreePath: item.worktreePath, branch: item.branch, defaultBranch: repo.defaultBranch });
+  });
+
+  app.post<{ Params: { id: string } }>("/api/items/:id/open", async (req, reply) => {
+    const body = OpenSchema.safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "body must be {target: finder|terminal}" });
+    const item = deps.items.get(req.params.id)?.item;
+    if (!item) return reply.code(404).send({ error: "item not found" });
+    if (!item.worktreePath || !existsSync(item.worktreePath)) return reply.code(409).send({ error: "the item has no worktree" });
+    await deps.openPath(item.worktreePath, body.data.target);
+    return { ok: true };
+  });
+
   app.post<{ Params: { id: string } }>("/api/asks/:id/answer", async (req, reply) => {
     const answer = AskAnswerSchema.safeParse(req.body ?? {});
     if (!answer.success) return reply.code(400).send({ error: "body must be {behavior: allow} or {behavior: deny, message?}" });
@@ -155,6 +183,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!body.success) return reply.code(400).send({ error: "body must be {reason?: string}" });
     return draftCall(reply, () => deps.rejectDraft(req.params.id, body.data.reason?.trim() || undefined));
   });
+
+  // Executing drafts lands with #8; the UI already has the button.
+  app.post("/api/drafts/:id/approve", async (_req, reply) => reply.code(501).send({ error: "approving drafts is not implemented yet" }));
 
   app.get("/api/repos", async () => deps.repos.all());
 
