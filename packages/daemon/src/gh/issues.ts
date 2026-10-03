@@ -1,0 +1,77 @@
+import type { SourceIssue } from "@donepm/core";
+import type { ZodType } from "zod";
+import type { Exec } from "../process/exec.js";
+import { IssueStateSchema, ListIssuesSchema, SearchIssuesSchema, toSourceIssue } from "./schema.js";
+
+export const ISSUE_LIMIT = "1000";
+
+export type FetchResult =
+  | { ok: true; issues: SourceIssue[] }
+  | { ok: false; kind: "command"; error: string }
+  | { ok: false; kind: "schema"; error: string; raw: string };
+
+type Parsed<T> = { ok: true; value: T } | { ok: false; kind: "schema"; error: string; raw: string };
+
+function parseJson<T>(schema: ZodType<T, any, any>, raw: string): Parsed<T> {
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch (e) {
+    return { ok: false, kind: "schema", error: `not JSON: ${(e as Error).message}`, raw };
+  }
+  const r = schema.safeParse(json);
+  if (r.success) return { ok: true, value: r.data };
+  const error = r.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
+  return { ok: false, kind: "schema", error, raw };
+}
+
+/** Old `gh` versions have no `gh search issues`. */
+export function isUnknownCommand(stderr: string): boolean {
+  return /unknown command/i.test(stderr);
+}
+
+/**
+ * Spec 6.2: open issues assigned to the current user. Uses `gh search issues`; if that command
+ * does not exist, falls back to `gh issue list` per known repository (`host/owner/repo`).
+ */
+export async function fetchAssignedIssues(exec: Exec, knownRepos: () => string[]): Promise<FetchResult> {
+  const r = await exec("gh", [
+    "search", "issues", "--assignee=@me", "--state=open",
+    "--json", "number,title,body,labels,repository,url", "--limit", ISSUE_LIMIT,
+  ]);
+  if (r.code !== 0) {
+    if (isUnknownCommand(r.stderr)) return listPerRepo(exec, knownRepos());
+    return { ok: false, kind: "command", error: r.stderr.trim() || `gh exited with ${r.code}` };
+  }
+  const parsed = parseJson(SearchIssuesSchema, r.stdout);
+  if (!parsed.ok) return parsed;
+  return { ok: true, issues: parsed.value.map((i) => toSourceIssue(i, i.repository.nameWithOwner)) };
+}
+
+async function listPerRepo(exec: Exec, origins: string[]): Promise<FetchResult> {
+  const issues: SourceIssue[] = [];
+  for (const origin of [...new Set(origins)]) {
+    const repository = origin.split("/").slice(1).join("/");
+    const r = await exec("gh", [
+      "issue", "list", "--assignee", "@me", "--state", "open", "--repo", origin,
+      "--json", "number,title,body,labels,url", "--limit", ISSUE_LIMIT,
+    ]);
+    if (r.code !== 0) return { ok: false, kind: "command", error: `${origin}: ${r.stderr.trim()}` };
+    const parsed = parseJson(ListIssuesSchema, r.stdout);
+    if (!parsed.ok) return parsed;
+    issues.push(...parsed.value.map((i) => toSourceIssue(i, repository)));
+  }
+  return { ok: true, issues };
+}
+
+/** `OPEN` / `CLOSED`, or undefined when gh fails or the issue cannot be read. */
+export async function fetchIssueState(
+  exec: Exec,
+  repository: string,
+  number: number,
+): Promise<"OPEN" | "CLOSED" | undefined> {
+  const r = await exec("gh", ["issue", "view", String(number), "--repo", repository, "--json", "state"]);
+  if (r.code !== 0) return undefined;
+  const parsed = parseJson(IssueStateSchema, r.stdout);
+  return parsed.ok ? parsed.value.state : undefined;
+}

@@ -1,0 +1,6 @@
+unknown command "issues" for "gh search"
+
+Did you mean this?
+	issue
+
+Usage:  gh search <command> [flags]

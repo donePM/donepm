@@ -8,7 +8,8 @@ export interface WorkItem {
   /** `owner/repo#123` */
   externalId: string;
   externalUrl: string;
-  repoId: string;
+  /** Local clone; absent when no clone matches the issue's repository ("no local clone"). */
+  repoId?: string;
   title: string;
   body: string;
   labels: string[];
@@ -20,6 +21,8 @@ export interface WorkItem {
   branch?: string;
   /** Claude `session_id`, for `--resume`. */
   agentSessionId?: string;
+  /** The issue was closed upstream while the item was not done. */
+  closedUpstream?: boolean;
   createdAt: string;
   updatedAt: string;
 }

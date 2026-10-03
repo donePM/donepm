@@ -1,0 +1,85 @@
+import { describe, expect, it } from "vitest";
+import type { Ctx } from "../ids.js";
+import { collect, externalIdOf, linkRepo, markClosedUpstream, refresh, type SourceIssue } from "./collect.js";
+import type { WorkItem } from "./types.js";
+
+function makeCtx(): Ctx {
+  let n = 0;
+  return { now: () => "2026-10-03T12:00:00.000Z", newId: () => `id-${++n}` };
+}
+
+const issue: SourceIssue = {
+  repository: "owner/repo",
+  number: 7,
+  url: "https://github.com/owner/repo/issues/7",
+  title: "Fix it",
+  body: "Body",
+  labels: ["bug"],
+};
+
+function existing(extra: Partial<WorkItem> = {}): WorkItem {
+  return { ...collect(issue, makeCtx(), { priority: 0 }).item, updatedAt: "2026-10-01T00:00:00.000Z", ...extra };
+}
+
+describe("externalIdOf", () => {
+  it("is owner/repo#number", () => {
+    expect(externalIdOf(issue)).toBe("owner/repo#7");
+  });
+});
+
+describe("collect", () => {
+  it("creates a ready item and an item.collected event", () => {
+    const { item, events } = collect(issue, makeCtx(), { priority: 3, repoId: "r-1" });
+    expect(item).toMatchObject({
+      id: "id-1", source: "github-issue", externalId: "owner/repo#7", externalUrl: issue.url, repoId: "r-1",
+      title: "Fix it", body: "Body", labels: ["bug"], state: "ready", playbook: "implement", priority: 3,
+    });
+    expect(events).toEqual([
+      {
+        id: "id-2", itemId: "id-1", at: "2026-10-03T12:00:00.000Z", actor: "system", type: "item.collected",
+        payload: { externalId: "owner/repo#7", url: issue.url },
+      },
+    ]);
+  });
+
+  it("leaves repoId absent without a local clone", () => {
+    expect(collect(issue, makeCtx(), { priority: 0 }).item).not.toHaveProperty("repoId");
+  });
+});
+
+describe("refresh", () => {
+  it("returns undefined when nothing changed", () => {
+    expect(refresh(existing(), issue, makeCtx())).toBeUndefined();
+  });
+
+  it("applies new title, body and labels without touching state", () => {
+    const next = refresh(existing({ state: "running" }), { ...issue, title: "New", labels: ["bug", "x"] }, makeCtx());
+    expect(next).toMatchObject({ title: "New", labels: ["bug", "x"], state: "running", updatedAt: "2026-10-03T12:00:00.000Z" });
+  });
+
+  it("clears closedUpstream when the issue is open again", () => {
+    const next = refresh(existing({ closedUpstream: true }), issue, makeCtx());
+    expect(next).toBeDefined();
+    expect(next).not.toHaveProperty("closedUpstream");
+  });
+});
+
+describe("markClosedUpstream", () => {
+  it("flags an open item", () => {
+    expect(markClosedUpstream(existing(), makeCtx())).toMatchObject({ closedUpstream: true });
+  });
+
+  it("ignores done and already flagged items", () => {
+    expect(markClosedUpstream(existing({ state: "done" }), makeCtx())).toBeUndefined();
+    expect(markClosedUpstream(existing({ closedUpstream: true }), makeCtx())).toBeUndefined();
+  });
+});
+
+describe("linkRepo", () => {
+  it("links, unlinks and reports no change", () => {
+    const linked = linkRepo(existing(), "r-1", makeCtx());
+    expect(linked?.repoId).toBe("r-1");
+    expect(linkRepo(linked!, "r-1", makeCtx())).toBeUndefined();
+    expect(linkRepo(linked!, undefined, makeCtx())).not.toHaveProperty("repoId");
+  });
+});
