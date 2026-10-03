@@ -407,6 +407,30 @@ notification). Treat as turn start. Do not fail.
 or `"behavior":"deny","message":"<text>"`. `request_id` must match. After answering: item back
 to `running`.
 
+"Allow for this run" (D30). The request's `permission_suggestions` holds `addRules` entries, for
+example `{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"curl *"}],"behavior":"allow","destination":"localSettings"}`.
+The daemon keeps the allow rules, drops any that would cover a blocked command or all of Bash, and
+offers a second button when any are left. Answering with it adds them for the session:
+
+```json
+{"behavior":"allow","updatedInput":<input>,"updatedPermissions":[{"type":"addRules","rules":[…],"behavior":"allow","destination":"session"}]}
+```
+
+`destination` is always `session`, whatever the suggestion said. The `permission.answered` event
+payload is `{ behavior, rules }`, with `rules` empty for a one-time answer.
+
+What asks and what does not (measured with `claude 2.1.288`):
+
+- A network ask (`SandboxNetworkAccess`) suggests `WebFetch(domain:<host>)`. Claude Code uses that
+  one rule for WebFetch and for the sandbox's network, so the UI says "web and network access to
+  <host>". After a plain allow, the CLI does not ask again for that host in the same session.
+- A sandboxed Bash command normally runs without an ask (`autoAllowBashIfSandboxed`). One that
+  Claude Code cannot check statically still asks, with `decision_reason` "A variable in this
+  command can't be checked before it runs" and no suggestions, so there is nothing to allow for
+  the run. If it connects somewhere, the network ask follows. Two asks for one `for … curl …/$r`
+  loop is Claude Code behaviour, not the user's hooks.
+- WebFetch asks per URL and suggests `WebFetch(domain:<host>)`.
+
 ### 9.5 Process lifecycle
 
 - One child process per running item.
