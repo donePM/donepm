@@ -84,6 +84,7 @@ async function agentDrafts(d: Daemon, spawn: ReturnType<typeof fakeProcesses>, d
   await get(d, `/api/items/${item.id}/start`, { method: "POST" });
   await vi.waitFor(() => expect(spawn.spawned).toHaveLength(1));
   const proc = spawn.last();
+  proc.emit({ type: "system", subtype: "init", session_id: "s1" });
 
   const configPath = proc.args[proc.args.indexOf("--mcp-config") + 1]!;
   const server = JSON.parse(await readFile(configPath, "utf8")).mcpServers.donepm;
@@ -510,6 +511,34 @@ describe("daemon", () => {
     expect((await get(d, `/api/drafts/${detail.drafts[0].id}/approve`, { method: "POST" })).status).toBe(409);
     stdin.end();
     await shim;
+  });
+
+  it("rejecting a pending draft after a restart resumes the session with the reason", async () => {
+    const h = await homeWithHistory();
+    const first = fakeProcesses();
+    let d = await start(h, undefined, undefined, first);
+    const { item, stdin, shim } = await agentDrafts(d, first);
+    stdin.end();
+    await shim;
+    const draftId = (await get(d, `/api/items/${item.id}`)).body.drafts[0].id;
+    await daemon!.stop();
+
+    const second = fakeProcesses();
+    daemon = undefined;
+    d = await start(h, undefined, undefined, second);
+    expect((await get(d, `/api/items/${item.id}`)).body.state).toBe("needs_you");
+    const res = await get(d, `/api/drafts/${draftId}/reject`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason: "Add a test" }),
+    });
+    expect(res).toMatchObject({ status: 200, body: { state: "rejected" } });
+    await vi.waitFor(() => expect(second.spawned).toHaveLength(1));
+    const proc = second.last();
+    expect(proc.args).toEqual(expect.arrayContaining(["--resume", "s1"]));
+    expect(proc.sent()[0].message.content[0].text).toContain("Add a test");
+    const after = (await get(d, `/api/items/${item.id}`)).body;
+    expect(after.state).toBe("running");
+    expect(after.drafts[0].state).toBe("rejected");
+    expect(after.events.map((e: any) => e.type).slice(-1)).toEqual(["draft.rejected"]);
   });
 
   it("draft_pr end to end: the agent's MCP call makes a pending draft, the user edits and rejects it", async () => {

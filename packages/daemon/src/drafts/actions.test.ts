@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { draftStores } from "../test-support/draft-stores.js";
-import { createPrDraft, DraftError, editDraft, rejectDraft, rejectionMessage } from "./actions.js";
+import { createPrDraft, DraftError, editDraft, rejectDraft, rejectionMessage, type RejectDeps } from "./actions.js";
 
 describe("createPrDraft", () => {
   it("stores a pending PR draft against the default branch and moves the item to needs_you", () => {
@@ -45,11 +45,15 @@ describe("editDraft", () => {
 });
 
 describe("rejectDraft", () => {
-  it("rejects, runs the item again and tells the agent why", () => {
+  const noResume = async () => {
+    throw new Error("unexpected resume");
+  };
+
+  it("rejects, runs the item again and tells the agent why", async () => {
     const t = draftStores();
     const said: string[] = [];
     const d = createPrDraft(t.deps, "item-1", { title: "A", body: "" });
-    rejectDraft({ ...t.deps, agentAlive: () => true, say: (_id, text) => said.push(text) }, d.id, "Add tests");
+    await rejectDraft({ ...t.deps, agentAlive: () => true, say: (_id, text) => said.push(text), resume: noResume }, d.id, "Add tests");
     expect(t.drafts.get(d.id)!.state).toBe("rejected");
     expect(t.state()).toBe("running");
     expect(t.events.forItem("item-1").at(-1)).toMatchObject({ type: "draft.rejected", actor: "user", payload: { reason: "Add tests" } });
@@ -57,10 +61,28 @@ describe("rejectDraft", () => {
     expect(said[0]).toContain("Add tests");
   });
 
-  it("refuses when no agent is there to hear it, changing nothing", () => {
+  it("resumes the session with the rejection as its first message when the agent is gone", async () => {
     const t = draftStores();
     const d = createPrDraft(t.deps, "item-1", { title: "A", body: "" });
-    expect(() => rejectDraft({ ...t.deps, agentAlive: () => false, say: () => {} }, d.id, undefined)).toThrow(/not running/);
+    const prompts: string[] = [];
+    const resume: RejectDeps["resume"] = async (itemId, how) => {
+      t.deps.writer.commit(how.transition(t.deps.items.get(itemId)!.item, t.deps.ctx));
+      prompts.push(how.prompt);
+    };
+    await rejectDraft({ ...t.deps, agentAlive: () => false, say: () => {}, resume }, d.id, "Add tests");
+    expect(prompts).toEqual([rejectionMessage("Add tests")]);
+    expect(t.drafts.get(d.id)!.state).toBe("rejected");
+    expect(t.state()).toBe("running");
+    expect(t.types().at(-1)).toBe("draft.rejected");
+  });
+
+  it("changes nothing when the session cannot resume", async () => {
+    const t = draftStores();
+    const d = createPrDraft(t.deps, "item-1", { title: "A", body: "" });
+    const resume = async () => {
+      throw new Error("no agent session to resume");
+    };
+    await expect(rejectDraft({ ...t.deps, agentAlive: () => false, say: () => {}, resume }, d.id, undefined)).rejects.toThrow(/no agent session/);
     expect(t.drafts.get(d.id)!.state).toBe("pending");
     expect(t.state()).toBe("needs_you");
   });

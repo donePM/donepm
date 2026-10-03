@@ -2,6 +2,7 @@ import {
   draftCreated, draftEdited, draftRejected,
   type Ctx, type Draft, type PrDraftPayload, type WorkItem,
 } from "@donepm/core";
+import type { ResumeHow } from "../agent/start.js";
 import type { ItemWriter } from "../items/commit.js";
 import type { ItemStore } from "../items/store.js";
 import type { RepoStore } from "../repos/store.js";
@@ -59,22 +60,33 @@ export function editDraft(deps: DraftDeps, draftId: string, edits: Partial<PrDra
   return { ...draft, userEdits };
 }
 
+export interface RejectDeps extends DraftDeps {
+  agentAlive: (itemId: string) => boolean;
+  say: (itemId: string, text: string) => void;
+  /** Starts the agent again with `--resume`, committing `transition` and sending `prompt` first. */
+  resume: (itemId: string, how: ResumeHow) => Promise<unknown>;
+}
+
 /**
- * The user rejected a pending draft. The item runs again and `say` sends the reason to the agent
- * as its next message. Throws DraftError(409) when no agent is there to hear it.
+ * The user rejected a pending draft. The item runs again and the reason reaches the agent as its
+ * next message: through `say` while the process lives, else as the first message of a resumed
+ * session (e.g. after a daemon restart). Resume errors (no session, no worktree) pass through.
  */
-export function rejectDraft(
-  deps: DraftDeps & { agentAlive: (itemId: string) => boolean; say: (itemId: string, text: string) => void },
-  draftId: string,
-  reason: string | undefined,
-): Draft {
+export async function rejectDraft(deps: RejectDeps, draftId: string, reason: string | undefined): Promise<Draft> {
   const draft = pendingDraft(deps, draftId);
   const item = itemOf(deps, draft.itemId);
-  if (!deps.agentAlive(item.id)) throw new DraftError(409, "the agent for this item is not running");
-  const t = draftRejected(item, deps.ctx, draft.id, reason);
-  deps.drafts.setState(draft.id, "rejected", deps.ctx.now());
-  deps.writer.commit(t);
-  deps.say(item.id, rejectionMessage(reason));
+  const message = rejectionMessage(reason);
+  const transition = (current: WorkItem, ctx: Ctx) => {
+    const t = draftRejected(current, ctx, draft.id, reason);
+    deps.drafts.setState(draft.id, "rejected", ctx.now());
+    return t;
+  };
+  if (deps.agentAlive(item.id)) {
+    deps.writer.commit(transition(item, deps.ctx));
+    deps.say(item.id, message);
+  } else {
+    await deps.resume(item.id, { transition, prompt: message });
+  }
   return { ...draft, state: "rejected" };
 }
 

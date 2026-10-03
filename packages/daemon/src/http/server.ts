@@ -56,7 +56,8 @@ export interface ServerDeps {
   /** Throws DraftError. */
   editDraft: (id: string, edits: Partial<PrDraftPayload>) => Draft;
   /** Throws DraftError. The reason goes to the agent as its next message. */
-  rejectDraft: (id: string, reason: string | undefined) => Draft;
+  /** Throws DraftError, or StartError when the agent is gone and its session cannot resume. */
+  rejectDraft: (id: string, reason: string | undefined) => Promise<Draft>;
   /** Throws DraftError before, ExecutionError after anything ran. Resolves once the PR exists. */
   approveDraft: (id: string) => Promise<Draft>;
   /** Branch against base, committed and uncommitted. Rejects with DiffError. */
@@ -106,11 +107,11 @@ const DraftRejectSchema = z.object({ reason: z.string().optional() }).strict();
 /** Partial update; unknown keys are rejected. */
 const SettingsPatch = ConfigSchema.partial().strict();
 
-function draftCall(reply: FastifyReply, fn: () => Draft) {
+async function draftCall(reply: FastifyReply, fn: () => Draft | Promise<Draft>) {
   try {
-    return fn();
+    return await fn();
   } catch (e) {
-    if (e instanceof DraftError) return reply.code(e.status).send({ error: e.message });
+    if (e instanceof DraftError || e instanceof StartError) return reply.code(e.status).send({ error: e.message });
     throw e;
   }
 }

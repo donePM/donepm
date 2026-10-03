@@ -7,7 +7,8 @@ import type { Draft, PrDraftPayload } from "../api/types";
 const props = defineProps<{
   draft: Draft;
   createdAt?: string;
-  agentRunning: boolean;
+  /** A live agent hears the reason now; a stored session is resumed with it. */
+  canReject: boolean;
   /** Why publishing failed last time; approving again retries. */
   publishError?: string;
 }>();
@@ -106,8 +107,8 @@ const reject = () => run(async () => {
       <button
         class="btn"
         type="button"
-        :disabled="busy || publishing || !agentRunning"
-        :title="agentRunning ? undefined : 'The agent is not running, nobody would read the reason'"
+        :disabled="busy || publishing || !canReject"
+        :title="canReject ? undefined : 'The agent never started a session, nobody would read the reason'"
         @click="rejecting = true"
       >
         Reject with reason…

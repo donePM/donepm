@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import {
   agentFailed, placeholderValues, renderPlaybookBody, resume, selectPlaybook, start,
-  type Ctx, type Playbook, type TranscriptMessage, type WorkItem,
+  type Ctx, type Playbook, type Transition, type TranscriptMessage, type WorkItem,
 } from "@donepm/core";
 import type { ItemWriter } from "../items/commit.js";
 import type { ItemStore } from "../items/store.js";
@@ -65,11 +65,24 @@ export async function startItem(deps: StartDeps, itemId: string): Promise<{ item
   return { item: running, done };
 }
 
+/** How a resumed session starts: the transition to `running` and the first message. */
+export interface ResumeHow {
+  transition: (item: WorkItem, ctx: Ctx) => Transition;
+  prompt: string;
+}
+
+const PLAIN_RESUME: ResumeHow = { transition: resume, prompt: RESUME_PROMPT };
+
 /**
  * Resume a waiting item whose process is gone, e.g. after a daemon restart (spec 9.5): `--resume`
  * with the stored session in the existing worktree, and a short message instead of the playbook.
+ * A rejected draft passes its own transition and the rejection as the message.
  */
-export async function resumeItem(deps: StartDeps, itemId: string): Promise<{ item: WorkItem; done: Promise<void> }> {
+export async function resumeItem(
+  deps: StartDeps,
+  itemId: string,
+  how: ResumeHow = PLAIN_RESUME,
+): Promise<{ item: WorkItem; done: Promise<void> }> {
   const stored = deps.items.get(itemId);
   if (!stored) throw new StartError(404, "item not found");
   const { item } = stored;
@@ -79,9 +92,15 @@ export async function resumeItem(deps: StartDeps, itemId: string): Promise<{ ite
   if (!item.worktreePath || !existsSync(item.worktreePath)) throw new StartError(409, "the item has no worktree");
   const playbook = await playbookFor(deps, item);
   const slot = reserve(deps, item.id);
-  const running = deps.writer.commit(resume(item, deps.ctx));
+  let running: WorkItem;
+  try {
+    running = deps.writer.commit(how.transition(item, deps.ctx));
+  } catch (e) {
+    slot.release();
+    throw e;
+  }
   const done = deps.runner
-    .launch({ item: running, playbook, cwd: item.worktreePath, prompt: RESUME_PROMPT, resumeSessionId: item.agentSessionId })
+    .launch({ item: running, playbook, cwd: item.worktreePath, prompt: how.prompt, resumeSessionId: item.agentSessionId })
     .catch((e: unknown) => fail(deps, itemId, (e as Error).message))
     .finally(() => slot.release());
   return { item: running, done };
