@@ -7,9 +7,10 @@ import type { ItemView } from "../api/types";
 import AskPanel from "../asks/AskPanel.vue";
 import { diffFiles, diffStats, type DiffStats } from "../diff/files";
 import { clock } from "../time/duration";
-import { columnOf, displayId, labelTone } from "./columns";
+import { columnOf, displayId, labelTone, shortId } from "./columns";
 
-const props = defineProps<{ item: ItemView; repoRoot?: string; now: number }>();
+/** `hideRepo`: the lane already names the repo, so the id shows only the number. */
+const props = defineProps<{ item: ItemView; repoRoot?: string; now: number; hideRepo?: boolean }>();
 
 const noClone = computed(() => props.item.badges.includes("no-local-clone"));
 const closedUpstream = computed(() => props.item.badges.includes("closed-upstream"));
@@ -84,7 +85,14 @@ async function act(fn: (id: string) => Promise<void>) {
 <template>
   <article class="card" :class="[`in-${column}`, { muted: noClone }]">
     <div class="meta mono">
-      <a :href="item.externalUrl" target="_blank" rel="noreferrer" class="ext">{{ displayId(item.externalId) }}</a>
+      <a
+        :href="item.externalUrl"
+        target="_blank"
+        rel="noreferrer"
+        class="ext"
+        :title="hideRepo ? displayId(item.externalId) : undefined"
+        :aria-label="hideRepo ? displayId(item.externalId) : undefined"
+      >{{ hideRepo ? shortId(item.externalId) : displayId(item.externalId) }}</a>
       <span v-if="item.state === 'running'" class="live"><span class="dot dot-ok" aria-hidden="true"></span>running<template v-if="elapsed"> · {{ elapsed }}</template></span>
       <span v-else-if="flag" class="flag">{{ flag }}</span>
       <span v-else-if="column === 'needs_you' && !noClone" class="playbook" title="Playbook">{{ item.playbook }}</span>
