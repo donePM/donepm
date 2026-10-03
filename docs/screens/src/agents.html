@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>donePM Agents</title>
+
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0}
+a{color:#1D4ED8}a:hover{color:#1E40AF}
+</style>
+</helmet>
+<div style="min-height: 860px; box-sizing: border-box; background: #ECECE8; color: #141413; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column">
+
+  <header style="display: flex; align-items: center; gap: 24px; padding: 0 24px; height: 52px; background: #FFFFFF; border-bottom: 1px solid #C9C9C3; flex-wrap: wrap">
+    <div style="display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px">
+      <span style="display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: #1D4ED8"></span>
+      donePM
+    </div>
+    <nav style="display: flex; gap: 4px">
+      <a href="board.html" style="padding: 6px 12px; border-radius: 6px; color: #3F3F3A; text-decoration: none">Board</a>
+      <a href="agents.html" style="padding: 6px 12px; border-radius: 6px; background: #E3E3DE; color: #141413; text-decoration: none; font-weight: 500">Agents</a>
+      <a href="settings.html" style="padding: 6px 12px; border-radius: 6px; color: #3F3F3A; text-decoration: none">Settings</a>
+    </nav>
+    <div style="margin-left: auto; font-size: 13px; color: #3F3F3A">1 of 1 slots in use · today $2.14</div>
+  </header>
+
+  <main style="flex: 1; display: flex; flex-wrap: wrap; align-items: stretch">
+
+    <!-- Agent list -->
+    <aside style="flex: 1 1 280px; max-width: 340px; min-width: 0; background: #FFFFFF; border-right: 1px solid #C9C9C3; display: flex; flex-direction: column">
+      <div style="padding: 14px 16px 8px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #3F3F3A">Running</div>
+      <a href="agents.html" style="display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; background: #DBEAFE; border-left: 3px solid #1D4ED8; text-decoration: none; color: #141413">
+        <span style="font-size: 12px; color: #3F3F3A; font-family: 'JetBrains Mono', monospace">laravel-pergament #45</span>
+        <span style="font-weight: 500; line-height: 1.35">Migrate config publishing to Laravel 13 conventions</span>
+        <span style="font-size: 12px; color: #1D4ED8; display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #1D4ED8; display: inline-block"></span>running · 6:12 · $0.41</span>
+      </a>
+
+      <div style="padding: 18px 16px 8px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #3F3F3A">Waiting for you</div>
+      <a href="draft.html" style="display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; border-left: 3px solid transparent; text-decoration: none; color: #141413">
+        <span style="font-size: 12px; color: #3F3F3A; font-family: 'JetBrains Mono', monospace">laravel-pergament #41</span>
+        <span style="font-weight: 500; line-height: 1.35">Throw a typed exception when the storage disk is missing</span>
+        <span style="font-size: 12px; color: #A14A05">PR draft pending · $0.86</span>
+      </a>
+      <a href="board.html" style="display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; border-left: 3px solid transparent; text-decoration: none; color: #141413">
+        <span style="font-size: 12px; color: #3F3F3A; font-family: 'JetBrains Mono', monospace">beacon #5</span>
+        <span style="font-weight: 500; line-height: 1.35">Replace deprecated carbon calls</span>
+        <span style="font-size: 12px; color: #A14A05">permission: composer update · $0.22</span>
+      </a>
+
+      <div style="padding: 18px 16px 8px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #3F3F3A">Finished today</div>
+      <a href="board.html" style="display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; border-left: 3px solid transparent; text-decoration: none; color: #3F3F3A">
+        <span style="font-size: 12px; font-family: 'JetBrains Mono', monospace">laravel-pergament #40</span>
+        <span style="line-height: 1.35">Document the `pergament:prune` command</span>
+        <span style="font-size: 12px; color: #66665F">PR #46 created · $0.65</span>
+      </a>
+    </aside>
+
+    <!-- Transcript -->
+    <section style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+      <div style="display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid #C9C9C3; background: #FFFFFF; flex-wrap: wrap">
+        <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+          <span style="font-weight: 600">laravel-pergament #45 · Migrate config publishing to Laravel 13 conventions</span>
+          <span style="font-size: 12px; color: #3F3F3A; font-family: 'JetBrains Mono', monospace">dp/45-migrate-config-publishing · implement · opus · acceptEdits · session 7f3a…</span>
+        </div>
+        <div style="margin-left: auto; display: flex; gap: 8px">
+          <a href="board.html" style="height: 32px; display: inline-flex; align-items: center; padding: 0 12px; border: 1px solid #B5B5AE; border-radius: 6px; text-decoration: none; color: #141413; background: #fff">Card</a>
+          <button style="height: 32px; padding: 0 12px; border: 1px solid #B5B5AE; border-radius: 6px; background: #fff; font: inherit; color: #991B1B; cursor: pointer">Stop</button>
+        </div>
+      </div>
+
+      <div style="flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto">
+
+        <!-- user / task -->
+        <div style="display: flex; gap: 12px">
+          <span style="flex-shrink: 0; width: 56px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #66665F; padding-top: 3px">Task</span>
+          <div style="flex: 1; min-width: 0; background: #FFFFFF; border: 1px solid #C9C9C3; border-radius: 8px; padding: 12px 14px; line-height: 1.5; color: #3F3F3A">
+            You are working on a GitHub issue in a dedicated git worktree. Issue rokde/laravel-pergament#45: Migrate config publishing to Laravel 13 conventions …
+            <button style="margin-left: 6px; border: 0; background: none; color: #1D4ED8; font: inherit; font-size: 13px; cursor: pointer; padding: 0">show all</button>
+          </div>
+        </div>
+
+        <!-- thinking collapsed -->
+        <div style="display: flex; gap: 12px">
+          <span style="flex-shrink: 0; width: 56px"></span>
+          <button style="border: 0; background: none; padding: 0; font: inherit; font-size: 13px; color: #66665F; cursor: pointer; text-align: left">▸ Thinking · 4 s</button>
+        </div>
+
+        <!-- assistant text -->
+        <div style="display: flex; gap: 12px">
+          <span style="flex-shrink: 0; width: 56px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #1D4ED8; padding-top: 3px">Agent</span>
+          <div style="flex: 1; min-width: 0; line-height: 1.55">
+            I'll start by reading CLAUDE.md and the current service provider to see how config is published today.
+          </div>
+        </div>
+
+        <!-- tool use collapsed -->
+        <div style="display: flex; gap: 12px">
+          <span style="flex-shrink: 0; width: 56px"></span>
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 12px">
+            <div style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid #C9C9C3; border-radius: 6px; background: #FFFFFF; color: #3F3F3A"><span style="color: #66665F">▸ Read</span> CLAUDE.md <span style="margin-left: auto; color: #66665F">41 lines</span></div>
+            <div style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid #C9C9C3; border-radius: 6px; background: #FFFFFF; color: #3F3F3A"><span style="color: #66665F">▸ Read</span> src/PergamentServiceProvider.php <span style="margin-left: auto; color: #66665F">88 lines</span></div>
+            <div style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid #C9C9C3; border-radius: 6px; background: #FFFFFF; color: #3F3F3A"><span style="color: #66665F">▸ Grep</span> publishes( <span style="margin-left: auto; color: #66665F">3 matches</span></div>
+          </div>
+        </div>
+
+        <!-- assistant text -->
+        <div style="display: flex; gap: 12px">
+          <span style="flex-shrink: 0; width: 56px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #1D4ED8; padding-top: 3px">Agent</span>
+          <div style="flex: 1; min-width: 0; line-height: 1.55">
+            The provider still uses a single <code style="font-family: 'JetBrains Mono', monospace; font-size: 12px; background: #E3E3DE; padding: 1px 5px; border-radius: 4px">publishes()</code> call with the <code style="font-family: 'JetBrains Mono', monospace; font-size: 12px; background: #E3E3DE; padding: 1px 5px; border-radius: 4px">config</code> tag. Laravel 13 expects <code style="font-family: 'JetBrains Mono', monospace; font-size: 12px; background: #E3E3DE; padding: 1px 5px; border-radius: 4px">publishesMigrations()</code> for migrations and separate tags per asset type. I'll split the calls and keep the old tag as an alias so existing projects don't break.
+          </div>
+        </div>
+
+        <!-- edit tool expanded -->
+        <div style="display: flex; gap: 12px">
+          <span style="flex-shrink: 0; width: 56px"></span>
+          <div style="flex: 1; min-width: 0; border: 1px solid #C9C9C3; border-radius: 6px; background: #FFFFFF; overflow: hidden; font-family: 'JetBrains Mono', monospace; font-size: 12px">
+            <div style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; color: #3F3F3A; border-bottom: 1px solid #E3E3DE"><span style="color: #66665F">▾ Edit</span> src/PergamentServiceProvider.php</div>
+            <pre style="margin: 0; padding: 8px 0; line-height: 1.6; overflow-x: auto"><span style="display: block; padding: 0 12px; background: #FBDDDD">-        $this-&gt;publishes([__DIR__.'/../config/pergament.php' =&gt; config_path('pergament.php')], 'config');</span><span style="display: block; padding: 0 12px; background: #DCFCE7">+        $this-&gt;publishes([__DIR__.'/../config/pergament.php' =&gt; config_path('pergament.php')], ['pergament-config', 'config']);</span><span style="display: block; padding: 0 12px; background: #DCFCE7">+        $this-&gt;publishesMigrations([__DIR__.'/../database/migrations' =&gt; database_path('migrations')], 'pergament-migrations');</span></pre>
+          </div>
+        </div>
+
+        <!-- running tool -->
+        <div style="display: flex; gap: 12px">
+          <span style="flex-shrink: 0; width: 56px"></span>
+          <div style="flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid #1D4ED8; border-radius: 6px; background: #FFFFFF; color: #3F3F3A; font-family: 'JetBrains Mono', monospace; font-size: 12px">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background: #1D4ED8; display: inline-block; flex-shrink: 0"></span>
+            <span style="color: #66665F">Bash</span> php artisan test --filter=Config
+            <span style="margin-left: auto; color: #66665F">running · 14 s</span>
+          </div>
+        </div>
+
+        <!-- live text -->
+        <div style="display: flex; gap: 12px">
+          <span style="flex-shrink: 0; width: 56px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #1D4ED8; padding-top: 3px">Agent</span>
+          <div style="flex: 1; min-width: 0; line-height: 1.55; color: #3F3F3A">
+            Running the config tests to confirm the alias still<span style="display: inline-block; width: 8px; height: 14px; background: #1D4ED8; vertical-align: text-bottom; margin-left: 2px"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- composer: only for answering -->
+      <div style="padding: 12px 20px; border-top: 1px solid #C9C9C3; background: #FFFFFF; display: flex; gap: 8px; align-items: center">
+        <label for="reply" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Message to agent</label>
+        <input id="reply" placeholder="Send a note to the agent (joins the running turn)…" style="flex: 1; height: 36px; border: 1px solid #B5B5AE; border-radius: 6px; padding: 0 10px; font: inherit; background: #fff">
+        <button style="height: 36px; padding: 0 14px; border: 1px solid #B5B5AE; border-radius: 6px; background: #fff; font: inherit; color: #141413; cursor: pointer">Send</button>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":860}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

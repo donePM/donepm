@@ -430,9 +430,8 @@ WebSocket `/ws`: server pushes `{ type, payload }` for `item.updated`, `event.ap
 
 ## 12. UI
 
-Vue 3. Three views. Mockups of all four screens (board, PR draft, agents, settings) are in
-the design canvas "donePM MVP Screens" (claude.ai, private). Export screenshots to
-`docs/screens/` when the look is final. Palette: ground `#ECECE8`, card `#FFFFFF`, ink `#141413`,
+Vue 3. Three views. Mockups of all four screens are in `docs/screens/` (PNG plus HTML sources, see
+its README). Palette: ground `#ECECE8`, card `#FFFFFF`, ink `#141413`,
 secondary text `#3F3F3A` / `#66665F`, borders `#C9C9C3` / `#E3E3DE`, primary blue `#1D4ED8`
 (tint `#DBEAFE`), needs-you amber `#A14A05` (tint `#FFF3DA`), danger `#991B1B`, diff add `#DCFCE7`,
 diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.

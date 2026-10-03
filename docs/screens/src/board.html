@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>donePM Board</title>
+
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0}
+a{color:#1D4ED8}a:hover{color:#1E40AF}
+</style>
+</helmet>
+<div style="min-height: 860px; box-sizing: border-box; background: #ECECE8; color: #141413; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column">
+
+  <!-- Top bar -->
+  <header style="display: flex; align-items: center; gap: 24px; padding: 0 24px; height: 52px; background: #FFFFFF; border-bottom: 1px solid #C9C9C3; flex-wrap: wrap">
+    <div style="display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px">
+      <span style="display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: #1D4ED8"></span>
+      donePM
+    </div>
+    <nav style="display: flex; gap: 4px">
+      <a href="board.html" style="padding: 6px 12px; border-radius: 6px; background: #E3E3DE; color: #141413; text-decoration: none; font-weight: 500">Board</a>
+      <a href="agents.html" style="padding: 6px 12px; border-radius: 6px; color: #3F3F3A; text-decoration: none">Agents <span style="margin-left: 6px; padding: 1px 6px; border-radius: 10px; background: #1D4ED8; color: #fff; font-size: 11px">1</span></a>
+      <a href="settings.html" style="padding: 6px 12px; border-radius: 6px; color: #3F3F3A; text-decoration: none">Settings</a>
+    </nav>
+    <div style="margin-left: auto; display: flex; align-items: center; gap: 16px; color: #3F3F3A; font-size: 13px">
+      <span style="display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #1D4ED8; display: inline-block"></span>gh ready</span>
+      <span style="display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #1D4ED8; display: inline-block"></span>claude 2.1</span>
+      <span>polled 12 s ago</span>
+    </div>
+  </header>
+
+  <!-- Board -->
+  <main style="flex: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; padding: 20px 24px; align-items: start">
+
+    <!-- Ready -->
+    <section style="display: flex; flex-direction: column; gap: 10px; min-width: 0">
+      <div style="display: flex; align-items: baseline; gap: 8px; padding: 0 4px 6px">
+        <h2 style="margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #3F3F3A">Ready</h2>
+        <span style="font-size: 12px; color: #66665F">4</span>
+      </div>
+
+      <article style="background: #FFFFFF; border: 1px solid #C9C9C3; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: #66665F; font-family: 'JetBrains Mono', monospace">
+          <span>rokde/laravel-pergament #42</span>
+        </div>
+        <h3 style="margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4">Soft deletes are not respected by the search index</h3>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap">
+          <span style="font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #FBDDDD; color: #991B1B">bug</span>
+          <span style="font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #E3E3DE; color: #3F3F3A">search</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px">
+          <label for="pb42" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Playbook</label>
+          <select id="pb42" style="flex: 1; min-width: 0; height: 32px; border: 1px solid #B5B5AE; border-radius: 6px; background: #fff; padding: 0 8px; font: inherit; font-size: 13px; color: #141413">
+            <option>implement</option>
+          </select>
+          <button style="height: 32px; padding: 0 14px; border: 0; border-radius: 6px; background: #1D4ED8; color: #fff; font: inherit; font-weight: 500; cursor: pointer">Start</button>
+        </div>
+      </article>
+
+      <article style="background: #FFFFFF; border: 1px solid #C9C9C3; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+        <div style="font-size: 12px; color: #66665F; font-family: 'JetBrains Mono', monospace">rokde/laravel-pergament #39</div>
+        <h3 style="margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4">Add `--dry-run` flag to the reindex command</h3>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap">
+          <span style="font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #DBEAFE; color: #1D4ED8">feature</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px">
+          <label for="pb39" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Playbook</label>
+          <select id="pb39" style="flex: 1; min-width: 0; height: 32px; border: 1px solid #B5B5AE; border-radius: 6px; background: #fff; padding: 0 8px; font: inherit; font-size: 13px; color: #141413">
+            <option>implement</option>
+          </select>
+          <button style="height: 32px; padding: 0 14px; border: 0; border-radius: 6px; background: #1D4ED8; color: #fff; font: inherit; font-weight: 500; cursor: pointer">Start</button>
+        </div>
+      </article>
+
+      <article style="background: #FFFFFF; border: 1px solid #C9C9C3; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+        <div style="font-size: 12px; color: #66665F; font-family: 'JetBrains Mono', monospace">rokde/beacon #7</div>
+        <h3 style="margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4">KPI widgets should cache for 60 s by default</h3>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap">
+          <span style="font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #DBEAFE; color: #1D4ED8">feature</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px">
+          <label for="pb7" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Playbook</label>
+          <select id="pb7" style="flex: 1; min-width: 0; height: 32px; border: 1px solid #B5B5AE; border-radius: 6px; background: #fff; padding: 0 8px; font: inherit; font-size: 13px; color: #141413">
+            <option>implement</option>
+          </select>
+          <button style="height: 32px; padding: 0 14px; border: 0; border-radius: 6px; background: #1D4ED8; color: #fff; font: inherit; font-weight: 500; cursor: pointer">Start</button>
+        </div>
+      </article>
+
+      <article style="background: #F5F5F2; border: 1px dashed #B5B5AE; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px; color: #66665F">
+        <div style="font-size: 12px; font-family: 'JetBrains Mono', monospace">someorg/legacy-api #118</div>
+        <h3 style="margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; color: #3F3F3A">Rate limiter returns 500 instead of 429</h3>
+        <div style="display: flex; align-items: center; gap: 6px; font-size: 12px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v4m0 4h.01"></path></svg>
+          No local clone under ~/Code
+        </div>
+      </article>
+    </section>
+
+    <!-- In Progress -->
+    <section style="display: flex; flex-direction: column; gap: 10px; min-width: 0">
+      <div style="display: flex; align-items: baseline; gap: 8px; padding: 0 4px 6px">
+        <h2 style="margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #3F3F3A">In Progress</h2>
+        <span style="font-size: 12px; color: #66665F">1 / 1</span>
+      </div>
+
+      <article style="background: #FFFFFF; border: 1px solid #1D4ED8; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: #66665F; font-family: 'JetBrains Mono', monospace">
+          <span>rokde/laravel-pergament #45</span>
+          <span style="display: flex; align-items: center; gap: 6px; color: #1D4ED8"><span style="width: 8px; height: 8px; border-radius: 50%; background: #1D4ED8; display: inline-block"></span>running · 6:12</span>
+        </div>
+        <h3 style="margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4">Migrate config publishing to Laravel 13 conventions</h3>
+        <div style="font-size: 12px; color: #3F3F3A; display: flex; flex-direction: column; gap: 4px; font-family: 'JetBrains Mono', monospace">
+          <span>dp/45-migrate-config-publishing</span>
+          <span style="color: #66665F">Bash · php artisan test --filter=Config</span>
+        </div>
+        <div style="display: flex; gap: 8px; margin-top: 4px">
+          <a href="agents.html" style="height: 32px; display: inline-flex; align-items: center; padding: 0 12px; border: 1px solid #B5B5AE; border-radius: 6px; color: #141413; text-decoration: none; font-weight: 500">Transcript</a>
+          <button style="height: 32px; padding: 0 12px; border: 1px solid #B5B5AE; border-radius: 6px; background: #fff; font: inherit; color: #991B1B; cursor: pointer">Stop</button>
+        </div>
+      </article>
+    </section>
+
+    <!-- Needs You -->
+    <section style="display: flex; flex-direction: column; gap: 10px; min-width: 0">
+      <div style="display: flex; align-items: baseline; gap: 8px; padding: 0 4px 6px">
+        <h2 style="margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #A14A05">Needs You</h2>
+        <span style="font-size: 12px; color: #66665F">2</span>
+      </div>
+
+      <article style="background: #FFF3DA; border: 1px solid #D29B2E; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: #66665F; font-family: 'JetBrains Mono', monospace">
+          <span>rokde/laravel-pergament #41</span>
+          <span style="color: #A14A05; font-family: 'IBM Plex Sans', sans-serif; font-weight: 500">PR draft</span>
+        </div>
+        <h3 style="margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4">Throw a typed exception when the storage disk is missing</h3>
+        <div style="font-size: 12px; color: #3F3F3A; font-family: 'JetBrains Mono', monospace">+84 −12 · 5 files · 2 commits</div>
+        <div style="display: flex; gap: 8px; margin-top: 4px">
+          <a href="draft.html" style="height: 32px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 6px; background: #A14A05; color: #fff; text-decoration: none; font-weight: 500">Review draft</a>
+        </div>
+      </article>
+
+      <article style="background: #FFF3DA; border: 1px solid #D29B2E; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: #66665F; font-family: 'JetBrains Mono', monospace">
+          <span>rokde/beacon #5</span>
+          <span style="color: #A14A05; font-family: 'IBM Plex Sans', sans-serif; font-weight: 500">Permission</span>
+        </div>
+        <h3 style="margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4">Replace deprecated carbon calls</h3>
+        <div style="background: #141413; color: #E8E8E3; border-radius: 6px; padding: 10px 12px; font-size: 12px; font-family: 'JetBrains Mono', monospace; line-height: 1.5; overflow-x: auto">
+          <span style="color: #66665F">Bash</span><br>composer update nesbot/carbon --with-all-dependencies
+        </div>
+        <div style="display: flex; gap: 8px; margin-top: 4px">
+          <button style="height: 32px; padding: 0 14px; border: 0; border-radius: 6px; background: #1D4ED8; color: #fff; font: inherit; font-weight: 500; cursor: pointer">Allow</button>
+          <button style="height: 32px; padding: 0 14px; border: 1px solid #B5B5AE; border-radius: 6px; background: #fff; font: inherit; color: #141413; cursor: pointer">Deny…</button>
+        </div>
+      </article>
+    </section>
+
+    <!-- Done -->
+    <section style="display: flex; flex-direction: column; gap: 10px; min-width: 0">
+      <div style="display: flex; align-items: baseline; gap: 8px; padding: 0 4px 6px">
+        <h2 style="margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #3F3F3A">Done</h2>
+        <span style="font-size: 12px; color: #66665F">3 this week</span>
+      </div>
+
+      <article style="background: #FFFFFF; border: 1px solid #C9C9C3; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+        <div style="font-size: 12px; color: #66665F; font-family: 'JetBrains Mono', monospace">rokde/laravel-pergament #40</div>
+        <h3 style="margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; color: #3F3F3A">Document the `pergament:prune` command</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px">
+          <a href="https://github.com" style="text-decoration: none; font-family: 'JetBrains Mono', monospace">PR #46 ↗</a>
+          <button style="height: 28px; padding: 0 10px; border: 1px solid #B5B5AE; border-radius: 6px; background: #fff; font: inherit; font-size: 12px; color: #3F3F3A; cursor: pointer">Remove worktree</button>
+        </div>
+      </article>
+
+      <article style="background: #FFFFFF; border: 1px solid #C9C9C3; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+        <div style="font-size: 12px; color: #66665F; font-family: 'JetBrains Mono', monospace">rokde/beacon #3</div>
+        <h3 style="margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; color: #3F3F3A">Fix failing test on PHP 8.4</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px">
+          <a href="https://github.com" style="text-decoration: none; font-family: 'JetBrains Mono', monospace">PR #4 ↗</a>
+          <span style="color: #66665F">worktree removed</span>
+        </div>
+      </article>
+
+      <article style="background: #FFFFFF; border: 1px solid #C9C9C3; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+        <div style="font-size: 12px; color: #66665F; font-family: 'JetBrains Mono', monospace">rokde/laravel-pergament #38</div>
+        <h3 style="margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; color: #3F3F3A">Support PostgreSQL full-text search</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px">
+          <a href="https://github.com" style="text-decoration: none; font-family: 'JetBrains Mono', monospace">PR #43 ↗</a>
+          <span style="color: #66665F">worktree removed</span>
+        </div>
+      </article>
+    </section>
+
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":860}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
