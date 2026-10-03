@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { setTimeout as sleep } from "node:timers/promises";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -18,12 +19,22 @@ Commands:
   install-service    start donePM now and at every login (launchd)
   uninstall-service  remove the launchd job
 
+Options:
+  -h, --help         show this help
+  -v, --version      print the version
+
 DONEPM_HOME relocates config and data (default: your home directory).`;
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
-  options: { help: { type: "boolean", short: "h" } },
+  options: { help: { type: "boolean", short: "h" }, version: { type: "boolean", short: "v" } },
 });
+
+if (values.version) {
+  const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
+  console.log(version);
+  process.exit(0);
+}
 
 const command = positionals[0];
 if (values.help || !command) {
@@ -42,7 +53,9 @@ const deps: LifecycleDeps = {
   out: (line) => console.log(line),
   err: (line) => console.error(line),
 };
-const daemonEntry = fileURLToPath(import.meta.resolve("@donepm/daemon"));
+// Homebrew sets both to its stable `opt` paths, so the launchd job survives `brew upgrade`.
+const daemonEntry = process.env.DONEPM_DAEMON_ENTRY ?? fileURLToPath(import.meta.resolve("@donepm/daemon"));
+const nodePath = process.env.DONEPM_NODE ?? process.execPath;
 
 function serviceDeps(): ServiceDeps {
   const env: Record<string, string> = { PATH: process.env.PATH ?? "/usr/bin:/bin" };
@@ -51,7 +64,7 @@ function serviceDeps(): ServiceDeps {
   return {
     ...deps,
     paths,
-    plist: { node: process.execPath, entry: daemonEntry, logDir: paths.logDir, workingDirectory: homedir(), env },
+    plist: { node: nodePath, entry: daemonEntry, logDir: paths.logDir, workingDirectory: homedir(), env },
     uid: process.getuid?.() ?? 0,
   };
 }

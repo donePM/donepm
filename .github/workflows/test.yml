@@ -37,3 +37,12 @@ jobs:
       # DONEPM_LIVE stays unset: the live agent tests cost money and are skipped.
       - run: pnpm build
       - run: pnpm test
+      # The Homebrew tarball must still pack and run (release.yml does the same on a tag).
+      - if: matrix.os == 'macos-latest' && matrix.node == 24
+        run: |
+          scripts/pack.sh 0.0.0
+          dir="$(mktemp -d)"
+          tar -xzf dist-release/donepm-0.0.0.tar.gz -C "$dir"
+          test "$(node "$dir/donepm-0.0.0/dist/main.js" --version)" = "0.0.0"
+          test -f "$dir/donepm-0.0.0/node_modules/@donepm/daemon/playbooks/implement.md"
+          test -f "$dir/donepm-0.0.0/node_modules/@donepm/daemon/public/index.html"

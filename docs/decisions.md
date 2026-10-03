@@ -136,6 +136,15 @@ does. The outcome is recorded as `item.assigned` or `item.assign_failed`, and a 
 stop the agent. Which issues a repo collects (`sources`) lives in the user config, not in
 `.donepm/`, because it is a personal choice and `.donepm/` is shared with contributors.
 
+**D29. Homebrew tap, packed with `pnpm deploy`, run by `donepm install-service`.** A tap
+(`donePM/homebrew-tap`) needs no review and updates from our release workflow; homebrew-core can
+come once the project is stable. The tarball is `pnpm deploy --prod` of the cli, not a bundle:
+there are no native dependencies, and the daemon reads files next to its code (`public/`, the
+default playbook, the bridge script), which a bundler would have to be taught. The formula has no
+`service do` block: `install-service` already exists, handles a daemon running outside launchd and
+writes logs where `donepm status` expects them; two ways to run the same daemon would confuse.
+The formula's caveats tell the user to run it, and to run it again after `brew upgrade`.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

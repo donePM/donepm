@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import implementMd from "../../../../playbooks/implement.md?raw";
+import implementMd from "../../../daemon/playbooks/implement.md?raw";
 import { PlaybookParseError, parsePlaybook } from "./parse.js";
 
 const valid = (extra = "") =>
