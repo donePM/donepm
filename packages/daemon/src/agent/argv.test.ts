@@ -14,8 +14,21 @@ describe("claudeArgv", () => {
       "--permission-mode", "acceptEdits",
       "--permission-prompt-tool", "stdio",
       "--model", "opus",
-      "--settings", '{"permissions":{"allow":["mcp__donepm"],"deny":["Bash(gh *)","Bash(glab *)","Bash(jira *)","Bash(git push*)"]}}',
+      "--settings", expect.any(String),
     ]);
+  });
+
+  it("denies forge commands and sandboxes Bash with no way out (D27)", () => {
+    const args = claudeArgv({ playbook, home: "/Users/x" });
+    expect(JSON.parse(args[args.indexOf("--settings") + 1]!)).toEqual({
+      permissions: { allow: ["mcp__donepm"], deny: ["Bash(gh *)", "Bash(glab *)", "Bash(jira *)", "Bash(git push*)"] },
+      sandbox: {
+        enabled: true,
+        autoAllowBashIfSandboxed: true,
+        allowUnsandboxedCommands: false,
+        filesystem: { allowWrite: ["/Users/x/Library/Caches", "/Users/x/.cache", "/Users/x/.npm"] },
+      },
+    });
   });
 
   it("adds effort, mcp config and resume when given", () => {

@@ -10,6 +10,10 @@ const emit = defineEmits<{ answered: [] }>();
 /** The command or path when the tool has one, else the input as JSON. */
 const shown = computed(() => toolSummary(props.toolName, props.input) || JSON.stringify(props.input, null, 2));
 
+/** The Bash sandbox asks before any connection (D27); say so in words. */
+const network = computed(() => props.toolName === "SandboxNetworkAccess");
+const label = computed(() => (network.value ? "Network access" : props.toolName));
+
 const denying = ref(false);
 const message = ref("");
 const busy = ref(false);
@@ -32,7 +36,10 @@ async function answer(behavior: "allow" | "deny") {
 
 <template>
   <div class="ask">
-    <div class="code mono"><span class="tool">{{ toolName }}</span><pre>{{ shown }}</pre></div>
+    <div class="code mono"><span class="tool">{{ label }}</span><pre>{{ shown }}</pre></div>
+    <p v-if="network" class="hint">
+      A command wants to connect to this host. Publishing goes through drafts; allow only what the work needs.
+    </p>
     <form v-if="denying" class="deny" @submit.prevent="answer('deny')">
       <label class="sr-only" :for="`deny-${askId}`">Message to the agent</label>
       <textarea :id="`deny-${askId}`" v-model="message" class="textarea" rows="2" placeholder="Why not, or what to do instead (optional)"></textarea>
@@ -56,4 +63,5 @@ async function answer(behavior: "allow" | "deny") {
 pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; font: inherit; }
 .deny { display: flex; flex-direction: column; gap: 8px; }
 .buttons { display: flex; gap: 8px; }
+.hint { margin: 0; font-size: 12px; color: var(--muted, #6b6b63); }
 </style>

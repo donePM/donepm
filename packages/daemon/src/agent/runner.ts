@@ -130,6 +130,7 @@ export class AgentRunner {
       playbook: input.playbook,
       ...(mcp ? { mcpConfigPath: mcp.configPath } : {}),
       ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
+      ...(env.HOME ? { home: env.HOME } : {}),
     });
     const proc = this.deps.spawn(this.deps.claudePath(), args, { cwd: input.cwd, env });
     session.proc = proc;

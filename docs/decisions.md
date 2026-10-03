@@ -118,6 +118,16 @@ session fail instead: there is nothing to resume. Resume, and a retry that reuse
 session and worktree, send "Continue where you left off." instead of the playbook prompt. A freshly
 created worktree discards the old session, since the files it knew are gone.
 
+**D27. Bash runs in Claude Code's sandbox; network asks go to the user.** Hiding `gh` from `PATH`
+and denying `Bash(gh *)` does not stop `gh auth token`, `curl` with a token, or a script that
+pushes. `--settings` therefore turns on the Bash sandbox with `allowUnsandboxedCommands: false`:
+writes outside the worktree and tmp fail, and any network connection becomes a
+`SandboxNetworkAccess` permission ask that the user answers like any other. There is no host
+allowlist: a package registry that allows `npm install` also allows `npm publish`. The user's cache
+directories (`~/Library/Caches`, `~/.cache`, `~/.npm`) stay writable so installs work.
+`GH_CONFIG_DIR` and `GLAB_CONFIG_DIR` point at an empty directory. WebFetch and MCP servers are not
+covered by the sandbox; they stay behind their normal permission asks.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

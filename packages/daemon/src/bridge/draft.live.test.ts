@@ -33,7 +33,7 @@ describe.skipIf(!process.env.DONEPM_LIVE)("draft_pr (live)", () => {
       items: t.items, writer: t.deps.writer, asks: new AskStore(t.db), transcript, ctx: t.deps.ctx, log: silentLog,
       spawn: spawnProcess, push: () => {},
       claudePath: () => "claude",
-      env: () => agentEnv(process.env, join(cwd, ".shims")),
+      env: () => agentEnv(process.env, { shimRoot: join(cwd, ".shims"), emptyConfigDir: join(cwd, ".no-credentials") }),
       maxConcurrent: () => 1,
       mcp: (item, playbook) => {
         const token = sessions.mint({ itemId: item.id, drafts: playbook.drafts });

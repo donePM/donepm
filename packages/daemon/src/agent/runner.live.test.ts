@@ -29,7 +29,7 @@ describe.skipIf(!process.env.DONEPM_LIVE)("AgentRunner (live)", () => {
       items, writer, asks: new AskStore(db), transcript, ctx, log: silentLog, spawn: spawnProcess,
       push: () => {},
       claudePath: () => "claude",
-      env: () => agentEnv(process.env, join(cwd, ".shims")),
+      env: () => agentEnv(process.env, { shimRoot: join(cwd, ".shims"), emptyConfigDir: join(cwd, ".no-credentials") }),
       maxConcurrent: () => 1,
     });
     const playbook: Playbook = { name: "live", model: "haiku", permissionMode: "acceptEdits", drafts: [], body: "" };
