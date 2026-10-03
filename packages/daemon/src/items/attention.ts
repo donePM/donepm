@@ -1,14 +1,25 @@
-import type { Draft, Event, ItemState, PermissionAsk } from "@donepm/core";
+import type { Draft, DraftState, Event, ItemState, PermissionAsk } from "@donepm/core";
+
+const OPEN_DRAFT: ReadonlySet<DraftState> = new Set(["pending", "approved", "failed"]);
 
 /** What a Needs You card shows: the one thing the user has to do (spec §12.1). */
 export type Attention =
   | { kind: "ask"; askId: string; toolName: string; input: unknown }
-  | { kind: "draft"; draftId: string; title: string }
+  | {
+      kind: "draft";
+      draftId: string;
+      title: string;
+      /** Approved, git and gh are running. */
+      executing?: true;
+      /** The last execution failed; approving again retries. */
+      error?: string;
+    }
   | { kind: "failed"; reason: string; stderrTail?: string };
 
 /**
- * A pending permission question first (the agent is blocked on it), then a pending draft, then
- * the latest failure. Nothing for items that do not wait on the user.
+ * A pending permission question first (the agent is blocked on it), then an open draft (pending,
+ * being executed, or failed to execute), then the latest failure. Nothing for items that do not
+ * wait on the user.
  */
 export function attentionOf(input: {
   state: ItemState;
@@ -19,8 +30,13 @@ export function attentionOf(input: {
   if (input.state === "needs_you") {
     const ask = input.asks.find((a) => a.state === "pending");
     if (ask) return { kind: "ask", askId: ask.id, toolName: ask.toolName, input: ask.input };
-    const draft = input.drafts.find((d) => d.state === "pending");
-    if (draft) return { kind: "draft", draftId: draft.id, title: (draft.userEdits ?? draft.payload).title };
+    const draft = input.drafts.find((d) => OPEN_DRAFT.has(d.state));
+    if (draft) {
+      const title = (draft.userEdits ?? draft.payload).title;
+      if (draft.state === "approved") return { kind: "draft", draftId: draft.id, title, executing: true };
+      if (draft.state === "failed") return { kind: "draft", draftId: draft.id, title, error: executionError(draft.id, input.events) };
+      return { kind: "draft", draftId: draft.id, title };
+    }
     return undefined;
   }
   if (input.state === "failed") {
@@ -30,4 +46,9 @@ export function attentionOf(input: {
     return { kind: "failed", reason, ...(typeof tail === "string" && tail.trim() ? { stderrTail: tail } : {}) };
   }
   return undefined;
+}
+
+function executionError(draftId: string, events: readonly Event[]): string {
+  const e = events.findLast((x) => x.type === "draft.execution_failed" && x.refId === draftId);
+  return typeof e?.payload.error === "string" ? e.payload.error : "creating the pull request failed";
 }

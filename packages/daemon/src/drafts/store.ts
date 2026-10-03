@@ -41,6 +41,11 @@ export class DraftStore {
     return this.forItem(itemId).filter((d) => d.state === "pending");
   }
 
+  inState(state: DraftState): Draft[] {
+    const rows = this.db.prepare("SELECT * FROM drafts WHERE state = ? ORDER BY created_at, rowid").all(state) as unknown as DraftRow[];
+    return rows.map(fromRow);
+  }
+
   insert(draft: Draft, at: string): void {
     this.db
       .prepare(
@@ -56,6 +61,11 @@ export class DraftStore {
 
   setState(id: string, state: DraftState, at: string): void {
     this.db.prepare("UPDATE drafts SET state = ?, updated_at = ? WHERE id = ?").run(state, at, id);
+  }
+
+  /** Executed: the draft's result is stored with it. */
+  setResult(id: string, result: NonNullable<Draft["result"]>, at: string): void {
+    this.db.prepare("UPDATE drafts SET state = 'executed', result = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(result), at, id);
   }
 
   setUserEdits(id: string, edits: Draft["payload"], at: string): void {

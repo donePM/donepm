@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { pending, startAgent, stopAgent } from "../agents/actions";
 import { api } from "../api/client";
-import { errorText } from "../api/errors";
+import { errorText, isPublishFailure } from "../api/errors";
 import type { ItemView } from "../api/types";
 import AskPanel from "../asks/AskPanel.vue";
 import { diffFiles, diffStats, type DiffStats } from "../diff/files";
@@ -22,7 +22,12 @@ const elapsed = computed(() =>
 );
 
 const attention = computed(() => props.item.attention);
-const FLAG = { ask: "Permission", draft: "PR draft", failed: "Failed" } as const;
+const flag = computed(() => {
+  const a = attention.value;
+  if (!a) return undefined;
+  if (a.kind === "draft") return a.error ? "PR failed" : a.executing ? "Publishing" : "PR draft";
+  return a.kind === "ask" ? "Permission" : "Failed";
+});
 
 /** `+84 −12 · 5 files · 2 commits` for a pending draft, loaded once per draft. */
 const draftStats = ref<DiffStats & { commits: number }>();
@@ -46,6 +51,22 @@ const stderrTail = computed(() =>
   attention.value?.kind === "failed" ? attention.value.stderrTail?.trimEnd().split("\n").slice(-6).join("\n") : undefined,
 );
 
+/** Retry a draft whose publishing failed. The daemon pushes the item update. */
+const retrying = ref(false);
+async function retryDraft() {
+  const a = attention.value;
+  if (a?.kind !== "draft") return;
+  retrying.value = true;
+  error.value = undefined;
+  try {
+    await api.approveDraft(a.draftId);
+  } catch (e) {
+    if (!isPublishFailure(e)) error.value = errorText(e);
+  } finally {
+    retrying.value = false;
+  }
+}
+
 const error = ref<string>();
 async function act(fn: (id: string) => Promise<void>) {
   error.value = undefined;
@@ -62,7 +83,7 @@ async function act(fn: (id: string) => Promise<void>) {
     <div class="meta mono">
       <a :href="item.externalUrl" target="_blank" rel="noreferrer" class="ext">{{ displayId(item.externalId) }}</a>
       <span v-if="item.state === 'running'" class="live"><span class="dot dot-ok" aria-hidden="true"></span>running<template v-if="elapsed"> · {{ elapsed }}</template></span>
-      <span v-else-if="attention" class="flag">{{ FLAG[attention.kind] }}</span>
+      <span v-else-if="flag" class="flag">{{ flag }}</span>
       <span v-else-if="column === 'needs_you' && !noClone" class="playbook" title="Playbook">{{ item.playbook }}</span>
     </div>
     <h3><RouterLink :to="{ name: 'item', params: { id: item.id } }" class="title">{{ item.title }}</RouterLink></h3>
@@ -90,14 +111,19 @@ async function act(fn: (id: string) => Promise<void>) {
         </template>
         <template v-else>{{ attention.title }}</template>
       </div>
+      <p v-if="attention.error" class="reason">{{ attention.error }}</p>
       <div class="actions">
-        <RouterLink :to="{ name: 'item', params: { id: item.id } }" class="btn btn-amber">Review draft</RouterLink>
+        <button v-if="attention.error" class="btn btn-primary" type="button" :disabled="retrying" @click="retryDraft">
+          {{ retrying ? "Publishing…" : "Retry" }}
+        </button>
+        <RouterLink :to="{ name: 'item', params: { id: item.id } }" class="btn" :class="{ 'btn-amber': !attention.error }">Review draft</RouterLink>
       </div>
     </template>
     <template v-else-if="attention?.kind === 'failed'">
       <p class="reason">{{ attention.reason }}</p>
       <pre v-if="stderrTail" class="stderr mono">{{ stderrTail }}</pre>
     </template>
+    <a v-if="item.pr" :href="item.pr.url" target="_blank" rel="noreferrer" class="pr mono">PR #{{ item.pr.number }}</a>
     <div v-if="startable" class="actions">
       <label :for="`pb-${item.id}`" class="sr-only">Playbook</label>
       <select :id="`pb-${item.id}`" class="select" :value="item.playbook" disabled title="More playbooks come later">
@@ -147,6 +173,8 @@ h3 { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; overflow-wr
 .stats { font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
 .add { color: #15803d; }
 .del { color: var(--danger); }
+.pr { font-size: 12px; color: var(--blue); text-decoration: none; }
+.pr:hover { text-decoration: underline; }
 .reason { margin: 0; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
 .stderr {
   margin: 0;

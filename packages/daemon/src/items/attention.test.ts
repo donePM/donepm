@@ -26,6 +26,18 @@ describe("attentionOf", () => {
     });
   });
 
+  it("shows a draft being executed, and one whose execution failed with the error", () => {
+    expect(attentionOf({ state: "needs_you", asks: [], drafts: [draft({ state: "approved" })], events: [] })).toEqual({
+      kind: "draft", draftId: "d1", title: "Agent title", executing: true,
+    });
+    const events: Event[] = [
+      { id: "x", itemId: "i", at: "2026-10-03T00:00:00Z", actor: "system", type: "draft.execution_failed", refId: "d1", payload: { step: "push", error: "git push failed: denied" } },
+    ];
+    expect(attentionOf({ state: "needs_you", asks: [], drafts: [draft({ state: "failed" })], events })).toEqual({
+      kind: "draft", draftId: "d1", title: "Agent title", error: "git push failed: denied",
+    });
+  });
+
   it("shows the latest failure with its stderr tail", () => {
     const events = [failed({ reason: "first" }), failed({ reason: "exit 1", stderrTail: "boom\n" })];
     expect(attentionOf({ state: "failed", asks: [], drafts: [], events })).toEqual({ kind: "failed", reason: "exit 1", stderrTail: "boom\n" });

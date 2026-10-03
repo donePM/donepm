@@ -17,6 +17,7 @@ import { loadConfig, saveConfig, type Config } from "./config/config.js";
 import { expandHome, pathsFor } from "./config/paths.js";
 import { openDb, type Db } from "./db/database.js";
 import { editDraft, rejectDraft } from "./drafts/actions.js";
+import { approveDraft, failInterrupted } from "./drafts/execute.js";
 import { DraftStore } from "./drafts/store.js";
 import { itemDiff } from "./diff/item-diff.js";
 import { EventStore } from "./events/store.js";
@@ -103,6 +104,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
 
   const view = (item: WorkItem) => {
     const itemEvents = events.forItem(item.id);
+    const itemDrafts = drafts.forItem(item.id);
     return toItemView(
       item,
       item.repoId ? repos.get(item.repoId) : undefined,
@@ -111,7 +113,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
         running: runner.isRunning(item.id),
         ...withCurrentTool(runner.currentTool(item.id)),
       },
-      attentionOf({ state: item.state, asks: asks.forItem(item.id), drafts: drafts.forItem(item.id), events: itemEvents }),
+      attentionOf({ state: item.state, asks: asks.forItem(item.id), drafts: itemDrafts, events: itemEvents }),
+      itemDrafts.findLast((d) => d.state === "executed")?.result,
     );
   };
   const pushItem = (item: WorkItem) => hub.push("item.updated", view(item));
@@ -152,6 +155,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     },
   });
   const draftDeps = { items, repos, drafts, writer, ctx: opts.ctx };
+  failInterrupted(draftDeps);
 
   const rescan = async () => {
     await discoverRepos({ root: expandHome(config.repoRoot, opts.home), exec: opts.exec, repos, ctx: opts.ctx, log: app.log });
@@ -213,6 +217,14 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       if (r.code !== 0) throw new Error(r.stderr.trim() || `open exited with ${r.code}`);
     },
     editDraft: (id, edits) => editDraft(draftDeps, id, edits),
+    approveDraft: (id) =>
+      approveDraft({
+        ...draftDeps,
+        exec: opts.exec,
+        stopAgent: async (itemId) => {
+          if (runner.hasProcess(itemId)) await runner.stop(itemId);
+        },
+      }, id),
     rejectDraft: (id, reason) =>
       rejectDraft(
         { ...draftDeps, agentAlive: (itemId) => runner.hasProcess(itemId), say: (itemId, text) => runner.say(itemId, text) },

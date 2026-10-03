@@ -85,7 +85,8 @@ ready → running → needs_you → running → ... → done
 | failed | Needs You | agent exited with error; card shows stderr tail and offers retry |
 
 Transitions are functions in `core`: `start(item)`, `agentAsked(item)`, `answered(item)`,
-`draftCreated(item)`, `draftApproved(item)`, `draftRejected(item)`, `agentFailed(item)`.
+`draftCreated(item)`, `draftApproved(item)`, `draftExecuted(item)`, `draftExecutionFailed(item)`,
+`draftRejected(item)`, `agentFailed(item)`.
 Invalid transitions throw.
 
 ### 4.3 Event

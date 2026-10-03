@@ -9,6 +9,7 @@ import { StartError } from "../agent/start.js";
 import type { AskStore } from "../asks/store.js";
 import { ConfigSchema, type Config } from "../config/config.js";
 import { DraftError } from "../drafts/actions.js";
+import { ExecutionError } from "../drafts/execute.js";
 import type { DraftStore } from "../drafts/store.js";
 import type { ItemDiff } from "../diff/item-diff.js";
 import type { EventStore } from "../events/store.js";
@@ -45,6 +46,8 @@ export interface ServerDeps {
   editDraft: (id: string, edits: Partial<PrDraftPayload>) => Draft;
   /** Throws DraftError. The reason goes to the agent as its next message. */
   rejectDraft: (id: string, reason: string | undefined) => Draft;
+  /** Throws DraftError before, ExecutionError after anything ran. Resolves once the PR exists. */
+  approveDraft: (id: string) => Promise<Draft>;
   /** Branch against base, committed and uncommitted. Rejects with DiffError. */
   diff: (input: { worktreePath: string; branch: string; defaultBranch: string }) => Promise<ItemDiff>;
   /** Opens a folder on the user's machine (Finder, Terminal). */
@@ -184,8 +187,16 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     return draftCall(reply, () => deps.rejectDraft(req.params.id, body.data.reason?.trim() || undefined));
   });
 
-  // Executing drafts lands with #8; the UI already has the button.
-  app.post("/api/drafts/:id/approve", async (_req, reply) => reply.code(501).send({ error: "approving drafts is not implemented yet" }));
+  app.post<{ Params: { id: string } }>("/api/drafts/:id/approve", async (req, reply) => {
+    try {
+      return await deps.approveDraft(req.params.id);
+    } catch (e) {
+      if (e instanceof DraftError) return reply.code(e.status).send({ error: e.message });
+      // git or gh failed: the draft is `failed` and the item waits for a retry.
+      if (e instanceof ExecutionError) return reply.code(502).send({ error: e.message, step: e.step });
+      throw e;
+    }
+  });
 
   app.get("/api/repos", async () => deps.repos.all());
 

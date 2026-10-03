@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { api } from "../api/client";
-import { errorText } from "../api/errors";
+import { errorText, isPublishFailure } from "../api/errors";
 import type { Draft, PrDraftPayload } from "../api/types";
 
-const props = defineProps<{ draft: Draft; createdAt?: string; agentRunning: boolean }>();
+const props = defineProps<{
+  draft: Draft;
+  createdAt?: string;
+  agentRunning: boolean;
+  /** Why publishing failed last time; approving again retries. */
+  publishError?: string;
+}>();
 const emit = defineEmits<{ changed: [] }>();
 
 const current = computed<PrDraftPayload>(() => props.draft.userEdits ?? props.draft.payload);
@@ -25,6 +31,9 @@ const dirty = computed(() => title.value !== current.value.title || body.value !
 const rejecting = ref(false);
 const reason = ref("");
 const busy = ref(false);
+const approving = ref(false);
+/** The daemon is pushing (this tab's approve, or another one's). */
+const publishing = computed(() => props.draft.state === "approved" || approving.value);
 const error = ref<string>();
 
 async function run(fn: () => Promise<unknown>) {
@@ -34,7 +43,9 @@ async function run(fn: () => Promise<unknown>) {
     await fn();
     emit("changed");
   } catch (e) {
-    error.value = errorText(e);
+    // A failed publish comes back as the draft's publishError; no need to show it twice.
+    if (isPublishFailure(e)) emit("changed");
+    else error.value = errorText(e);
   } finally {
     busy.value = false;
   }
@@ -50,7 +61,12 @@ const save = () => run(saveEdits);
 // Approve executes what the form shows, so unsaved edits are saved first.
 const approve = () => run(async () => {
   await saveEdits();
-  await api.approveDraft(props.draft.id);
+  approving.value = true;
+  try {
+    await api.approveDraft(props.draft.id);
+  } finally {
+    approving.value = false;
+  }
 });
 const reject = () => run(async () => {
   await api.rejectDraft(props.draft.id, reason.value.trim() || undefined);
@@ -67,11 +83,11 @@ const reject = () => run(async () => {
     </div>
     <label class="field">
       <span>Title</span>
-      <input v-model="title" class="input" type="text" :disabled="busy" />
+      <input v-model="title" class="input" type="text" :disabled="busy || publishing" />
     </label>
     <label class="field">
       <span>Body</span>
-      <textarea v-model="body" class="textarea" rows="10" :disabled="busy"></textarea>
+      <textarea v-model="body" class="textarea" rows="10" :disabled="busy || publishing"></textarea>
     </label>
     <form v-if="rejecting" class="reject" @submit.prevent="reject">
       <label class="field">
@@ -84,11 +100,13 @@ const reject = () => run(async () => {
       </div>
     </form>
     <div v-else class="actions">
-      <button class="btn btn-primary" type="button" :disabled="busy" @click="approve">Approve and create PR</button>
+      <button class="btn btn-primary" type="button" :disabled="busy || publishing" @click="approve">
+        {{ publishing ? "Creating PR…" : publishError ? "Retry: approve and create PR" : "Approve and create PR" }}
+      </button>
       <button
         class="btn"
         type="button"
-        :disabled="busy || !agentRunning"
+        :disabled="busy || publishing || !agentRunning"
         :title="agentRunning ? undefined : 'The agent is not running, nobody would read the reason'"
         @click="rejecting = true"
       >
@@ -98,6 +116,7 @@ const reject = () => run(async () => {
       <span class="runs">Runs: git push · gh pr create</span>
     </div>
     <p v-if="error" class="alert" role="alert">{{ error }}</p>
+    <p v-else-if="publishError && !publishing" class="alert" role="alert">Creating the pull request failed: {{ publishError }}</p>
   </section>
 </template>
 

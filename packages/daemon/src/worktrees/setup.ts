@@ -23,6 +23,18 @@ async function readSetup(worktree: string): Promise<RepoSetup | undefined> {
 }
 
 /**
+ * Files setup copied into the worktree from the main clone, usually secrets such as `.env`. They
+ * are never committed by the daemon. Empty when there is no (valid) setup file.
+ */
+export async function setupCopies(worktree: string): Promise<string[]> {
+  try {
+    return (await readSetup(worktree))?.copy ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Run `.donepm/setup.yml` from the worktree (spec 7.3): `copy` from the main clone, then `run`
  * in the worktree, in order. Stops at the first failure. Returns false when setup failed.
  */

@@ -21,7 +21,9 @@ const { detail, error, diff, diffError, diffLoading, reload, reloadDiff } = useI
 const now = useNow(30_000);
 
 const askPending = computed(() => detail.value?.asks.filter((a) => a.state === "pending") ?? []);
-const draft = computed(() => detail.value?.drafts.find((d) => d.state === "pending"));
+/** Pending, being published, or failed to publish: still the user's to decide. */
+const draft = computed(() => detail.value?.drafts.find((d) => d.state === "pending" || d.state === "approved" || d.state === "failed"));
+const publishError = computed(() => (detail.value?.attention?.kind === "draft" ? detail.value.attention.error : undefined));
 const draftCreatedAt = computed(() => {
   const e = [...(detail.value?.events ?? [])].reverse().find((x) => x.type === "draft.created" && x.refId === draft.value?.id);
   return e ? timeLabel(e.at, new Date(now.value)) : undefined;
@@ -79,7 +81,18 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
             <h2>The agent asks for permission</h2>
             <AskPanel :ask-id="a.id" :tool-name="a.toolName" :input="a.input" @answered="reload" />
           </section>
-          <DraftPanel v-if="draft" :draft="draft" :created-at="draftCreatedAt" :agent-running="detail.agent.running" @changed="reload" />
+          <DraftPanel
+            v-if="draft && detail.state === 'needs_you'"
+            :draft="draft"
+            :created-at="draftCreatedAt"
+            :agent-running="detail.agent.running"
+            :publish-error="publishError"
+            @changed="reload"
+          />
+          <section v-if="detail.pr" class="panel" aria-labelledby="pr-h">
+            <h2 id="pr-h">Pull request</h2>
+            <a :href="detail.pr.url" target="_blank" rel="noreferrer" class="mono">#{{ detail.pr.number }} · {{ detail.pr.url }}</a>
+          </section>
           <section v-if="failure" class="needs" aria-label="Failure">
             <h2>The agent failed: {{ failure.reason }}</h2>
             <pre v-if="failure.stderrTail" class="stderr mono">{{ failure.stderrTail }}</pre>
