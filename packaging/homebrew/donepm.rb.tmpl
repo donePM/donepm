@@ -12,6 +12,8 @@ class Donepm < Formula
   def install
     # The tarball is `pnpm deploy --prod` of the cli: dist/, package.json, node_modules/.
     libexec.install Dir["*"]
+    # tsc does not set the executable bit; the wrapper below execs the file directly.
+    chmod 0755, libexec/"dist/main.js"
     # `opt` paths survive `brew upgrade`, so the launchd job that `donepm install-service`
     # writes keeps pointing at the current version and the current Node.
     (bin/"donepm").write_env_script libexec/"dist/main.js",
