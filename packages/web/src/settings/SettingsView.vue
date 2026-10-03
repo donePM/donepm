@@ -7,6 +7,7 @@ import GeneralForm from "./GeneralForm.vue";
 import OrphansPanel from "./OrphansPanel.vue";
 import ReposPanel from "./ReposPanel.vue";
 import SourcesPanel from "./SourcesPanel.vue";
+import ToolsSummary from "./ToolsSummary.vue";
 
 const settings = ref<Settings>();
 const error = ref<string>();
@@ -35,6 +36,7 @@ onMounted(async () => {
       <section class="panel">
         <h2>Daemon</h2>
         <p class="sub mono">donepm {{ status?.version ?? "…" }}<template v-if="settings"> · :{{ settings.port }}</template></p>
+        <ToolsSummary />
       </section>
     </div>
   </main>
