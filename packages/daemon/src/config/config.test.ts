@@ -15,7 +15,15 @@ describe("config", () => {
       pollIntervalSeconds: 60,
       maxConcurrentAgents: 1,
       sources: {},
+      allowedWebFetchDomains: ["github.com", "raw.githubusercontent.com", "docs.github.com", "nodejs.org", "developer.mozilla.org", "npmjs.com"],
     });
+  });
+
+  it("normalises WebFetch domains and rejects URLs and wildcards", () => {
+    expect(parseConfig(JSON.stringify({ allowedWebFetchDomains: [" Docs.GitHub.com "] })).allowedWebFetchDomains).toEqual(["docs.github.com"]);
+    expect(parseConfig(JSON.stringify({ allowedWebFetchDomains: [] })).allowedWebFetchDomains).toEqual([]);
+    expect(() => parseConfig(JSON.stringify({ allowedWebFetchDomains: ["https://github.com"] }))).toThrow(/allowedWebFetchDomains\.0/);
+    expect(() => parseConfig(JSON.stringify({ allowedWebFetchDomains: ["*.github.com"] }))).toThrow(ConfigError);
   });
 
   it("creates the file with defaults on first start", async () => {

@@ -87,4 +87,6 @@ export const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX transcript_item ON transcript (item_id, seq);
   `,
+  // Rules the CLI suggested for an ask that we may grant "for this run" (already filtered).
+  `ALTER TABLE asks ADD COLUMN rules TEXT NOT NULL DEFAULT '[]';`,
 ];

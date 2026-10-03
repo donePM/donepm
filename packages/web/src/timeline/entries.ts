@@ -1,4 +1,5 @@
-import { toolSummary, type Event, type PermissionAsk } from "@donepm/core";
+import { parseRules, toolSummary, type Event, type PermissionAsk } from "@donepm/core";
+import { grantText } from "../asks/grant";
 
 export type Tone = "attention" | "danger" | "user" | "system";
 
@@ -51,8 +52,22 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>): Omit<Timelin
       return { tone: "danger", text: "Agent failed", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
     case "permission.asked":
       return { tone: "attention", text: "Agent asked permission", ...withCode(askCode(ask, p.toolName)) };
-    case "permission.answered":
-      return { tone: "user", text: p.behavior === "allow" ? "You allowed" : "You denied", ...withCode(askCode(ask, undefined)) };
+    case "permission.answered": {
+      const grant = p.behavior === "allow" ? grantText(parseRules(p.rules)) : undefined;
+      return {
+        tone: "user",
+        text: p.behavior === "allow" ? (grant ? "You allowed for this run" : "You allowed") : "You denied",
+        ...withCode(askCode(ask, undefined)),
+        ...(grant ? { detail: `Also allowed until the run ends: ${grant}` } : {}),
+      };
+    }
+    case "permission.auto_allowed":
+      return {
+        tone: "system",
+        text: "Allowed web access on your list",
+        ...withCode(askCode(ask, p.toolName)),
+        ...(str(p.domain) ? { detail: `${str(p.domain)} is in Settings → Web access` } : {}),
+      };
     case "draft.created":
       return { tone: "attention", text: "Agent created PR draft", ...(str(p.title) ? { detail: str(p.title) } : {}) };
     case "draft.edited":

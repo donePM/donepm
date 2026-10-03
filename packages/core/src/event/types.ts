@@ -13,6 +13,7 @@ export const EVENT_TYPES = [
   "agent.interrupted",
   "permission.asked",
   "permission.answered",
+  "permission.auto_allowed",
   "draft.created",
   "draft.edited",
   "draft.approved",

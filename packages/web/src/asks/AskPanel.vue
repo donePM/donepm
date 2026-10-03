@@ -3,8 +3,10 @@ import { toolSummary } from "@donepm/core";
 import { computed, ref } from "vue";
 import { api } from "../api/client";
 import { errorText } from "../api/errors";
+import type { PermissionRule } from "../api/types";
+import { grantText } from "./grant";
 
-const props = defineProps<{ askId: string; toolName: string; input: unknown }>();
+const props = defineProps<{ askId: string; toolName: string; input: unknown; rules?: PermissionRule[] }>();
 const emit = defineEmits<{ answered: [] }>();
 
 /** The command or path when the tool has one, else the input as JSON. */
@@ -14,17 +16,23 @@ const shown = computed(() => toolSummary(props.toolName, props.input) || JSON.st
 const network = computed(() => props.toolName === "SandboxNetworkAccess");
 const label = computed(() => (network.value ? "Network access" : props.toolName));
 
+/** What "Allow for this run" adds; no button when the CLI suggested nothing we may grant. */
+const grant = computed(() => grantText(props.rules ?? []));
+
 const denying = ref(false);
 const message = ref("");
 const busy = ref(false);
 const error = ref<string>();
 
-async function answer(behavior: "allow" | "deny") {
+async function answer(behavior: "allow" | "deny", scope?: "run") {
   busy.value = true;
   error.value = undefined;
   try {
     const msg = message.value.trim();
-    await api.answer(props.askId, behavior === "allow" ? { behavior } : msg ? { behavior, message: msg } : { behavior });
+    await api.answer(
+      props.askId,
+      behavior === "allow" ? (scope ? { behavior, scope } : { behavior }) : msg ? { behavior, message: msg } : { behavior },
+    );
     emit("answered");
   } catch (e) {
     error.value = errorText(e);
@@ -50,8 +58,12 @@ async function answer(behavior: "allow" | "deny") {
     </form>
     <div v-else class="buttons">
       <button class="btn btn-primary" type="button" :disabled="busy" @click="answer('allow')">Allow</button>
+      <button v-if="grant" class="btn" type="button" :disabled="busy" :title="`Also allows ${grant} until this run ends`" @click="answer('allow', 'run')">
+        Allow for this run
+      </button>
       <button class="btn" type="button" :disabled="busy" @click="denying = true">Deny…</button>
     </div>
+    <p v-if="grant && !denying" class="hint">For this run also allows: <span class="mono">{{ grant }}</span></p>
     <p v-if="error" class="alert" role="alert">{{ error }}</p>
   </div>
 </template>
@@ -62,6 +74,6 @@ async function answer(behavior: "allow" | "deny") {
 .tool { display: block; color: #9a9a92; margin-bottom: 4px; }
 pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; font: inherit; }
 .deny { display: flex; flex-direction: column; gap: 8px; }
-.buttons { display: flex; gap: 8px; }
+.buttons { display: flex; flex-wrap: wrap; gap: 8px; }
 .hint { margin: 0; font-size: 12px; color: var(--muted, #6b6b63); }
 </style>

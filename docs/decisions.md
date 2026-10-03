@@ -145,6 +145,29 @@ default playbook, the bridge script), which a bundler would have to be taught. T
 writes logs where `donepm status` expects them; two ways to run the same daemon would confuse.
 The formula's caveats tell the user to run it, and to run it again after `brew upgrade`.
 
+**D30. "Allow for this run" sends Claude Code's own suggestion, scoped to the session.** An ask
+whose `can_use_tool` request carries `permission_suggestions` offers a second button next to Allow.
+It answers allow with `updatedPermissions` set to the suggested `addRules` entries, with
+`destination` forced to `session`. Nothing is written to the user's settings files, and nothing
+outlives the agent's session. A rule that would cover a blocked command (`gh`, `glab`, `jira`,
+`git push`) or all of Bash is never offered or sent. The `permission.answered` event records the
+granted rules. Claude Code stores a network approval as a `WebFetch(domain:<host>)` rule, which
+also covers WebFetch to that host, so the UI names both. D27 stands: there is still no standing
+host allowlist; the user grants a host for one run. The doubled Bash and network ask seen on #41
+was not a hook rewrite. Claude Code asks for a Bash command it cannot check statically ("A variable
+in this command can't be checked before it runs", for example `for r in …; do curl …/$r; done`),
+sends no suggestion for it, and then the sandbox asks for the host. The user's hooks stay loaded.
+
+**D31. The daemon answers WebFetch asks for hosts on the user's list; no rules in `--settings`.**
+WebFetch is a GET without the user's credentials, and the agent reads documentation and release
+pages all the time; asking for each one trained the user to click Allow blindly (#46). The obvious
+fix, `WebFetch(domain:…)` allow rules in `--settings`, is wrong: Claude Code uses the same rule for
+the Bash sandbox's network, so `github.com` on the list would let `git push https://github.com/…`
+or `curl -X POST` through without an ask and undo D27. Instead the daemon answers a WebFetch ask
+whose host (or parent domain) is on `allowedWebFetchDomains` the moment it arrives and records
+`permission.auto_allowed`. The default list holds GitHub and documentation hosts; an empty list
+asks for every page. The cost is one round trip per fetch, which nobody sees.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

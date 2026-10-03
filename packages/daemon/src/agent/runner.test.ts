@@ -15,7 +15,7 @@ import { AgentBusyError, AgentRunner, AskError, StopError } from "./runner.js";
 const playbook: Playbook = { name: "implement", model: "haiku", permissionMode: "acceptEdits", drafts: ["pr"], body: "" };
 const lines = (name: string) => fixture(`stream/${name}`).split("\n").filter(Boolean);
 
-function setup(maxConcurrent = 1) {
+function setup(maxConcurrent = 1, webFetchDomains: string[] = []) {
   const db = openDb(":memory:");
   const ctx = testCtx();
   const items = new ItemStore(db);
@@ -33,6 +33,7 @@ function setup(maxConcurrent = 1) {
     env: async () => ({ PATH: "/filtered" }),
     maxConcurrent: () => maxConcurrent,
     onActivity: (id) => activity.push(id),
+    webFetchDomains: () => webFetchDomains,
   });
 
   const addItem = (n: number): WorkItem => {
@@ -122,6 +123,64 @@ describe("AgentRunner", () => {
 
     proc.emit(...recorded.slice(at + 1));
     expect(t.types("item-1")).toEqual(["agent.started", "permission.asked", "permission.answered", "agent.turn_ended"]);
+  });
+
+  it("grants the suggested rules for the run and records them", async () => {
+    const t = setup();
+    const proc = await t.launch(t.addItem(1));
+    const recorded = lines("ask-allow.jsonl");
+    proc.emit(...recorded.slice(0, recorded.findIndex((l) => l.includes('"control_request"')) + 1));
+    const [ask] = t.asks.forItem("item-1");
+    expect(ask!.rules).toEqual([{ toolName: "Bash", ruleContent: "curl *" }]);
+
+    t.runner.answer(ask!.id, { behavior: "allow", scope: "run" });
+    expect(proc.sent().at(-1).response.response.updatedPermissions).toEqual([
+      { type: "addRules", rules: [{ toolName: "Bash", ruleContent: "curl *" }], behavior: "allow", destination: "session" },
+    ]);
+    expect(t.events.forItem("item-1").find((e) => e.type === "permission.answered")!.payload).toEqual({
+      behavior: "allow", rules: [{ toolName: "Bash", ruleContent: "curl *" }],
+    });
+  });
+
+  it("never stores a suggested rule the deny list forbids", async () => {
+    const t = setup();
+    const proc = await t.launch(t.addItem(1));
+    proc.emit({
+      type: "control_request", request_id: "r1",
+      request: {
+        subtype: "can_use_tool", tool_name: "Bash", input: { command: "git push" },
+        permission_suggestions: [{ type: "addRules", behavior: "allow", rules: [{ toolName: "Bash", ruleContent: "git push:*" }] }],
+      },
+    });
+    const [ask] = t.asks.forItem("item-1");
+    expect(ask!.rules).toEqual([]);
+    t.runner.answer(ask!.id, { behavior: "allow", scope: "run" });
+    expect(proc.sent().at(-1).response.response).not.toHaveProperty("updatedPermissions");
+  });
+
+  it("allows a WebFetch to a listed host itself, without asking the user", async () => {
+    const t = setup(1, ["github.com"]);
+    const proc = await t.launch(t.addItem(1));
+    const input = { url: "https://api.github.com/repos/actions/checkout/releases/latest", prompt: "latest tag" };
+    proc.emit({ type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "WebFetch", input } });
+
+    expect(proc.sent().at(-1)).toEqual({
+      type: "control_response", response: { request_id: "r1", subtype: "success", response: { behavior: "allow", updatedInput: input } },
+    });
+    expect(t.state("item-1").state).toBe("running");
+    const [ask] = t.asks.forItem("item-1");
+    expect(ask).toMatchObject({ toolName: "WebFetch", state: "allowed" });
+    const event = t.events.forItem("item-1").at(-1)!;
+    expect(event).toMatchObject({ type: "permission.auto_allowed", actor: "system", refId: ask!.id, payload: { host: "api.github.com", domain: "github.com" } });
+  });
+
+  it("asks the user for a WebFetch to an unlisted host, and for other tools on a listed host", async () => {
+    const t = setup(1, ["github.com"]);
+    const proc = await t.launch(t.addItem(1));
+    proc.emit({ type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "WebFetch", input: { url: "https://example.com/" } } });
+    proc.emit({ type: "control_request", request_id: "r2", request: { subtype: "can_use_tool", tool_name: "SandboxNetworkAccess", input: { host: "github.com" } } });
+    expect(t.asks.pending("item-1").map((a) => a.toolName)).toEqual(["WebFetch", "SandboxNetworkAccess"]);
+    expect(t.state("item-1").state).toBe("needs_you");
   });
 
   it("denies with a message and refuses a second answer", async () => {

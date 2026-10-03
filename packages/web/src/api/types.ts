@@ -1,4 +1,4 @@
-import type { Draft, Event, PermissionAsk, PrDraftPayload, PrDraftResult, Repo, TranscriptMessage, WorkItem } from "@donepm/core";
+import type { Draft, Event, PermissionAsk, PermissionRule, PrDraftPayload, PrDraftResult, Repo, TranscriptMessage, WorkItem } from "@donepm/core";
 
 // Mirrors of what the daemon's HTTP API returns (packages/daemon/src/http/server.ts).
 
@@ -18,7 +18,7 @@ export interface AgentView {
 
 /** What a Needs You card shows. */
 export type Attention =
-  | { kind: "ask"; askId: string; toolName: string; input: unknown }
+  | { kind: "ask"; askId: string; toolName: string; input: unknown; rules: PermissionRule[] }
   | { kind: "draft"; draftId: string; title: string; executing?: true; error?: string }
   | { kind: "failed"; reason: string; stderrTail?: string }
   | { kind: "resume"; reason: string };
@@ -57,7 +57,8 @@ export interface ItemDiff {
 
 export type OpenTarget = "finder" | "terminal";
 
-export type AskAnswer = { behavior: "allow" } | { behavior: "deny"; message?: string };
+/** `scope: "run"` also grants the ask's suggested rules until the agent's session ends. */
+export type AskAnswer = { behavior: "allow"; scope?: "run" } | { behavior: "deny"; message?: string };
 
 export type CliState = "not_installed" | "not_logged_in" | "ready";
 
@@ -107,6 +108,8 @@ export interface Settings {
   maxConcurrentAgents: number;
   /** Per repository, keyed by normalised origin (`github.com/owner/repo`). */
   sources: Record<string, SourceSettings>;
+  /** WebFetch to these hosts is allowed by the daemon without asking (D31). */
+  allowedWebFetchDomains: string[];
 }
 
 export interface SourceSettings {
@@ -121,4 +124,4 @@ export interface SourceTest {
   issues: { number: number; title: string; url: string }[];
 }
 
-export type { Draft, Event, PermissionAsk, PrDraftPayload, Repo, TranscriptMessage };
+export type { Draft, Event, PermissionAsk, PermissionRule, PrDraftPayload, Repo, TranscriptMessage };

@@ -298,3 +298,17 @@ export function issueAssignFailed(item: WorkItem, ctx: Ctx, reason: string): Tra
     { reason },
   );
 }
+
+/**
+ * The daemon answered a permission question itself: a WebFetch to a host on the user's list
+ * (decision D31). Not a state change; the agent never waited on the user.
+ */
+export function autoAllowed(item: WorkItem, ctx: Ctx, askId: string, payload: Record<string, unknown> = {}): Transition {
+  return apply(
+    { name: "autoAllowed", from: ["running", "needs_you"], to: item.state, actor: "system", event: "permission.auto_allowed" },
+    item,
+    ctx,
+    askId,
+    payload,
+  );
+}

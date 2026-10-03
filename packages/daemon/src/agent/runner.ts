@@ -1,6 +1,6 @@
 import {
-  agentAsked, agentFailed, answered, toolSummary, turnEnded, turnStarted,
-  type Ctx, type Playbook, type TranscriptKind, type WorkItem,
+  agentAsked, agentFailed, answered, autoAllowed, isRuleOfferable, matchingDomain, webFetchHost, toolSummary, turnEnded, turnStarted,
+  type Ctx, type PermissionRule, type Playbook, type TranscriptKind, type WorkItem,
 } from "@donepm/core";
 import type { AskStore } from "../asks/store.js";
 import type { ItemStore } from "../items/store.js";
@@ -36,6 +36,8 @@ export interface RunnerDeps {
   onActivity?: (itemId: string) => void;
   /** Opens the draft gate for one process: writes its `--mcp-config` file, `close` revokes it. */
   mcp?: (item: WorkItem, playbook: Playbook) => { configPath: string; close: () => void };
+  /** Hosts whose WebFetch asks the daemon allows itself (D31). Absent or empty: every one asks. */
+  webFetchDomains?: () => readonly string[];
 }
 
 export interface LaunchInput {
@@ -171,16 +173,21 @@ export class AgentRunner {
   }
 
   /** Answer a pending permission question (spec 9.4). */
-  answer(askId: string, answer: { behavior: "allow" } | { behavior: "deny"; message?: string }): void {
+  answer(askId: string, answer: { behavior: "allow"; scope?: "run" } | { behavior: "deny"; message?: string }): void {
     const ask = this.deps.asks.get(askId);
     if (!ask) throw new AskError(404, "ask not found");
     if (ask.state !== "pending") throw new AskError(409, `ask already ${ask.state}`);
     const session = this.sessions.get(ask.itemId);
     if (!session?.proc) throw new AskError(409, "the agent for this item is not running");
 
+    // "For this run" without suggested rules is a plain allow. Stored rules passed the guard already;
+    // check again because a blocked grant must never reach the CLI.
+    const granted = answer.behavior === "allow" && answer.scope === "run" ? ask.rules : [];
+    if (!granted.every(isRuleOfferable)) throw new AskError(409, "this ask has a rule that may not be granted");
+
     const line =
       answer.behavior === "allow"
-        ? askAnswerLine(ask.requestId, { behavior: "allow", input: ask.input })
+        ? askAnswerLine(ask.requestId, { behavior: "allow", input: ask.input, rules: granted })
         : askAnswerLine(ask.requestId, { behavior: "deny", message: answer.message || "The user denied this." });
     session.proc.write(line);
     const at = this.deps.ctx.now();
@@ -190,7 +197,7 @@ export class AgentRunner {
     const item = this.item(ask.itemId);
     if (item.state === "needs_you") {
       const others = this.deps.asks.pending(ask.itemId).length > 0;
-      this.deps.writer.commit(answered(item, this.deps.ctx, ask.id, { behavior: answer.behavior }, others));
+      this.deps.writer.commit(answered(item, this.deps.ctx, ask.id, { behavior: answer.behavior, rules: granted }, others));
     }
   }
 
@@ -253,7 +260,7 @@ export class AgentRunner {
         return;
       case "ask":
         this.store(session, "raw", d.raw);
-        this.onAsk(session, d.requestId, d.toolName, d.input);
+        this.onAsk(session, d.requestId, d.toolName, d.input, d.rules);
         return;
       case "result":
         this.store(session, "result", d.raw);
@@ -278,14 +285,34 @@ export class AgentRunner {
     }
   }
 
-  private onAsk(session: Session, requestId: string, toolName: string, input: unknown): void {
+  private onAsk(session: Session, requestId: string, toolName: string, input: unknown, rules: PermissionRule[]): void {
     const at = this.deps.ctx.now();
-    const ask = { id: this.deps.ctx.newId(), itemId: session.itemId, requestId, toolName, input, state: "pending" as const };
+    if (this.autoAllow(session, requestId, toolName, input, at)) return;
+    const ask = { id: this.deps.ctx.newId(), itemId: session.itemId, requestId, toolName, input, state: "pending" as const, rules };
     this.deps.asks.insert(ask, at);
     const item = this.item(session.itemId);
     if (item.state === "running" || item.state === "needs_you") {
       this.deps.writer.commit(agentAsked(item, this.deps.ctx, ask.id, { toolName }));
     }
+  }
+
+  /**
+   * A WebFetch to a host on the user's list is answered here and never reaches the user (D31). Only
+   * WebFetch: the same host in a `--settings` rule would also open it to sandboxed Bash (D27).
+   */
+  private autoAllow(session: Session, requestId: string, toolName: string, input: unknown, at: string): boolean {
+    if (toolName !== "WebFetch" || !session.proc) return false;
+    const host = webFetchHost(input);
+    const domain = host && matchingDomain(host, this.deps.webFetchDomains?.() ?? []);
+    if (!host || !domain) return false;
+    const item = this.item(session.itemId);
+    if (item.state !== "running" && item.state !== "needs_you") return false;
+
+    session.proc.write(askAnswerLine(requestId, { behavior: "allow", input }));
+    const ask = { id: this.deps.ctx.newId(), itemId: session.itemId, requestId, toolName, input, state: "allowed" as const, rules: [] };
+    this.deps.asks.insert(ask, at);
+    this.deps.writer.commit(autoAllowed(item, this.deps.ctx, ask.id, { toolName, host, domain }));
+    return true;
   }
 
   private onResult(session: Session, d: { isError: boolean; subtype: string | undefined; raw: unknown }): void {

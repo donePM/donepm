@@ -8,6 +8,7 @@ import OrphansPanel from "./OrphansPanel.vue";
 import ReposPanel from "./ReposPanel.vue";
 import SourcesPanel from "./SourcesPanel.vue";
 import ToolsSummary from "./ToolsSummary.vue";
+import WebAccessPanel from "./WebAccessPanel.vue";
 
 const settings = ref<Settings>();
 const error = ref<string>();
@@ -33,6 +34,7 @@ onMounted(async () => {
     </div>
     <div class="side">
       <GeneralForm v-if="settings" :settings="settings" @saved="settings = $event" />
+      <WebAccessPanel v-if="settings" :domains="settings.allowedWebFetchDomains" @saved="settings = $event" />
       <section class="panel">
         <h2>Daemon</h2>
         <p class="sub mono">donepm {{ status?.version ?? "…" }}<template v-if="settings"> · :{{ settings.port }}</template></p>

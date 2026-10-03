@@ -7,7 +7,7 @@ const ev = (type: string, payload: Record<string, unknown> = {}, over: Partial<E
   n++;
   return { id: `e${n}`, itemId: "i", at: `2026-10-03T09:${String(n).padStart(2, "0")}:00Z`, actor: "system", type: type as Event["type"], payload, ...over };
 };
-const ask: PermissionAsk = { id: "a1", itemId: "i", requestId: "r", toolName: "Bash", input: { command: "composer test" }, state: "allowed" };
+const ask: PermissionAsk = { id: "a1", itemId: "i", requestId: "r", toolName: "Bash", input: { command: "composer test" }, state: "allowed", rules: [] };
 
 describe("timelineEntries", () => {
   it("lists newest first with text for each event", () => {
@@ -32,6 +32,18 @@ describe("timelineEntries", () => {
       { tone: "attention", text: "Agent asked permission", code: "Bash: composer test", detail: undefined },
       { tone: "system", text: "Agent started", code: undefined, detail: undefined },
       { tone: "system", text: "Collected from GitHub", code: undefined, detail: undefined },
+    ]);
+  });
+
+  it("names the rules of an allow for the run and the daemon's own answers", () => {
+    const web: PermissionAsk = { id: "a2", itemId: "i", requestId: "r2", toolName: "WebFetch", input: { url: "https://nodejs.org/en" }, state: "allowed", rules: [] };
+    const events = [
+      ev("permission.answered", { behavior: "allow", rules: [{ toolName: "Bash", ruleContent: "curl *" }] }, { refId: "a1", actor: "user" }),
+      ev("permission.auto_allowed", { toolName: "WebFetch", host: "nodejs.org", domain: "nodejs.org" }, { refId: "a2" }),
+    ];
+    expect(timelineEntries(events, [ask, web]).map(({ tone, text, code, detail }) => ({ tone, text, code, detail }))).toEqual([
+      { tone: "system", text: "Allowed web access on your list", code: "WebFetch: https://nodejs.org/en", detail: "nodejs.org is in Settings → Web access" },
+      { tone: "user", text: "You allowed for this run", code: "Bash: composer test", detail: "Also allowed until the run ends: Bash: curl *" },
     ]);
   });
 

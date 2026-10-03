@@ -36,7 +36,29 @@ describe("decodeLine against recorded sessions", () => {
       requestId: expect.any(String),
       toolName: "Bash",
       input: { command: expect.stringContaining("curl -sI https://example.com") },
+      rules: [{ toolName: "Bash", ruleContent: "curl *" }],
     });
+  });
+
+  it("keeps only add-allow-rule suggestions", () => {
+    const d = decodeLine(JSON.stringify({
+      type: "control_request", request_id: "r1",
+      request: {
+        subtype: "can_use_tool", tool_name: "Bash", input: {},
+        permission_suggestions: [
+          { type: "addRules", behavior: "allow", destination: "localSettings", rules: [{ toolName: "WebFetch", ruleContent: "domain:x.org" }] },
+          { type: "addRules", behavior: "deny", rules: [{ toolName: "Bash", ruleContent: "rm *" }] },
+          { type: "setMode", mode: "acceptEdits" },
+          "junk",
+        ],
+      },
+    }));
+    expect(d).toMatchObject({ type: "ask", rules: [{ toolName: "WebFetch", ruleContent: "domain:x.org" }] });
+  });
+
+  it("has no rules when the CLI suggests none", () => {
+    const d = decodeLine(JSON.stringify({ type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "Bash", input: {} } }));
+    expect(d).toMatchObject({ type: "ask", rules: [] });
   });
 
   it("keeps the denial a tool result after a deny answer", () => {

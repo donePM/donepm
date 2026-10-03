@@ -1,4 +1,4 @@
-import type { PermissionAsk, PermissionAskState } from "@donepm/core";
+import { offerableRules, parseRules, type PermissionAsk, type PermissionAskState } from "@donepm/core";
 import type { Db } from "../db/database.js";
 
 interface AskRow {
@@ -8,6 +8,7 @@ interface AskRow {
   tool_name: string;
   input: string;
   state: string;
+  rules: string;
 }
 
 function fromRow(r: AskRow): PermissionAsk {
@@ -18,6 +19,7 @@ function fromRow(r: AskRow): PermissionAsk {
     toolName: r.tool_name,
     input: JSON.parse(r.input) as unknown,
     state: r.state as PermissionAskState,
+    rules: parseRules(JSON.parse(r.rules) as unknown),
   };
 }
 
@@ -43,12 +45,13 @@ export class AskStore {
     return this.forItem(itemId).filter((a) => a.state === "pending");
   }
 
+  /** Stores only the rules that may be granted; a rule the deny list forbids is never kept. */
   insert(ask: PermissionAsk, at: string): void {
     this.db
       .prepare(
-        "INSERT INTO asks (id, item_id, request_id, tool_name, input, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO asks (id, item_id, request_id, tool_name, input, state, rules, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
-      .run(ask.id, ask.itemId, ask.requestId, ask.toolName, JSON.stringify(ask.input), ask.state, at, at);
+      .run(ask.id, ask.itemId, ask.requestId, ask.toolName, JSON.stringify(ask.input), ask.state, JSON.stringify(offerableRules(ask.rules)), at, at);
   }
 
   setState(id: string, state: PermissionAskState, at: string): void {
