@@ -567,7 +567,10 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
 ### 12.2 Item detail (drawer or route)
 
 - Timeline of events, newest at top. Each: time, actor, text, link to draft/ask.
-- Transcript: full agent conversation, tool calls collapsed, live text while running.
+- Transcript: full agent conversation, tool calls collapsed, live text while running. The agent's
+  text, the task (opened) and a subagent's report render as Markdown in a compact style; the
+  user's messages, thinking, tool input and output and setup logs stay plain. Streaming text
+  re-renders on every delta; an unclosed code fence shows as code up to the end.
 - Diff: `git diff <base>...<branch>` plus uncommitted changes, per file.
 - Drafts list.
 - The issue body and the PR draft body render as GitHub-flavoured Markdown (headings, lists, task

@@ -8,6 +8,7 @@ import { clock, money } from "../time/duration";
 import { useNow } from "../time/now";
 import { useTranscript } from "../transcript/live";
 import { toRows } from "../transcript/rows";
+import { repoOf } from "../markdown/render";
 import TranscriptRows from "../transcript/TranscriptRows.vue";
 import { pending, stopAgent } from "./actions";
 import { AGENT_GROUPS, agentGroups } from "./groups";
@@ -123,7 +124,7 @@ watch([() => rows.value.length, live], async () => {
       <p v-if="stopError" class="error" role="alert">{{ stopError }}</p>
       <p v-if="error" class="error" role="alert">Could not load the transcript: {{ error }}</p>
       <div ref="scroller" class="scroll">
-        <TranscriptRows :rows="rows" :live="live" :now="now" :running="selected.agent.running" />
+        <TranscriptRows :rows="rows" :live="live" :now="now" :running="selected.agent.running" :repo="repoOf(selected.externalId)" />
         <p v-if="!rows.length && !live" class="empty">Nothing yet.</p>
       </div>
     </section>

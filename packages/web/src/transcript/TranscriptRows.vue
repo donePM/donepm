@@ -1,10 +1,20 @@
 <script setup lang="ts">
 import { computed, reactive } from "vue";
+import MarkdownView from "../markdown/MarkdownView.vue";
+import type { RepoRef } from "../markdown/render";
 import { clock } from "../time/duration";
+import { rendersMarkdown } from "./markdown";
 import { agentNote, resultNote, type Row } from "./rows";
 import TranscriptRows from "./TranscriptRows.vue";
 
-const props = defineProps<{ rows: Row[]; live: string; now: number; running: boolean }>();
+const props = defineProps<{
+  rows: Row[];
+  live: string;
+  now: number;
+  running: boolean;
+  /** For `#123` and relative links in the agent's Markdown. */
+  repo?: RepoRef;
+}>();
 
 /** Rows the user opened (tools, thinking, the task). */
 const open = reactive(new Set<string>());
@@ -28,7 +38,8 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
       <div v-if="row.type === 'task'" class="row">
         <span class="who">Task</span>
         <div class="bubble">
-          <span class="pre">{{ open.has(row.id) ? row.text : preview(row.text) }}</span>
+          <MarkdownView v-if="open.has(row.id) && rendersMarkdown(row)" :source="row.text" :repo="repo" compact />
+          <span v-else class="pre">{{ open.has(row.id) ? row.text : preview(row.text) }}</span>
           <button v-if="row.text.length > TASK_PREVIEW" class="link" type="button" @click="toggle(row.id)">
             {{ open.has(row.id) ? "show less" : "show all" }}
           </button>
@@ -61,7 +72,8 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
 
       <div v-else-if="row.type === 'text'" class="row">
         <span class="who agent">Agent</span>
-        <div class="text pre">{{ row.text }}</div>
+        <MarkdownView v-if="rendersMarkdown(row)" class="text" :source="row.text" :repo="repo" compact />
+        <div v-else class="text pre">{{ row.text }}</div>
       </div>
 
       <div v-else-if="row.type === 'tool'" class="row">
@@ -98,9 +110,12 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
             <p class="meta dim">
               {{ [row.model, row.background ? "in the background" : "", `${row.children.length} steps`].filter(Boolean).join(" · ") }}
             </p>
-            <TranscriptRows :rows="row.children" live="" :now="now" :running="running && row.status === 'running'" />
+            <TranscriptRows :rows="row.children" live="" :now="now" :running="running && row.status === 'running'" :repo="repo" />
           </div>
-          <pre v-if="open.has(row.id) && row.result" class="body result report">{{ row.result.text || "(no report)" }}</pre>
+          <div v-if="open.has(row.id) && row.result" class="body result report">
+            <MarkdownView v-if="row.result.text" :source="row.result.text" :repo="repo" compact />
+            <span v-else class="dim">(no report)</span>
+          </div>
         </div>
       </div>
 
@@ -117,7 +132,7 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
 
     <div v-if="live" class="row">
       <span class="who agent">Agent</span>
-      <div class="text pre live">{{ live }}<span class="cursor" aria-hidden="true"></span></div>
+      <MarkdownView class="text live" :source="live" :repo="repo" compact />
     </div>
   </div>
 </template>
@@ -151,7 +166,16 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
 }
 .text { flex: 1; min-width: 0; line-height: 1.55; }
 .text.live { color: var(--ink-2); }
-.cursor { display: inline-block; width: 8px; height: 14px; margin-left: 2px; background: var(--blue); vertical-align: text-bottom; }
+/* The cursor sits after the last block the stream has written so far. */
+.text.live :deep(> :last-child)::after {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 14px;
+  margin-left: 2px;
+  background: var(--blue);
+  vertical-align: text-bottom;
+}
 .link { border: 0; background: none; padding: 0; margin-left: 6px; font: inherit; font-size: 13px; color: var(--blue); cursor: pointer; }
 .thinking { flex: 1; min-width: 0; }
 .thinking .link { margin-left: 0; color: var(--ink-3); }
@@ -202,7 +226,7 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
 .tool.sub > .tool-head { font-family: var(--mono); font-size: 12px; }
 .children { padding: 10px 12px 12px; border-top: 1px solid var(--border-soft); }
 .children .meta { margin: 0 0 10px; font-size: 12px; }
-.report { white-space: pre-wrap; font-family: inherit; font-size: 13px; }
+.report { white-space: normal; font-family: inherit; font-size: 13px; }
 .ask-line { flex: 1; min-width: 0; color: var(--amber); overflow-wrap: anywhere; }
 .ask-line .mono { font-size: 12px; }
 .turn { font-size: 12px; color: var(--ink-3); }
