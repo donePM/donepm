@@ -13,6 +13,10 @@
     "./tool-summary": {
       "types": "./dist/transcript/tool-summary.d.ts",
       "default": "./dist/transcript/tool-summary.js"
+    },
+    "./subagent": {
+      "types": "./dist/transcript/subagent.d.ts",
+      "default": "./dist/transcript/subagent.js"
     }
   },
   "scripts": {
