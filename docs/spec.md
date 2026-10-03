@@ -565,7 +565,17 @@ Database: `~/.local/share/donepm/donepm.db`.
 - `pnpm build` builds `web` into `daemon/public`, compiles TypeScript.
 - Single entry: `daemon/dist/index.js`. `donepm-bridge` as a second small binary (Node
   script with shebang is fine for MVP).
-- Homebrew tap later. MVP: `pnpm install && pnpm build && node daemon/dist/index.js`.
+- Homebrew tap `donePM/homebrew-tap`: `brew install donepm/tap/donepm`, then
+  `donepm install-service` (D29). From source: `pnpm install && pnpm build`, then
+  `node packages/cli/dist/main.js`.
+- `scripts/pack.sh <version>` packs `pnpm deploy --prod` of `cli` (with `daemon`, its built
+  `public/`, its `playbooks/` and `core`) into `dist-release/donepm-<version>.tar.gz`. Each
+  package lists what it ships in `files`.
+- Pushing a tag `v*` runs `.github/workflows/release.yml`: version from the tag, build, test, pack,
+  `donepm --version` on the unpacked tarball, GitHub Release, then the formula rendered from
+  `packaging/homebrew/donepm.rb.tmpl` is pushed to the tap with `HOMEBREW_TAP_TOKEN`.
+- The formula's `bin/donepm` sets `DONEPM_NODE` and `DONEPM_DAEMON_ENTRY` to Homebrew's `opt`
+  paths; `install-service` writes those into the plist, so `brew upgrade` does not break it.
 
 ## 17. Open questions
 

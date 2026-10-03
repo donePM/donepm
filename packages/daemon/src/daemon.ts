@@ -65,7 +65,7 @@ export interface DaemonOptions {
 const BRIDGE_SCRIPT = fileURLToPath(new URL("./bridge/main.js", import.meta.url));
 
 /** Built-in playbook in the repository root, copied to the global folder on first start. */
-const DEFAULT_PLAYBOOK = fileURLToPath(new URL("../../../playbooks/implement.md", import.meta.url));
+const DEFAULT_PLAYBOOK = fileURLToPath(new URL("../playbooks/implement.md", import.meta.url));
 
 export interface Daemon {
   app: FastifyInstance;

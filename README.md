@@ -6,12 +6,22 @@ A local daemon with a web UI that collects your work from GitHub (later Jira), s
 board, runs a coding agent in a git worktree per item, and lets you approve every pull request,
 comment or merge as a draft before it leaves your machine.
 
-Status: MVP, macOS only. Install from source.
+Status: MVP, macOS only.
 
 ## Install
 
-Requirements: macOS, Node 22+, pnpm, `git`, the `gh` CLI logged in (`gh auth login`) and the
-`claude` CLI (Claude Code) logged in.
+Requirements: macOS, `git`, the `gh` CLI logged in (`gh auth login`) and the `claude` CLI
+(Claude Code) logged in.
+
+```bash
+brew install donepm/tap/donepm
+donepm install-service    # start now and at every login
+```
+
+Homebrew brings Node. After `brew upgrade donepm`, run `donepm install-service` again: it restarts
+the daemon on the new version.
+
+From source instead (Node 22+ and pnpm):
 
 ```bash
 git clone https://github.com/donePM/donepm.git && cd donepm
@@ -37,9 +47,9 @@ donepm uninstall-service  # removes the launchd job
 ```
 
 launchd restarts the daemon after a crash, not after `donepm stop`. The plist records the
-current `node` binary, the checkout's path and your `PATH` (so the daemon finds `gh`, `git` and
-`claude`). Run `donepm install-service` again after moving the checkout, upgrading Node or
-changing where those tools live. After `git pull` and `pnpm build`, `donepm install-service`
+current `node` binary, the daemon's path and your `PATH` (so the daemon finds `gh`, `git` and
+`claude`). With Homebrew these are stable `opt` paths. From source, run `donepm install-service`
+again after moving the checkout, upgrading Node or changing where those tools live. After `git pull` and `pnpm build`, `donepm install-service`
 also restarts the daemon on the new code.
 
 ### Where things live
@@ -135,6 +145,17 @@ pnpm -F core test          # one package
 DONEPM_LIVE=1 pnpm test    # includes live agent tests (costs money)
 ```
 
+### Releasing
+
+Push a tag `v<version>` on `main`. `.github/workflows/release.yml` sets that version in every
+package, builds, tests, packs the tarball with `scripts/pack.sh`, publishes a GitHub Release and
+updates `Formula/donepm.rb` in `donePM/homebrew-tap` from `packaging/homebrew/donepm.rb.tmpl`.
+It needs the secret `HOMEBREW_TAP_TOKEN` (fine-grained, contents write on `homebrew-tap` only).
+
+```bash
+scripts/pack.sh 0.0.0       # the same tarball locally, in dist-release/
+```
+
 ### Troubleshooting
 
 `pnpm dev` needs both ports free:
@@ -151,5 +172,5 @@ Check who holds a port with `lsof -iTCP:6174 -sTCP:LISTEN`.
 - `docs/intent.md` – why this exists and what it is not
 - `docs/spec.md` – the MVP, in detail
 - `docs/decisions.md` – decisions already made, with reasons
-- `playbooks/implement.md` – the default playbook
+- `packages/daemon/playbooks/implement.md` – the default playbook, copied to `~/.config/donepm/playbooks/` on first start
 - `CLAUDE.md` – rules for coding agents working on this repository

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import implementMd from "../../../../playbooks/implement.md?raw";
+import implementMd from "../../../daemon/playbooks/implement.md?raw";
 import { parsePlaybook } from "./parse.js";
 import { PlaceholderError, placeholderValues, renderPlaybookBody } from "./render.js";
 

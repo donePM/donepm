@@ -8,3 +8,6 @@ dist/
 
 # web build output, served by the daemon
 packages/daemon/public/
+
+# release tarballs, from scripts/pack.sh
+dist-release/
