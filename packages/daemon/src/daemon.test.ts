@@ -15,6 +15,13 @@ import { fakeProcesses } from "./test-support/fake-process.js";
 import { cloneWithOrigin, git } from "./test-support/git-repo.js";
 import { exec as realExec, type Exec } from "./process/exec.js";
 
+/**
+ * Starting an item creates a real git worktree before the fake agent is spawned. On a busy CI
+ * runner (other packages' tests run in parallel) that takes longer than `vi.waitFor`'s default
+ * second (#61), so these waits get room. They return as soon as the condition holds.
+ */
+const waitFor = <T>(fn: () => T) => vi.waitFor(fn, { timeout: 10_000 });
+
 let daemon: Daemon | undefined;
 afterEach(async () => {
   vi.unstubAllEnvs();
@@ -88,7 +95,7 @@ async function start(
 async function agentDrafts(d: Daemon, spawn: ReturnType<typeof fakeProcesses>, draft = { title: "Fix search", body: "Closes #161" }) {
   const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
   await get(d, `/api/items/${item.id}/start`, { method: "POST" });
-  await vi.waitFor(() => expect(spawn.spawned).toHaveLength(1));
+  await waitFor(() => expect(spawn.spawned).toHaveLength(1));
   const proc = spawn.last();
   proc.emit({ type: "system", subtype: "init", session_id: "s1" });
 
@@ -110,7 +117,7 @@ async function agentDrafts(d: Daemon, spawn: ReturnType<typeof fakeProcesses>, d
   rpc({ id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude", version: "x" } } });
   rpc({ method: "notifications/initialized" });
   rpc({ id: 2, method: "tools/call", params: { name: "draft_pr", arguments: draft } });
-  await vi.waitFor(() => expect(replies.find((r) => r.id === 2)).toBeDefined());
+  await waitFor(() => expect(replies.find((r) => r.id === 2)).toBeDefined());
   const text: string = replies.find((r) => r.id === 2).result.content[0].text;
 
   proc.emit(
@@ -126,7 +133,7 @@ async function get(d: Daemon, path: string, init?: RequestInit): Promise<{ statu
   return { status: res.status, body: await res.json() };
 }
 
-describe("daemon", () => {
+describe("daemon", { timeout: 30_000 }, () => {
   it("creates the config on first start and serves polled items", async () => {
     const h = await home();
     const d = await start(h);
@@ -306,7 +313,7 @@ describe("daemon", () => {
     let d = await start(h, undefined, undefined, first);
     const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
     await get(d, `/api/items/${item.id}/start`, { method: "POST" });
-    await vi.waitFor(() => expect(first.spawned).toHaveLength(1));
+    await waitFor(() => expect(first.spawned).toHaveLength(1));
     first.last().emit(
       { type: "system", subtype: "init", session_id: "s1" },
       { type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" } } },
@@ -332,7 +339,7 @@ describe("daemon", () => {
     const resumed = await get(d, `/api/items/${item.id}/resume`, { method: "POST" });
     expect(resumed.status).toBe(202);
     expect(resumed.body.state).toBe("running");
-    await vi.waitFor(() => expect(second.spawned).toHaveLength(1));
+    await waitFor(() => expect(second.spawned).toHaveLength(1));
     const proc = second.last();
     expect(proc.args).toEqual(expect.arrayContaining(["--resume", "s1"]));
     expect(proc.opts.cwd).toBe(after.worktreePath);
@@ -350,7 +357,7 @@ describe("daemon", () => {
     await get(d, "/api/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ maxConcurrentAgents: 2 }) });
     for (const i of [a, b]) {
       await get(d, `/api/items/${i.id}/start`, { method: "POST" });
-      await vi.waitFor(() => expect(spawn.spawned.length).toBeGreaterThan(i === a ? 0 : 1));
+      await waitFor(() => expect(spawn.spawned.length).toBeGreaterThan(i === a ? 0 : 1));
     }
     // a never reported a session; b did, but its worktree disappears while donePM is down.
     spawn.spawned[1]!.emit({ type: "system", subtype: "init", session_id: "s2" });
@@ -377,7 +384,7 @@ describe("daemon", () => {
     const d = await start(h, undefined, undefined, spawn);
     const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
     await get(d, `/api/items/${item.id}/start`, { method: "POST" });
-    await vi.waitFor(() => expect(spawn.spawned).toHaveLength(1));
+    await waitFor(() => expect(spawn.spawned).toHaveLength(1));
     const { worktreePath, branch } = (await get(d, `/api/items/${item.id}`)).body;
     expect((await get(d, `/api/items/${item.id}/worktree/remove`, { method: "POST" })).status).toBe(409);
     await get(d, `/api/items/${item.id}/stop`, { method: "POST" });
@@ -417,7 +424,7 @@ describe("daemon", () => {
     const started = await get(d, `/api/items/${item.id}/start`, { method: "POST" });
     expect(started.status).toBe(202);
     expect(started.body.state).toBe("running");
-    await vi.waitFor(() => expect(spawn.spawned).toHaveLength(1));
+    await waitFor(() => expect(spawn.spawned).toHaveLength(1));
 
     const proc = spawn.last();
     const stored = (await get(d, `/api/items/${item.id}`)).body;
@@ -469,7 +476,7 @@ describe("daemon", () => {
 
     const item = items.find((i: any) => i.externalId === "acme/widgets#161");
     await get(d, `/api/items/${item.id}/start`, { method: "POST" });
-    await vi.waitFor(async () =>
+    await waitFor(async () =>
       expect((await get(d, `/api/items/${item.id}`)).body.events.map((e: any) => e.type)).toContain("item.assigned"),
     );
 
@@ -486,7 +493,7 @@ describe("daemon", () => {
     expect((await get(d, `/api/items/${item.id}/stop`, { method: "POST" })).status).toBe(409);
 
     await get(d, `/api/items/${item.id}/start`, { method: "POST" });
-    await vi.waitFor(() => expect(spawn.spawned).toHaveLength(1));
+    await waitFor(() => expect(spawn.spawned).toHaveLength(1));
     spawn.last().emit({
       type: "assistant", session_id: "s1",
       message: { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "pnpm test" } }] },
@@ -509,7 +516,7 @@ describe("daemon", () => {
     const d = await start(await homeWithHistory(), () => search, undefined, spawn, () => view);
     const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
     await get(d, `/api/items/${item.id}/start`, { method: "POST" });
-    await vi.waitFor(() => expect(spawn.spawned).toHaveLength(1));
+    await waitFor(() => expect(spawn.spawned).toHaveLength(1));
     expect((await get(d, `/api/items/${item.id}/dismiss`, { method: "POST" })).body).toEqual({ error: "the issue is not closed upstream" });
 
     search = fixture("gh/search-issues-empty.json");
@@ -551,7 +558,7 @@ describe("daemon", () => {
     const d = await start(h, undefined, undefined, spawn);
     const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
     await get(d, `/api/items/${item.id}/start`, { method: "POST" });
-    await vi.waitFor(async () => expect((await get(d, `/api/items/${item.id}`)).body.state).toBe("failed"));
+    await waitFor(async () => expect((await get(d, `/api/items/${item.id}`)).body.state).toBe("failed"));
     expect(spawn.spawned).toHaveLength(0);
     const detail = (await get(d, `/api/items/${item.id}`)).body;
     expect(detail.events.at(-1).payload.reason).toBe("worktree setup failed");
@@ -564,7 +571,7 @@ describe("daemon", () => {
     const d = await start(await homeWithHistory(), undefined, undefined, spawn);
     const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
     await get(d, `/api/items/${item.id}/start`, { method: "POST" });
-    await vi.waitFor(() => expect(spawn.spawned).toHaveLength(1));
+    await waitFor(() => expect(spawn.spawned).toHaveLength(1));
     spawn.last().emit({ type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "curl x" } } });
     const [ask] = (await get(d, `/api/items/${item.id}`)).body.asks;
 
@@ -623,7 +630,7 @@ describe("daemon", () => {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason: "Add a test" }),
     });
     expect(res).toMatchObject({ status: 200, body: { state: "rejected" } });
-    await vi.waitFor(() => expect(second.spawned).toHaveLength(1));
+    await waitFor(() => expect(second.spawned).toHaveLength(1));
     const proc = second.last();
     expect(proc.args).toEqual(expect.arrayContaining(["--resume", "s1"]));
     expect(proc.sent()[0].message.content[0].text).toContain("Add a test");
