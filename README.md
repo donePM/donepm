@@ -63,6 +63,20 @@ Config and data then live under `$DONEPM_HOME/.config/donepm/` and `$DONEPM_HOME
 Point it at your clones by setting `repoRoot` in that config to an absolute path, e.g.
 `{"repoRoot": "/Users/you/workspace"}`. A leading `~` expands to `DONEPM_HOME`, not your real home.
 
+### Starting an agent without the UI
+
+```bash
+curl -X POST http://127.0.0.1:6174/api/items/<id>/start      # worktree, setup, then claude
+curl http://127.0.0.1:6174/api/items/<id>/transcript         # stored transcript
+curl -X POST -H 'content-type: application/json' \
+  -d '{"behavior":"allow"}' http://127.0.0.1:6174/api/asks/<ask-id>/answer
+```
+
+Worktrees go to `worktreeRoot/<owner-repo>/<branch>`. A repository can add `.donepm/setup.yml`
+(`copy:` files from the main clone, `run:` commands in the worktree). Playbooks live in
+`~/.config/donepm/playbooks/` (the default `implement.md` is written there on first start) and
+`<repo>/.donepm/playbooks/`.
+
 ### Testing
 
 ```bash

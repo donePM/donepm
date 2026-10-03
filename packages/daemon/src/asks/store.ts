@@ -21,12 +21,32 @@ function fromRow(r: AskRow): PermissionAsk {
   };
 }
 
-/** Read side only for now; asks are written once the agent runner exists. */
 export class AskStore {
   constructor(private readonly db: Db) {}
 
   forItem(itemId: string): PermissionAsk[] {
-    const rows = this.db.prepare("SELECT * FROM asks WHERE item_id = ? ORDER BY created_at").all(itemId) as unknown as AskRow[];
+    const rows = this.db.prepare("SELECT * FROM asks WHERE item_id = ? ORDER BY created_at, rowid").all(itemId) as unknown as AskRow[];
     return rows.map(fromRow);
+  }
+
+  get(id: string): PermissionAsk | undefined {
+    const row = this.db.prepare("SELECT * FROM asks WHERE id = ?").get(id) as AskRow | undefined;
+    return row && fromRow(row);
+  }
+
+  pending(itemId: string): PermissionAsk[] {
+    return this.forItem(itemId).filter((a) => a.state === "pending");
+  }
+
+  insert(ask: PermissionAsk, at: string): void {
+    this.db
+      .prepare(
+        "INSERT INTO asks (id, item_id, request_id, tool_name, input, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(ask.id, ask.itemId, ask.requestId, ask.toolName, JSON.stringify(ask.input), ask.state, at, at);
+  }
+
+  setState(id: string, state: PermissionAskState, at: string): void {
+    this.db.prepare("UPDATE asks SET state = ?, updated_at = ? WHERE id = ?").run(state, at, id);
   }
 }

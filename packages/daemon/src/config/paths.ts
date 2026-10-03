@@ -4,6 +4,8 @@ export interface Paths {
   home: string;
   configDir: string;
   configFile: string;
+  /** Global playbooks (spec 8.1). */
+  playbooksDir: string;
   dataDir: string;
   dbFile: string;
 }
@@ -16,6 +18,7 @@ export function pathsFor(home: string): Paths {
     home,
     configDir,
     configFile: join(configDir, "config.json"),
+    playbooksDir: join(configDir, "playbooks"),
     dataDir,
     dbFile: join(dataDir, "donepm.db"),
   };

@@ -103,7 +103,7 @@ Append-only. Never updated or deleted.
 | refId | uuid? (draft id, ask id, message id) |
 
 Event types in MVP: `item.collected`, `item.playbook_changed`, `agent.started`, `agent.resumed`,
-`agent.turn_ended`, `agent.failed`, `permission.asked`, `permission.answered`, `draft.created`,
+`agent.turn_started`, `agent.turn_ended`, `agent.failed`, `permission.asked`, `permission.answered`, `draft.created`,
 `draft.edited`, `draft.approved`, `draft.rejected`, `draft.executed`, `draft.execution_failed`.
 
 ### 4.4 Draft

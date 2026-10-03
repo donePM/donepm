@@ -46,6 +46,7 @@ describe("paths", () => {
       home: "/h",
       configDir: "/h/.config/donepm",
       configFile: "/h/.config/donepm/config.json",
+      playbooksDir: "/h/.config/donepm/playbooks",
       dataDir: "/h/.local/share/donepm",
       dbFile: "/h/.local/share/donepm/donepm.db",
     });

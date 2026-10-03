@@ -6,6 +6,7 @@ export * from "./event/types.js";
 export * from "./draft/types.js";
 export * from "./ask/types.js";
 export * from "./repo/types.js";
+export * from "./repo/setup.js";
 export * from "./transcript/types.js";
 export * from "./origin/normalize.js";
 export * from "./branch/naming.js";

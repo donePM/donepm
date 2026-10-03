@@ -55,7 +55,10 @@ export function start(item: WorkItem, ctx: Ctx): Transition {
   );
 }
 
-/** Agent raised a permission question. `askId` is the PermissionAsk id. */
+/**
+ * Agent raised a permission question. `askId` is the PermissionAsk id. Allowed while already
+ * waiting too: tool calls running in parallel can each ask.
+ */
 export function agentAsked(
   item: WorkItem,
   ctx: Ctx,
@@ -63,7 +66,7 @@ export function agentAsked(
   payload: Record<string, unknown> = {},
 ): Transition {
   return apply(
-    { name: "agentAsked", from: ["running"], to: "needs_you", actor: "agent", event: "permission.asked" },
+    { name: "agentAsked", from: ["running", "needs_you"], to: "needs_you", actor: "agent", event: "permission.asked" },
     item,
     ctx,
     askId,
@@ -71,19 +74,52 @@ export function agentAsked(
   );
 }
 
-/** User answered a permission question. */
+/** User answered a permission question. The item keeps waiting while `othersPending` asks remain. */
 export function answered(
   item: WorkItem,
   ctx: Ctx,
   askId: string,
   payload: Record<string, unknown> = {},
+  othersPending = false,
 ): Transition {
   return apply(
-    { name: "answered", from: ["needs_you"], to: "running", actor: "user", event: "permission.answered" },
+    {
+      name: "answered",
+      from: ["needs_you"],
+      to: othersPending ? "needs_you" : "running",
+      actor: "user",
+      event: "permission.answered",
+    },
     item,
     ctx,
     askId,
     payload,
+  );
+}
+
+/**
+ * The agent's turn ended without a pending ask or draft (spec 9.3, `result`). The user decides
+ * what happens next, so the item waits in Needs You.
+ */
+export function turnEnded(item: WorkItem, ctx: Ctx, payload: Record<string, unknown> = {}): Transition {
+  return apply(
+    { name: "turnEnded", from: ["running"], to: "needs_you", actor: "agent", event: "agent.turn_ended" },
+    item,
+    ctx,
+    undefined,
+    payload,
+  );
+}
+
+/**
+ * The CLI started a turn on its own, e.g. after a background task notification (a second `init`
+ * mid-session, spec 9.3). The item is running again.
+ */
+export function turnStarted(item: WorkItem, ctx: Ctx): Transition {
+  return apply(
+    { name: "turnStarted", from: ["needs_you"], to: "running", actor: "agent", event: "agent.turn_started" },
+    item,
+    ctx,
   );
 }
 
@@ -129,13 +165,21 @@ export function draftRejected(
   );
 }
 
-/** Agent process failed. Possible while running or while waiting for the user. */
-export function agentFailed(item: WorkItem, ctx: Ctx, reason?: string): Transition {
+/**
+ * Agent process or worktree setup failed. Possible while running or while waiting for the user.
+ * `details` go into the event payload next to the reason, e.g. `{ stderrTail }` or `{ output }`.
+ */
+export function agentFailed(
+  item: WorkItem,
+  ctx: Ctx,
+  reason?: string,
+  details: Record<string, unknown> = {},
+): Transition {
   return apply(
     { name: "agentFailed", from: ["running", "needs_you"], to: "failed", actor: "system", event: "agent.failed" },
     item,
     ctx,
     undefined,
-    reason === undefined ? {} : { reason },
+    reason === undefined ? details : { ...details, reason },
   );
 }

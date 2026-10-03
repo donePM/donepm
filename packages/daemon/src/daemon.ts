@@ -1,6 +1,11 @@
 import type { Ctx, WorkItem } from "@donepm/core";
 import type { FastifyInstance } from "fastify";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { agentEnv } from "./agent/env.js";
+import { spawnProcess, type ProcessFactory } from "./agent/process.js";
+import { AgentRunner } from "./agent/runner.js";
+import { startItem } from "./agent/start.js";
 import { AskStore } from "./asks/store.js";
 import { detectClaude } from "./claude/detect.js";
 import { loadConfig, saveConfig, type Config } from "./config/config.js";
@@ -13,13 +18,16 @@ import { detectGh } from "./gh/detect.js";
 import { Poller } from "./gh/poller.js";
 import { buildServer } from "./http/server.js";
 import { makeGuard } from "./http/guard.js";
+import { itemWriter } from "./items/commit.js";
 import { ItemStore } from "./items/store.js";
 import { relinkItems } from "./items/sync.js";
 import { toItemView } from "./items/view.js";
 import type { Exec } from "./process/exec.js";
+import { ensureDefaultPlaybook } from "./playbooks/load.js";
 import { discoverRepos } from "./repos/discover.js";
 import { RepoStore } from "./repos/store.js";
 import { StatusStore } from "./status/status.js";
+import { TranscriptStore } from "./transcript/store.js";
 import { Hub } from "./ws/hub.js";
 
 export interface DaemonOptions {
@@ -33,7 +41,14 @@ export interface DaemonOptions {
   logger?: boolean;
   /** Built web UI; defaults to `packages/daemon/public`. */
   publicDir?: string;
+  /** Starts `claude`; tests pass a fake. */
+  spawn?: ProcessFactory;
+  /** Environment the agent inherits (minus tokens); defaults to `process.env`. */
+  env?: NodeJS.ProcessEnv;
 }
+
+/** Built-in playbook in the repository root, copied to the global folder on first start. */
+const DEFAULT_PLAYBOOK = fileURLToPath(new URL("../../../playbooks/implement.md", import.meta.url));
 
 export interface Daemon {
   app: FastifyInstance;
@@ -56,6 +71,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const items = new ItemStore(db);
   const events = new EventStore(db);
   const repos = new RepoStore(db);
+  const asks = new AskStore(db);
+  const transcript = new TranscriptStore(db);
   const status = new StatusStore(opts.version);
   const boundPort = () => {
     const a = app.server.address();
@@ -67,6 +84,24 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const pushItem = (item: WorkItem) =>
     hub.push("item.updated", toItemView(item, item.repoId ? repos.get(item.repoId) : undefined));
   status.onChange((s) => hub.push("status.changed", s));
+
+  /** Starts still preparing their worktree; shutdown waits for them before stopping agents. */
+  const starting = new Set<Promise<void>>();
+  const writer = itemWriter({ db, items, events, onItem: pushItem, onEvent: () => {} });
+  const runner = new AgentRunner({
+    items,
+    writer,
+    asks,
+    transcript,
+    push: (type, payload) => hub.push(type, payload),
+    ctx: opts.ctx,
+    log: { info: (o, m) => app.log.info(o, m), warn: (o, m) => app.log.warn(o, m), error: (o, m) => app.log.error(o, m) },
+    spawn: opts.spawn ?? spawnProcess,
+    claudePath: () => status.get().claude?.path ?? "claude",
+    env: () => agentEnv(opts.env ?? process.env, join(paths.dataDir, "bin-filtered")),
+    maxConcurrent: () => config.maxConcurrentAgents,
+    onCountChanged: (runningAgents) => status.update({ runningAgents }),
+  });
 
   const rescan = async () => {
     await discoverRepos({ root: expandHome(config.repoRoot, opts.home), exec: opts.exec, repos, ctx: opts.ctx, log: app.log });
@@ -91,7 +126,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     repos,
     status,
     drafts: new DraftStore(db),
-    asks: new AskStore(db),
+    asks,
+    transcript,
     getConfig: () => config,
     saveConfig: async (next) => {
       await saveConfig(paths.configFile, next);
@@ -103,6 +139,22 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     },
     rescan,
     recheck,
+    startItem: async (id) => {
+      const { item, done } = await startItem(
+        {
+          items, repos, writer, runner, transcript, exec: opts.exec, ctx: opts.ctx, log: app.log,
+          push: (type, payload) => hub.push(type, payload),
+          playbooksDir: paths.playbooksDir,
+          worktreeRoot: () => expandHome(config.worktreeRoot, opts.home),
+          branchPrefix: () => config.branchPrefix,
+        },
+        id,
+      );
+      starting.add(done);
+      void done.finally(() => starting.delete(done));
+      return item;
+    },
+    answerAsk: (id, answer) => runner.answer(id, answer),
     publicDir: opts.publicDir ?? fileURLToPath(new URL("../public", import.meta.url)),
     ...(opts.extraOrigins ? { extraOrigins: opts.extraOrigins } : {}),
     ...(opts.logger !== undefined ? { logger: opts.logger } : {}),
@@ -116,6 +168,9 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     config: () => config,
     address: () => `http://127.0.0.1:${boundPort()}`,
     async start() {
+      await ensureDefaultPlaybook(paths.playbooksDir, DEFAULT_PLAYBOOK).catch((e) =>
+        app.log.warn({ err: e }, "could not write the default playbook"),
+      );
       await app.listen({ host: "127.0.0.1", port });
       app.log.info({ configFile: paths.configFile, dbFile: paths.dbFile }, "donepm started");
       await recheck();
@@ -129,6 +184,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     },
     async stop() {
       poller.stop();
+      await Promise.all(starting);
+      await runner.stopAll();
       hub.close();
       await app.close();
       db.close();
