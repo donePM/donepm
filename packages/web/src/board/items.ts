@@ -38,13 +38,20 @@ export function reloadItems(): Promise<void> {
   return inFlight;
 }
 
+/** Apply a pushed item in place; the agent's tool calls push often, a full reload each time is wasteful. */
+export function upsert(item: ItemView): void {
+  const i = items.value.findIndex((x) => x.id === item.id);
+  if (i === -1) items.value = [...items.value, item];
+  else items.value = items.value.map((x, j) => (j === i ? item : x));
+}
+
 let started = false;
 export function watchItems(): void {
   if (started) return;
   started = true;
   void reloadItems();
   onPush((msg) => {
-    if (msg.type === "item.updated") void reloadItems();
+    if (msg.type === "item.updated") upsert(msg.payload as ItemView);
   });
   onReconnect(() => void reloadItems());
 }

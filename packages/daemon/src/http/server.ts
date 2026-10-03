@@ -1,16 +1,17 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import type { WorkItem } from "@donepm/core";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
-import { AskError } from "../agent/runner.js";
+import { AskError, StopError } from "../agent/runner.js";
 import { StartError } from "../agent/start.js";
 import type { AskStore } from "../asks/store.js";
 import { ConfigSchema, type Config } from "../config/config.js";
 import type { DraftStore } from "../drafts/store.js";
 import type { EventStore } from "../events/store.js";
 import type { ItemStore } from "../items/store.js";
-import { toItemView } from "../items/view.js";
+import type { ItemView } from "../items/view.js";
 import type { RepoStore } from "../repos/store.js";
 import type { StatusStore } from "../status/status.js";
 import type { TranscriptStore } from "../transcript/store.js";
@@ -34,6 +35,10 @@ export interface ServerDeps {
   recheck: () => Promise<void>;
   /** Throws StartError; resolves once the item is `running`, the rest happens in the background. */
   startItem: (id: string) => Promise<unknown>;
+  /** Throws StopError when no agent process is alive. Resolves once it exited. */
+  stopItem: (id: string) => Promise<void>;
+  /** The item as the API shows it: clone, badges, agent. */
+  view: (item: WorkItem) => ItemView;
   /** Throws AskError. */
   answerAsk: (id: string, answer: AskAnswer) => void;
   /** Built web UI (`packages/web` builds into it). Served at `/` when it exists. */
@@ -59,16 +64,14 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!allowed(req.headers)) return reply.code(403).send({ error: "forbidden" });
   });
 
-  app.get("/api/items", async () =>
-    deps.items.all().map(({ item }) => toItemView(item, item.repoId ? deps.repos.get(item.repoId) : undefined)),
-  );
+  app.get("/api/items", async () => deps.items.all().map(({ item }) => deps.view(item)));
 
   app.get<{ Params: { id: string } }>("/api/items/:id", async (req, reply) => {
     const stored = deps.items.get(req.params.id);
     if (!stored) return reply.code(404).send({ error: "item not found" });
     const { item } = stored;
     return {
-      ...toItemView(item, item.repoId ? deps.repos.get(item.repoId) : undefined),
+      ...deps.view(item),
       events: deps.events.forItem(item.id),
       drafts: deps.drafts.forItem(item.id),
       asks: deps.asks.forItem(item.id),
@@ -82,6 +85,17 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       if (e instanceof StartError) return reply.code(e.status).send({ error: e.message });
       throw e;
     }
+  });
+
+  app.post<{ Params: { id: string } }>("/api/items/:id/stop", async (req, reply) => {
+    if (!deps.items.get(req.params.id)) return reply.code(404).send({ error: "item not found" });
+    try {
+      await deps.stopItem(req.params.id);
+    } catch (e) {
+      if (e instanceof StopError) return reply.code(e.status).send({ error: e.message });
+      throw e;
+    }
+    return deps.view(deps.items.get(req.params.id)!.item);
   });
 
   app.get<{ Params: { id: string }; Querystring: { after?: string } }>("/api/items/:id/transcript", async (req, reply) => {

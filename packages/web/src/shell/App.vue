@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watchStatus } from "../status/status";
+import { status, watchStatus } from "../status/status";
 import StatusBar from "../status/StatusBar.vue";
 
 watchStatus();
@@ -10,6 +10,9 @@ watchStatus();
     <div class="brand"><span class="mark" aria-hidden="true"></span>donePM</div>
     <nav>
       <RouterLink to="/" class="tab" exact-active-class="active">Board</RouterLink>
+      <RouterLink to="/agents" class="tab" active-class="active">
+        Agents<span v-if="status?.runningAgents" class="badge" :aria-label="`${status.runningAgents} running`">{{ status.runningAgents }}</span>
+      </RouterLink>
       <RouterLink to="/settings" class="tab" active-class="active">Settings</RouterLink>
     </nav>
     <StatusBar />
@@ -33,6 +36,18 @@ watchStatus();
 nav { display: flex; gap: 4px; }
 .tab { padding: 6px 12px; border-radius: 6px; color: var(--ink-2); text-decoration: none; }
 .tab:hover { color: var(--ink); background: var(--border-soft); }
+.badge {
+  display: inline-block;
+  min-width: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
 .tab.active { background: var(--border-soft); color: var(--ink); font-weight: 500; }
 @media (max-width: 640px) {
   .topbar { padding: 8px 16px; gap: 12px; }

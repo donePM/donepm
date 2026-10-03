@@ -20,6 +20,7 @@ function item(over: Partial<ItemView>): ItemView {
     updatedAt: "2026-10-01T00:00:00Z",
     repo: { id: "r1", path: "/x", originUrl: "github.com/acme/widgets", defaultBranch: "main" },
     badges: [],
+    agent: { running: false },
     ...over,
   };
 }

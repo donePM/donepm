@@ -5,12 +5,23 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./tool-summary": {
+      "types": "./dist/transcript/tool-summary.d.ts",
+      "default": "./dist/transcript/tool-summary.js"
+    }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
     "test": "vitest run"
   },
-  "dependencies": { "yaml": "^2.6.0",
-    "zod": "^3.23.8" }
+  "dependencies": {
+    "yaml": "^2.6.0",
+    "zod": "^3.23.8"
+  }
 }

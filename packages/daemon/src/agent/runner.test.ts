@@ -10,7 +10,7 @@ import { testCtx } from "../test-support/ctx.js";
 import { fixture } from "../test-support/fake-exec.js";
 import { fakeProcesses } from "../test-support/fake-process.js";
 import { TranscriptStore } from "../transcript/store.js";
-import { AgentBusyError, AgentRunner, AskError } from "./runner.js";
+import { AgentBusyError, AgentRunner, AskError, StopError } from "./runner.js";
 
 const playbook: Playbook = { name: "implement", model: "haiku", permissionMode: "acceptEdits", drafts: ["pr"], body: "" };
 const lines = (name: string) => fixture(`stream/${name}`).split("\n").filter(Boolean);
@@ -23,6 +23,7 @@ function setup(maxConcurrent = 1) {
   const asks = new AskStore(db);
   const transcript = new TranscriptStore(db);
   const pushed: Array<{ type: string; payload: any }> = [];
+  const activity: string[] = [];
   const spawn = fakeProcesses();
   const writer = itemWriter({ db, items, events, onItem: () => {}, onEvent: () => {} });
   const runner = new AgentRunner({
@@ -31,6 +32,7 @@ function setup(maxConcurrent = 1) {
     claudePath: () => "/usr/local/bin/claude",
     env: async () => ({ PATH: "/filtered" }),
     maxConcurrent: () => maxConcurrent,
+    onActivity: (id) => activity.push(id),
   });
 
   const addItem = (n: number): WorkItem => {
@@ -51,7 +53,7 @@ function setup(maxConcurrent = 1) {
 
   const state = (id: string) => items.get(id)!.item;
   const types = (id: string) => events.forItem(id).map((e) => e.type);
-  return { db, items, events, asks, transcript, pushed, spawn, runner, addItem, launch, state, types };
+  return { db, items, events, asks, transcript, pushed, activity, spawn, runner, addItem, launch, state, types };
 }
 
 describe("AgentRunner", () => {
@@ -209,5 +211,71 @@ describe("AgentRunner", () => {
     expect(stubborn.signals).toEqual(["SIGTERM", "SIGKILL"]);
     expect(t.state("item-1").state).toBe("running");
     expect(t.state("item-2").state).toBe("running");
+  });
+
+  describe("stop", () => {
+    it("SIGTERMs the agent and fails a running item with a reason it can be retried from", async () => {
+      const t = setup();
+      const proc = await t.launch(t.addItem(1));
+      await t.runner.stop("item-1");
+      expect(proc.signals).toEqual(["SIGTERM"]);
+      expect(t.state("item-1").state).toBe("failed");
+      expect(t.events.forItem("item-1").at(-1)).toMatchObject({ type: "agent.failed", payload: { reason: "stopped by you" } });
+      expect(t.runner.count).toBe(0);
+    });
+
+    it("SIGKILLs an agent that ignores SIGTERM after the grace period", async () => {
+      const t = setup();
+      const proc = await t.launch(t.addItem(1));
+      proc.exitOnSignal = false;
+      await t.runner.stop("item-1", 1);
+      expect(proc.signals).toEqual(["SIGTERM", "SIGKILL"]);
+      expect(t.state("item-1").state).toBe("failed");
+    });
+
+    it("leaves an item that waits on the user as it is", async () => {
+      const t = setup();
+      const proc = await t.launch(t.addItem(1));
+      proc.emit(...lines("basic.jsonl"));
+      expect(t.state("item-1").state).toBe("needs_you");
+      await t.runner.stop("item-1");
+      expect(t.state("item-1").state).toBe("needs_you");
+    });
+
+    it("refuses when no process is alive", async () => {
+      const t = setup();
+      t.addItem(1);
+      expect(() => t.runner.stop("item-1")).toThrow(StopError);
+      t.runner.reserve("item-1");
+      expect(() => t.runner.stop("item-1")).toThrow(StopError);
+    });
+  });
+
+  describe("current tool", () => {
+    const toolUse = (id: string, name: string, input: unknown) => ({
+      type: "assistant", session_id: "s1", message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] },
+    });
+    const toolResult = (id: string) => ({
+      type: "user", session_id: "s1", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: "ok" }] },
+    });
+
+    it("is the latest call without a result, and gone when the agent exits", async () => {
+      const t = setup();
+      const proc = await t.launch(t.addItem(1));
+      proc.emit(toolUse("t1", "Bash", { command: "pnpm test" }));
+      expect(t.runner.currentTool("item-1")).toEqual({ name: "Bash", summary: "pnpm test" });
+      proc.emit(toolUse("t2", "Read", { file_path: "a.ts" }));
+      expect(t.runner.currentTool("item-1")).toEqual({ name: "Read", summary: "a.ts" });
+      proc.emit(toolResult("t2"));
+      expect(t.runner.currentTool("item-1")).toEqual({ name: "Bash", summary: "pnpm test" });
+      proc.emit(toolResult("t1"));
+      expect(t.runner.currentTool("item-1")).toBeUndefined();
+      expect(t.activity).toEqual(["item-1", "item-1", "item-1", "item-1"]);
+
+      proc.emit(toolUse("t3", "Bash", { command: "sleep 9" }));
+      proc.exit(0);
+      expect(t.runner.currentTool("item-1")).toBeUndefined();
+      expect(t.activity.at(-1)).toBe("item-1");
+    });
   });
 });

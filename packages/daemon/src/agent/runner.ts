@@ -1,10 +1,11 @@
 import {
-  agentAsked, agentFailed, answered, turnEnded, turnStarted,
+  agentAsked, agentFailed, answered, toolSummary, turnEnded, turnStarted,
   type Ctx, type Playbook, type TranscriptKind, type WorkItem,
 } from "@donepm/core";
 import type { AskStore } from "../asks/store.js";
 import type { ItemStore } from "../items/store.js";
 import type { ItemWriter } from "../items/commit.js";
+import type { CurrentTool } from "../items/view.js";
 import type { Log } from "../log.js";
 import type { TranscriptStore } from "../transcript/store.js";
 import type { PushType } from "../ws/hub.js";
@@ -31,6 +32,8 @@ export interface RunnerDeps {
   maxConcurrent: () => number;
   /** Reports the number of live sessions (status bar). */
   onCountChanged?: (running: number) => void;
+  /** The current tool of an item changed; the board shows it. */
+  onActivity?: (itemId: string) => void;
 }
 
 export interface LaunchInput {
@@ -49,8 +52,13 @@ interface Session {
   /** A `result` closed the latest turn. Reset on every `init`. */
   turnClosed: boolean;
   stderr: string[];
+  /** Shutdown of the daemon: the item keeps its state. */
   stopping: boolean;
+  /** The user pressed Stop: the item fails with a reason it can be retried from. */
+  stoppedByUser: boolean;
   done: boolean;
+  /** Tool calls without a result yet, by tool_use id, in call order. */
+  tools: Map<string, CurrentTool>;
   exited?: Promise<void>;
 }
 
@@ -78,6 +86,17 @@ export class AgentRunner {
     return this.sessions.has(itemId);
   }
 
+  /** A `claude` process is alive for the item (a reserved slot still preparing does not count). */
+  hasProcess(itemId: string): boolean {
+    return this.sessions.get(itemId)?.proc !== undefined;
+  }
+
+  /** The latest tool call still waiting for its result. */
+  currentTool(itemId: string): CurrentTool | undefined {
+    const tools = this.sessions.get(itemId)?.tools;
+    return tools ? [...tools.values()].at(-1) : undefined;
+  }
+
   /**
    * Hold a slot before the slow part (worktree, setup) starts, so two quick clicks cannot both get
    * past the limit. Throws AgentBusyError when full. `release` is for a start that fails early.
@@ -85,7 +104,9 @@ export class AgentRunner {
   reserve(itemId: string): { release: () => void } {
     if (this.sessions.has(itemId)) throw new Error("agent already running for this item");
     if (this.sessions.size >= this.deps.maxConcurrent()) throw new AgentBusyError(this.deps.maxConcurrent());
-    this.sessions.set(itemId, { itemId, turnClosed: false, stderr: [], stopping: false, done: false });
+    this.sessions.set(itemId, {
+      itemId, turnClosed: false, stderr: [], stopping: false, stoppedByUser: false, done: false, tools: new Map(),
+    });
     this.countChanged();
     return {
       release: () => {
@@ -157,6 +178,28 @@ export class AgentRunner {
     }
   }
 
+  /**
+   * The user's Stop button: SIGTERM, SIGKILL after the grace period. A running item fails with
+   * "stopped by you" so it can be started again; an item waiting on the user keeps its state.
+   * Throws StopError(409) when no process is alive.
+   */
+  stop(itemId: string, graceMs = KILL_GRACE_MS): Promise<void> {
+    const s = this.sessions.get(itemId);
+    if (!s?.proc) throw new StopError("no agent is running for this item");
+    if (!s.stoppedByUser) {
+      s.stoppedByUser = true;
+      s.proc.kill("SIGTERM");
+      if (!s.done) {
+        const timer = setTimeout(() => {
+          if (!s.done) s.proc!.kill("SIGKILL");
+        }, graceMs);
+        timer.unref();
+        void s.exited!.then(() => clearTimeout(timer));
+      }
+    }
+    return s.exited!;
+  }
+
   /** SIGTERM every agent, SIGKILL after the grace period (spec 9.5). Items keep their state. */
   async stopAll(graceMs = KILL_GRACE_MS): Promise<void> {
     const live = [...this.sessions.values()].filter((s) => s.proc);
@@ -190,6 +233,7 @@ export class AgentRunner {
         return;
       case "message":
         this.store(session, d.kind, d.raw);
+        this.track(session, d.kind, d.raw);
         return;
       case "ask":
         this.store(session, "raw", d.raw);
@@ -242,9 +286,15 @@ export class AgentRunner {
     session.done = true;
     this.sessions.delete(session.itemId);
     this.countChanged();
+    this.deps.onActivity?.(session.itemId);
     this.deps.log.info({ itemId: session.itemId, code, signal }, "agent exited");
     // On shutdown the item stays as it is, to be resumed after the restart (spec 9.5).
     if (session.stopping) return;
+    if (session.stoppedByUser) {
+      const item = this.item(session.itemId);
+      if (item.state === "running") this.deps.writer.commit(agentFailed(item, this.deps.ctx, "stopped by you"));
+      return;
+    }
     if (session.turnClosed && code === 0) return;
 
     const item = this.item(session.itemId);
@@ -257,6 +307,23 @@ export class AgentRunner {
           : `claude exited with code ${code} before finishing its turn`;
     this.deps.writer.commit(agentFailed(item, this.deps.ctx, reason, { stderrTail: session.stderr }));
     this.deps.log.warn({ itemId: item.id, code, signal }, reason);
+  }
+
+  /** Follow tool calls and their results for the "current tool" on the board. */
+  private track(session: Session, kind: TranscriptKind, raw: unknown): void {
+    if (kind !== "tool_use" && kind !== "tool_result") return;
+    const blocks = (raw as { message?: { content?: unknown } }).message?.content;
+    if (!Array.isArray(blocks)) return;
+    let changed = false;
+    for (const b of blocks as Array<Record<string, unknown>>) {
+      if (b.type === "tool_use" && typeof b.id === "string" && typeof b.name === "string") {
+        session.tools.set(b.id, { name: b.name, summary: toolSummary(b.name, b.input) });
+        changed = true;
+      } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
+        changed = session.tools.delete(b.tool_use_id) || changed;
+      }
+    }
+    if (changed) this.deps.onActivity?.(session.itemId);
   }
 
   private store(session: Session, kind: TranscriptKind, raw: unknown): void {
@@ -280,6 +347,14 @@ export class AgentRunner {
 
   private countChanged(): void {
     this.deps.onCountChanged?.(this.sessions.size);
+  }
+}
+
+export class StopError extends Error {
+  readonly status = 409;
+  constructor(message: string) {
+    super(message);
+    this.name = "StopError";
   }
 }
 
