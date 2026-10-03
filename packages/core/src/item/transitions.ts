@@ -149,13 +149,51 @@ export function draftEdited(item: WorkItem, ctx: Ctx, draftId: string): Transiti
   );
 }
 
-/** User approved the draft; the daemon executes it. Item is done. */
+/**
+ * User approved the draft. The item keeps waiting while the daemon executes it; `draftExecuted`
+ * or `draftExecutionFailed` follows.
+ */
 export function draftApproved(item: WorkItem, ctx: Ctx, draftId: string): Transition {
   return apply(
-    { name: "draftApproved", from: ["needs_you"], to: "done", actor: "user", event: "draft.approved" },
+    { name: "draftApproved", from: ["needs_you"], to: "needs_you", actor: "user", event: "draft.approved" },
     item,
     ctx,
     draftId,
+  );
+}
+
+/** The daemon executed an approved draft (spec 6.3). Item is done. `payload` holds the result. */
+export function draftExecuted(
+  item: WorkItem,
+  ctx: Ctx,
+  draftId: string,
+  payload: Record<string, unknown> = {},
+): Transition {
+  return apply(
+    { name: "draftExecuted", from: ["needs_you"], to: "done", actor: "system", event: "draft.executed" },
+    item,
+    ctx,
+    draftId,
+    payload,
+  );
+}
+
+/**
+ * Executing an approved draft failed. The item keeps waiting for the user, who can retry.
+ * `payload` holds the failed step and its output.
+ */
+export function draftExecutionFailed(
+  item: WorkItem,
+  ctx: Ctx,
+  draftId: string,
+  payload: Record<string, unknown> = {},
+): Transition {
+  return apply(
+    { name: "draftExecutionFailed", from: ["needs_you"], to: "needs_you", actor: "system", event: "draft.execution_failed" },
+    item,
+    ctx,
+    draftId,
+    payload,
   );
 }
 

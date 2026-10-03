@@ -102,8 +102,17 @@ and has no dependencies. A hand-rolled parser for the frontmatter subset would i
 in a place where a mistake means a wrong model or permission mode. `core` may import `zod` and
 `yaml`, nothing else.
 
+**D25. Leftover changes are committed on approval, not refused.** When the user approves a PR
+draft and the worktree still has uncommitted changes, the daemon runs `git add --all` and commits
+them as "WIP from donePM" before `git push`. The diff the user reviewed already includes
+uncommitted and untracked files (respecting `.gitignore`), so the pushed branch is exactly what was
+approved. Refusing would send the user to a terminal for a step the daemon can do. The agent may
+still commit on its own; the daemon only picks up what is left. Files that `.donepm/setup.yml`
+copied into the worktree (`.env` and the like) are excluded from that commit: they are secrets
+from the user's clone, not the agent's work.
+
 ## Open (not decided)
 
-- Whether the agent commits or the daemon commits before push. Decide after first live runs.
+- Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.
 - Jira Cloud vs Server auth details. Decide when the Jira adapter starts.
 - Team/server component. Not before a second user asks.

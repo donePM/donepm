@@ -1,4 +1,4 @@
-import type { Draft, Event, PermissionAsk, PrDraftPayload, Repo, TranscriptMessage, WorkItem } from "@donepm/core";
+import type { Draft, Event, PermissionAsk, PrDraftPayload, PrDraftResult, Repo, TranscriptMessage, WorkItem } from "@donepm/core";
 
 // Mirrors of what the daemon's HTTP API returns (packages/daemon/src/http/server.ts).
 
@@ -19,7 +19,7 @@ export interface AgentView {
 /** What a Needs You card shows. */
 export type Attention =
   | { kind: "ask"; askId: string; toolName: string; input: unknown }
-  | { kind: "draft"; draftId: string; title: string }
+  | { kind: "draft"; draftId: string; title: string; executing?: true; error?: string }
   | { kind: "failed"; reason: string; stderrTail?: string };
 
 export interface ItemView extends WorkItem {
@@ -27,6 +27,8 @@ export interface ItemView extends WorkItem {
   badges: ItemBadge[];
   agent: AgentView;
   attention?: Attention;
+  /** The pull request an approved draft opened. */
+  pr?: PrDraftResult;
 }
 
 /** `GET /api/items/:id`. */

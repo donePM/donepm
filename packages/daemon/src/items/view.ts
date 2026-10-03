@@ -1,4 +1,4 @@
-import type { Repo, WorkItem } from "@donepm/core";
+import type { PrDraftResult, Repo, WorkItem } from "@donepm/core";
 import type { AgentHistory } from "./agent-info.js";
 import type { Attention } from "./attention.js";
 
@@ -24,6 +24,8 @@ export interface ItemView extends WorkItem {
   agent: AgentView;
   /** Set while the item waits on the user (Needs You). */
   attention?: Attention;
+  /** The pull request an executed draft opened (Done). */
+  pr?: PrDraftResult;
 }
 
 export function toItemView(
@@ -31,6 +33,7 @@ export function toItemView(
   repo: Repo | undefined,
   agent: AgentView = { running: false },
   attention?: Attention,
+  pr?: PrDraftResult,
 ): ItemView {
   const badges: ItemBadge[] = [];
   if (!repo) badges.push("no-local-clone");
@@ -41,5 +44,6 @@ export function toItemView(
     badges,
     agent,
     ...(attention ? { attention } : {}),
+    ...(pr ? { pr } : {}),
   };
 }
