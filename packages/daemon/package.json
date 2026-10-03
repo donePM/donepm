@@ -4,6 +4,25 @@
   "private": true,
   "type": "module",
   "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./config": {
+      "types": "./dist/config/config.d.ts",
+      "default": "./dist/config/config.js"
+    },
+    "./paths": {
+      "types": "./dist/config/paths.d.ts",
+      "default": "./dist/config/paths.js"
+    },
+    "./exec": {
+      "types": "./dist/process/exec.d.ts",
+      "default": "./dist/process/exec.js"
+    },
+    "./status": {
+      "types": "./dist/status/status.d.ts",
+      "default": "./dist/status/status.js"
+    }
+  },
   "bin": {
     "donepm-bridge": "dist/bridge/main.js"
   },

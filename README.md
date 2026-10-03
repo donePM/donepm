@@ -4,7 +4,55 @@ A local daemon with a web UI that collects your work from GitHub (later Jira), s
 board, runs a coding agent in a git worktree per item, and lets you approve every pull request,
 comment or merge as a draft before it leaves your machine.
 
-Status: pre-MVP. Nothing runs yet.
+Status: MVP, macOS only. Install from source.
+
+## Install
+
+Requirements: macOS, Node 22+, pnpm, `git`, the `gh` CLI logged in (`gh auth login`) and the
+`claude` CLI (Claude Code) logged in.
+
+```bash
+git clone https://github.com/donePM/donepm.git && cd donepm
+pnpm install
+pnpm build
+alias donepm="node $PWD/packages/cli/dist/main.js"   # put this in ~/.zshrc
+```
+
+### First start
+
+```bash
+donepm start              # foreground; Ctrl-C stops it
+donepm open               # the board at http://127.0.0.1:6174
+```
+
+To keep donePM running in the background and start it at login:
+
+```bash
+donepm install-service    # writes ~/Library/LaunchAgents/com.donepm.daemon.plist and loads it
+donepm status             # running? which version, gh and claude ready?
+donepm stop               # stops it until the next login (or the next install-service)
+donepm uninstall-service  # removes the launchd job
+```
+
+launchd restarts the daemon after a crash, not after `donepm stop`. The plist records the
+current `node` binary, the checkout's path and your `PATH` (so the daemon finds `gh`, `git` and
+`claude`). Run `donepm install-service` again after moving the checkout, upgrading Node or
+changing where those tools live. After `git pull` and `pnpm build`, `donepm install-service`
+also restarts the daemon on the new code.
+
+### Where things live
+
+| What | Where |
+|---|---|
+| Config | `~/.config/donepm/config.json` (created on first start) |
+| Playbooks | `~/.config/donepm/playbooks/` (`implement.md` is written on first start), `<repo>/.donepm/playbooks/` |
+| Database | `~/.local/share/donepm/donepm.db` |
+| Worktrees | `~/.local/share/donepm/worktrees/<owner-repo>/<branch>` |
+| Logs (service) | `~/Library/Logs/donepm/daemon.log`, `daemon.err.log` |
+| launchd job | `~/Library/LaunchAgents/com.donepm.daemon.plist` |
+
+Worktrees are never removed automatically: remove them from a done or failed item, or from
+Settings → Orphaned worktrees.
 
 ## Development
 

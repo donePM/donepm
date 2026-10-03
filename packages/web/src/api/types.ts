@@ -82,6 +82,7 @@ export interface PollStatus {
 
 export interface Status {
   version: string;
+  pid: number;
   gh?: GhStatus;
   claude?: ClaudeStatus;
   lastPoll?: PollStatus;

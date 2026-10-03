@@ -477,6 +477,11 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
 
 `donepm start` (foreground), `donepm stop`, `donepm status`, `donepm open`
 (opens browser), `donepm install-service` (writes launchd plist and loads it).
+`donepm uninstall-service` unloads the job and deletes the plist. `stop` sends SIGTERM to the pid
+from `/api/status`; the plist uses `KeepAlive: { SuccessfulExit: false }`, so launchd restarts the
+daemon after a crash but not after `stop`. The plist records the current `node`, the daemon entry
+and `PATH`, because launchd starts jobs with a bare `PATH` and the daemon needs `gh`, `git` and
+`claude`.
 
 ## 14. Configuration
 
