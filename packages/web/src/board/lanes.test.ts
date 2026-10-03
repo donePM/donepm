@@ -3,9 +3,9 @@ import type { ItemView } from "../api/types";
 import { buildLanes, NO_CLONE_KEY, repoName, sortLanes, stableOrder } from "./lanes";
 
 let n = 0;
-function item(over: Partial<ItemView> & { repoId?: string | null; origin?: string }): ItemView {
+function item(over: Partial<ItemView> & { repoKey?: string | null; origin?: string }): ItemView {
   n++;
-  const { repoId = "r1", origin = "github.com/acme/widgets", ...rest } = over;
+  const { repoKey = "r1", origin = "github.com/acme/widgets", ...rest } = over;
   return {
     id: `i${n}`,
     source: "github-issue",
@@ -19,17 +19,17 @@ function item(over: Partial<ItemView> & { repoId?: string | null; origin?: strin
     priority: n,
     createdAt: "2026-10-01T00:00:00Z",
     updatedAt: "2026-10-01T00:00:00Z",
-    repo: repoId === null ? null : { id: repoId, path: `/x/${repoId}`, originUrl: origin, defaultBranch: "main" },
+    repo: repoKey === null ? null : { id: repoKey, path: `/x/${repoKey}`, originUrl: origin, defaultBranch: "main" },
     badges: [],
     agent: { running: false },
     ...rest,
   };
 }
 
-const alpha = (over: Partial<ItemView> = {}) => item({ repoId: "a", origin: "github.com/acme/alpha", ...over });
-const beta = (over: Partial<ItemView> = {}) => item({ repoId: "b", origin: "github.com/acme/beta", ...over });
-const gamma = (over: Partial<ItemView> = {}) => item({ repoId: "g", origin: "github.com/acme/gamma", ...over });
-const orphan = (over: Partial<ItemView> = {}) => item({ repoId: null, ...over });
+const alpha = (over: Partial<ItemView> = {}) => item({ repoKey: "a", origin: "github.com/acme/alpha", ...over });
+const beta = (over: Partial<ItemView> = {}) => item({ repoKey: "b", origin: "github.com/acme/beta", ...over });
+const gamma = (over: Partial<ItemView> = {}) => item({ repoKey: "g", origin: "github.com/acme/gamma", ...over });
+const orphan = (over: Partial<ItemView> = {}) => item({ repoKey: null, ...over });
 const keys = (lanes: { key: string }[]) => lanes.map((l) => l.key);
 
 describe("repoName", () => {
