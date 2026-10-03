@@ -7,6 +7,8 @@ import AskPanel from "../asks/AskPanel.vue";
 import { displayId } from "../board/columns";
 import { diffFiles, diffStats } from "../diff/files";
 import DiffPanel from "../diff/DiffPanel.vue";
+import MarkdownView from "../markdown/MarkdownView.vue";
+import { repoOf } from "../markdown/render";
 import { money } from "../time/duration";
 import { useNow } from "../time/now";
 import { timeLabel } from "../timeline/entries";
@@ -28,6 +30,7 @@ const draftCreatedAt = computed(() => {
   const e = [...(detail.value?.events ?? [])].reverse().find((x) => x.type === "draft.created" && x.refId === draft.value?.id);
   return e ? timeLabel(e.at, new Date(now.value)) : undefined;
 });
+const repo = computed(() => (detail.value ? repoOf(detail.value.externalId) : undefined));
 const stats = computed(() => (diff.value ? diffStats(diffFiles(diff.value.patch)) : undefined));
 
 const STATE_LABEL: Record<string, string> = {
@@ -89,6 +92,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
             :created-at="draftCreatedAt"
             :can-reject="detail.agent.running || !!detail.agentSessionId"
             :publish-error="publishError"
+            :repo="repo"
             @changed="reload"
           />
           <section v-if="detail.pr" class="panel" aria-labelledby="pr-h">
@@ -114,7 +118,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
           <DiffPanel v-if="detail.worktreePath" :diff="diff" :loading="diffLoading" :error="diffError" @refresh="reloadDiff" />
           <section v-if="detail.body.trim()" class="panel" aria-labelledby="issue-h">
             <h2 id="issue-h">Issue</h2>
-            <pre class="body">{{ detail.body }}</pre>
+            <MarkdownView class="body" :source="detail.body" :repo="repo" />
           </section>
         </div>
         <aside class="side">
@@ -167,7 +171,7 @@ h1 { margin: 12px 0 6px; font-size: 22px; font-weight: 600; line-height: 1.3; ov
   max-height: 240px;
   overflow: auto;
 }
-.body { margin: 12px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; color: var(--ink-2); }
+.body { margin-top: 12px; }
 .alert { margin-bottom: 16px; }
 @media (max-width: 1000px) {
   .layout { grid-template-columns: minmax(0, 1fr); }
