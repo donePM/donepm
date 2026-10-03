@@ -6,24 +6,30 @@ watchStatus();
 </script>
 
 <template>
-  <header class="topbar">
-    <div class="brand"><svg class="mark" viewBox="0 0 160 160" aria-hidden="true">
-        <path fill="currentColor" fill-rule="evenodd" d="M80 0a80 80 0 1 1 0 160A80 80 0 0 1 80 0Zm0 64a16 16 0 1 0 0 32 16 16 0 0 0 0-32Z" />
-      </svg>donePM</div>
-    <nav>
-      <RouterLink to="/" class="tab" exact-active-class="active">Board</RouterLink>
-      <RouterLink to="/agents" class="tab" active-class="active">
-        Agents<span v-if="status?.runningAgents" class="badge" :aria-label="`${status.runningAgents} running`">{{ status.runningAgents }}</span>
-      </RouterLink>
-      <RouterLink to="/settings" class="tab" active-class="active">Settings</RouterLink>
-    </nav>
-    <StatusBar />
-  </header>
-  <RouterView />
+  <div class="app">
+    <header class="topbar">
+      <div class="brand"><svg class="mark" viewBox="0 0 160 160" aria-hidden="true">
+          <path fill="currentColor" fill-rule="evenodd" d="M80 0a80 80 0 1 1 0 160A80 80 0 0 1 80 0Zm0 64a16 16 0 1 0 0 32 16 16 0 0 0 0-32Z" />
+        </svg>donePM</div>
+      <nav>
+        <RouterLink to="/" class="tab" exact-active-class="active">Board</RouterLink>
+        <RouterLink to="/agents" class="tab" active-class="active">
+          Agents<span v-if="status?.runningAgents" class="badge" :aria-label="`${status.runningAgents} running`">{{ status.runningAgents }}</span>
+        </RouterLink>
+        <RouterLink to="/settings" class="tab" active-class="active">Settings</RouterLink>
+      </nav>
+      <StatusBar />
+    </header>
+    <div class="view"><RouterView /></div>
+  </div>
 </template>
 
 <style scoped>
+/* The page never scrolls; each view scrolls inside `.view`, so the board can pin its own headers. */
+.app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+.view { flex: 1; min-height: 0; overflow: auto; }
 .topbar {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 24px;
