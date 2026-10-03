@@ -15,6 +15,7 @@
   --amber: #a14a05;
   --amber-tint: #fff3da;
   --amber-border: #d29b2e;
+  --green: #15803d;
   --danger: #991b1b;
   --danger-tint: #fbdddd;
   --add: #dcfce7;
@@ -72,6 +73,7 @@ a:hover { color: var(--blue-hover); }
 
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .dot-ok { background: var(--blue); }
+.dot-good { background: var(--green); }
 .dot-warn { background: var(--amber); }
 .dot-off { background: #b5b5ae; }
 
