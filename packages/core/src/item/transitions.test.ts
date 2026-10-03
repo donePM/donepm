@@ -1,0 +1,71 @@
+import { describe, expect, it } from "vitest";
+import type { Ctx } from "../ids.js";
+import {
+  InvalidTransitionError, agentAsked, agentFailed, answered, draftApproved, draftCreated, draftRejected, start,
+} from "./transitions.js";
+import type { ItemState, WorkItem } from "./types.js";
+
+function makeCtx(): Ctx {
+  let n = 0;
+  return { now: () => "2026-10-03T12:00:00.000Z", newId: () => `evt-${++n}` };
+}
+
+function item(state: ItemState, extra: Partial<WorkItem> = {}): WorkItem {
+  return {
+    id: "item-1", source: "github-issue", externalId: "o/r#1", externalUrl: "https://github.com/o/r/issues/1",
+    repoId: "repo-1", title: "T", body: "", labels: [], state, playbook: "implement", priority: 0,
+    createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z", ...extra,
+  };
+}
+
+const ALL: ItemState[] = ["ready", "running", "needs_you", "done", "failed"];
+
+const table: Array<{
+  name: string;
+  run: (i: WorkItem) => ReturnType<typeof start>;
+  from: ItemState[];
+  to: ItemState;
+  type: string;
+  actor: string;
+}> = [
+  { name: "start", run: (i) => start(i, makeCtx()), from: ["ready", "failed"], to: "running", type: "agent.started", actor: "system" },
+  { name: "agentAsked", run: (i) => agentAsked(i, makeCtx(), "ask-1"), from: ["running"], to: "needs_you", type: "permission.asked", actor: "agent" },
+  { name: "answered", run: (i) => answered(i, makeCtx(), "ask-1"), from: ["needs_you"], to: "running", type: "permission.answered", actor: "user" },
+  { name: "draftCreated", run: (i) => draftCreated(i, makeCtx(), "d-1"), from: ["running"], to: "needs_you", type: "draft.created", actor: "agent" },
+  { name: "draftApproved", run: (i) => draftApproved(i, makeCtx(), "d-1"), from: ["needs_you"], to: "done", type: "draft.approved", actor: "user" },
+  { name: "draftRejected", run: (i) => draftRejected(i, makeCtx(), "d-1", "nope"), from: ["needs_you"], to: "running", type: "draft.rejected", actor: "user" },
+  { name: "agentFailed", run: (i) => agentFailed(i, makeCtx(), "boom"), from: ["running", "needs_you"], to: "failed", type: "agent.failed", actor: "system" },
+];
+
+describe.each(table)("$name", ({ run, from, to, type, actor, name }) => {
+  it.each(from)("valid from %s", (state) => {
+    const before = item(state);
+    const { item: after, events } = run(before);
+    expect(after.state).toBe(to);
+    expect(after.updatedAt).toBe("2026-10-03T12:00:00.000Z");
+    expect(before.state).toBe(state); // input not mutated
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ itemId: "item-1", type, actor, id: "evt-1", at: "2026-10-03T12:00:00.000Z" });
+  });
+
+  it.each(ALL.filter((s) => !from.includes(s)))("throws from %s", (state) => {
+    expect(() => run(item(state))).toThrow(InvalidTransitionError);
+    expect(() => run(item(state))).toThrow(new RegExp(`${name}.*${state}`));
+  });
+});
+
+describe("details", () => {
+  it("start emits agent.resumed when a session exists", () => {
+    const { events } = start(item("failed", { agentSessionId: "sess" }), makeCtx());
+    expect(events[0]?.type).toBe("agent.resumed");
+  });
+  it("carries refId and payload", () => {
+    expect(agentAsked(item("running"), makeCtx(), "ask-9", { toolName: "Bash" }).events[0])
+      .toMatchObject({ refId: "ask-9", payload: { toolName: "Bash" } });
+    expect(draftRejected(item("needs_you"), makeCtx(), "d-2", "too long").events[0])
+      .toMatchObject({ refId: "d-2", payload: { reason: "too long" } });
+  });
+  it("agentFailed has no refId", () => {
+    expect(agentFailed(item("running"), makeCtx()).events[0]).not.toHaveProperty("refId");
+  });
+});
