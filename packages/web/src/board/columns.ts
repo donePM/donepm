@@ -43,6 +43,11 @@ export function displayId(externalId: string): string {
   return externalId.replace(/#(\d+)$/, " #$1");
 }
 
+/** `owner/repo#12` → `#12`, for cards in a lane that already names the repo. */
+export function shortId(externalId: string): string {
+  return externalId.replace(/^.*(?=#\d+$)/, "");
+}
+
 export type LabelTone = "bug" | "feature" | "plain";
 
 export function labelTone(label: string): LabelTone {

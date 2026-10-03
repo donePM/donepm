@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ItemView } from "../api/types";
-import { displayId, groupByColumn, labelTone } from "./columns";
+import { displayId, groupByColumn, labelTone, shortId } from "./columns";
 
 let n = 0;
 function item(over: Partial<ItemView>): ItemView {
@@ -62,6 +62,11 @@ describe("groupByColumn", () => {
 
 describe("displayId", () => {
   it("separates the number", () => expect(displayId("acme/widgets#42")).toBe("acme/widgets #42"));
+});
+
+describe("shortId", () => {
+  it("keeps only the number", () => expect(shortId("acme/widgets#42")).toBe("#42"));
+  it("leaves an id without a number alone", () => expect(shortId("PROJ-42")).toBe("PROJ-42"));
 });
 
 describe("labelTone", () => {
