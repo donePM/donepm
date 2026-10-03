@@ -13,7 +13,7 @@ Status: pre-MVP. Nothing runs yet.
 - Node 22+
 - pnpm (workspaces)
 - `gh` CLI logged in (`gh auth login`)
-- Optionally: `claude` CLI logged in (`claude auth login`) for live agent tests
+- `claude` CLI (Claude Code) logged in (`claude auth login`), needed to run agents
 
 ### Installation & Build
 
@@ -38,6 +38,9 @@ pnpm dev
 # Open http://localhost:5173 in dev mode
 ```
 
+Vite proxies `/api` and `/ws` to the daemon. The daemon's dev script sets
+`DONEPM_DEV_ORIGIN=http://localhost:5173` so it accepts requests from the Vite origin.
+
 ### Configuration
 
 On first start, the daemon creates `~/.config/donepm/config.json` with:
@@ -54,6 +57,10 @@ To use a separate config during development, set `DONEPM_HOME`:
 ```bash
 DONEPM_HOME=/tmp/donepm-dev node packages/daemon/dist/index.js
 ```
+
+Config and data then live under `$DONEPM_HOME/.config/donepm/` and `$DONEPM_HOME/.local/share/donepm/`.
+Point it at your clones by setting `repoRoot` in that config to an absolute path, e.g.
+`{"repoRoot": "/Users/you/workspace"}`. A leading `~` expands to `DONEPM_HOME`, not your real home.
 
 ### Testing
 
