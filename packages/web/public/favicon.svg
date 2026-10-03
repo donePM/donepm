@@ -1,22 +1,12 @@
-<svg
-    viewBox="0 0 160 160"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-    xmlns:xlink="http://www.w3.org/1999/xlink"
->
-    <a xlink:href="#go">
-        <circle
-            cx="50%"
-            cy="50%"
-            r="78"
-            fill="black"
-            stroke="#fff"
-            stroke-width="4"
-            class="fill-black stroke-white dark:fill-white dark:stroke-black"
-        >
-            <animate id="go" attributeType="XML" attributeName="fill" from="white" to="black" begin="go.begin"
-                     dur="1s"/>
-        </circle>
-        <circle cx="50%" cy="50%" r="16" fill="#fff" stroke="none" class="fill-white dark:fill-black"/>
-    </a>
+<svg viewBox="0 0 160 160" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .disc { fill: #000; stroke: #fff; }
+    .hole { fill: #fff; }
+    @media (prefers-color-scheme: dark) {
+      .disc { fill: #fff; stroke: #000; }
+      .hole { fill: #000; }
+    }
+  </style>
+  <circle class="disc" cx="80" cy="80" r="78" stroke-width="4"/>
+  <circle class="hole" cx="80" cy="80" r="16"/>
 </svg>

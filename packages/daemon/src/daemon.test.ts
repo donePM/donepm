@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, statSync, writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
@@ -200,6 +201,25 @@ describe("daemon", () => {
     // A rebuild writes new hashed assets while the daemon runs.
     await writeFile(join(ui, "assets", "app-2.js"), "console.log(2)");
     expect(await (await fetch(d.address() + "/assets/app-2.js")).text()).toBe("console.log(2)");
+  });
+
+  it("serves the logo files from the web package with their image types", async () => {
+    const h = await home();
+    const ui = join(h, "public");
+    await cp(fileURLToPath(new URL("../../web/public", import.meta.url)), ui, { recursive: true });
+    await writeFile(join(ui, "index.html"), "<!doctype html><title>donePM</title>");
+    const d = await start(h, undefined, ui);
+    const types: Record<string, RegExp> = {
+      "/favicon.svg": /image\/svg\+xml/,
+      "/favicon.ico": /image\/(x-icon|vnd\.microsoft\.icon)/,
+      "/apple-touch-icon.png": /image\/png/,
+      "/icons/icon-512x512.png": /image\/png/,
+    };
+    for (const [path, type] of Object.entries(types)) {
+      const res = await fetch(d.address() + path);
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get("content-type"), path).toMatch(type);
+    }
   });
 
   it("answers 404 at / when the UI is not built", async () => {

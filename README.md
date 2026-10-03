@@ -1,3 +1,5 @@
+<img src="packages/web/public/icons/icon-128x128.png" alt="" width="64" height="64">
+
 # donePM
 
 A local daemon with a web UI that collects your work from GitHub (later Jira), shows it on a

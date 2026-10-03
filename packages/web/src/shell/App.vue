@@ -7,7 +7,9 @@ watchStatus();
 
 <template>
   <header class="topbar">
-    <div class="brand"><span class="mark" aria-hidden="true"></span>donePM</div>
+    <div class="brand"><svg class="mark" viewBox="0 0 160 160" aria-hidden="true">
+        <path fill="currentColor" fill-rule="evenodd" d="M80 0a80 80 0 1 1 0 160A80 80 0 0 1 80 0Zm0 64a16 16 0 1 0 0 32 16 16 0 0 0 0-32Z" />
+      </svg>donePM</div>
     <nav>
       <RouterLink to="/" class="tab" exact-active-class="active">Board</RouterLink>
       <RouterLink to="/agents" class="tab" active-class="active">
@@ -32,7 +34,7 @@ watchStatus();
   flex-wrap: wrap;
 }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; }
-.mark { width: 10px; height: 10px; border-radius: 2px; background: var(--blue); }
+.mark { width: 18px; height: 18px; color: var(--ink); }
 nav { display: flex; gap: 4px; }
 .tab { padding: 6px 12px; border-radius: 6px; color: var(--ink-2); text-decoration: none; }
 .tab:hover { color: var(--ink); background: var(--border-soft); }
