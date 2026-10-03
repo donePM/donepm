@@ -26,6 +26,7 @@ const poll = computed(() => {
         <path class="bang-line" d="M8 3.5v5.5" stroke-width="2" stroke-linecap="round" />
         <circle class="bang-dot" cx="8" cy="12" r="1.2" />
       </svg>
+      <span class="sr-only">{{ label }}</span>
     </RouterLink>
     <span v-else-if="state === 'ok'" class="health"><span class="dot dot-good" aria-hidden="true"></span><span class="sr-only">All systems working</span></span>
     <span v-else class="health"><span class="dot dot-off" aria-hidden="true"></span><span class="sr-only">Checking…</span></span>
