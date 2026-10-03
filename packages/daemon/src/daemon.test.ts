@@ -1,9 +1,12 @@
 import { execFileSync } from "node:child_process";
+import { existsSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
+import { runShim } from "./bridge/shim.js";
 import { createDaemon, type Daemon } from "./daemon.js";
 import { testCtx } from "./test-support/ctx.js";
 import { fakeExec, fixture, ok } from "./test-support/fake-exec.js";
@@ -329,5 +332,69 @@ describe("daemon", () => {
     expect(spawn.last().sent().at(-1).response).toMatchObject({ request_id: "r1", response: { behavior: "deny", message: "no" } });
     expect((await post({ behavior: "allow" })).status).toBe(409);
     expect((await get(d, "/api/asks/nope/answer", { method: "POST", headers: { "content-type": "application/json" }, body: "{\"behavior\":\"allow\"}" })).status).toBe(404);
+  });
+
+  it("draft_pr end to end: the agent's MCP call makes a pending draft, the user edits and rejects it", async () => {
+    const spawn = fakeProcesses();
+    const d = await start(await homeWithHistory(), undefined, undefined, spawn);
+    const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
+    await get(d, `/api/items/${item.id}/start`, { method: "POST" });
+    await vi.waitFor(() => expect(spawn.spawned).toHaveLength(1));
+    const proc = spawn.last();
+
+    // What `claude` would do with --mcp-config: start the shim with the env from the file.
+    const configPath = proc.args[proc.args.indexOf("--mcp-config") + 1]!;
+    expect(statSync(configPath).mode & 0o777).toBe(0o600);
+    const server = JSON.parse(await readFile(configPath, "utf8")).mcpServers.donepm;
+    expect(server.command).toBe(process.execPath);
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const replies: any[] = [];
+    let buf = "";
+    stdout.on("data", (c) => {
+      buf += c.toString();
+      for (let nl = buf.indexOf("\n"); nl !== -1; nl = buf.indexOf("\n")) {
+        replies.push(JSON.parse(buf.slice(0, nl)));
+        buf = buf.slice(nl + 1);
+      }
+    });
+    const shim = runShim({ env: server.env, stdin, stdout, stderr: new PassThrough() });
+    const rpc = (msg: object) => stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...msg })}\n`);
+    rpc({ id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude", version: "x" } } });
+    rpc({ method: "notifications/initialized" });
+    rpc({ id: 2, method: "tools/call", params: { name: "draft_pr", arguments: { title: "Fix search", body: "Closes #161" } } });
+    await vi.waitFor(() => expect(replies.find((r) => r.id === 2)).toBeDefined());
+    const text = replies.find((r) => r.id === 2).result.content[0].text;
+    expect(text).toBe("Draft created, the user will review it.");
+
+    proc.emit(
+      { type: "assistant", session_id: "s1", message: { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "mcp__donepm__draft_pr", input: { title: "Fix search" } }] } },
+      { type: "user", session_id: "s1", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: [{ type: "text", text }] }] } },
+      { type: "result", subtype: "success", is_error: false, session_id: "s1", total_cost_usd: 0.1 },
+    );
+    let detail = (await get(d, `/api/items/${item.id}`)).body;
+    expect(detail.state).toBe("needs_you");
+    expect(detail.drafts).toMatchObject([{ type: "pr", state: "pending", payload: { title: "Fix search", body: "Closes #161", base: "main" } }]);
+    const transcript = (await get(d, `/api/items/${item.id}/transcript`)).body;
+    expect(transcript.some((m: any) => m.kind === "tool_result" && JSON.stringify(m.raw).includes("Draft created"))).toBe(true);
+
+    const post = (path: string, body: unknown) =>
+      get(d, path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const draftId = detail.drafts[0].id;
+    expect((await post(`/api/drafts/${draftId}/edit`, { payload: { title: "" } })).status).toBe(400);
+    expect((await post(`/api/drafts/${draftId}/edit`, { payload: { title: "Fix the search" } })).body.userEdits.title).toBe("Fix the search");
+    expect((await post(`/api/drafts/${draftId}/reject`, { reason: "Add a test" })).body.state).toBe("rejected");
+    expect(proc.sent().at(-1).message.content[0].text).toContain("Add a test");
+    detail = (await get(d, `/api/items/${item.id}`)).body;
+    expect(detail.state).toBe("running");
+    expect(detail.events.map((e: any) => e.type).slice(-3)).toEqual(["draft.created", "draft.edited", "draft.rejected"]);
+    expect((await post(`/api/drafts/${draftId}/reject`, {})).status).toBe(409);
+    expect((await post("/api/drafts/nope/edit", { payload: {} })).status).toBe(404);
+
+    // The process ends: its token and config file go with it.
+    proc.exit(0);
+    expect(existsSync(configPath)).toBe(false);
+    stdin.end();
+    expect(await shim).toBe(0);
   });
 });

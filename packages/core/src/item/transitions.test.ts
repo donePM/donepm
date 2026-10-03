@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Ctx } from "../ids.js";
 import {
-  InvalidTransitionError, agentAsked, agentFailed, answered, draftApproved, draftCreated, draftRejected, start,
+  InvalidTransitionError, agentAsked, agentFailed, answered, draftApproved, draftCreated, draftEdited, draftRejected, start,
   turnEnded, turnStarted,
 } from "./transitions.js";
 import type { ItemState, WorkItem } from "./types.js";
@@ -35,6 +35,7 @@ const table: Array<{
   { name: "turnEnded", run: (i) => turnEnded(i, makeCtx()), from: ["running"], to: "needs_you", type: "agent.turn_ended", actor: "agent" },
   { name: "turnStarted", run: (i) => turnStarted(i, makeCtx()), from: ["needs_you"], to: "running", type: "agent.turn_started", actor: "agent" },
   { name: "draftCreated", run: (i) => draftCreated(i, makeCtx(), "d-1"), from: ["running"], to: "needs_you", type: "draft.created", actor: "agent" },
+  { name: "draftEdited", run: (i) => draftEdited(i, makeCtx(), "d-1"), from: ["needs_you"], to: "needs_you", type: "draft.edited", actor: "user" },
   { name: "draftApproved", run: (i) => draftApproved(i, makeCtx(), "d-1"), from: ["needs_you"], to: "done", type: "draft.approved", actor: "user" },
   { name: "draftRejected", run: (i) => draftRejected(i, makeCtx(), "d-1", "nope"), from: ["needs_you"], to: "running", type: "draft.rejected", actor: "user" },
   { name: "agentFailed", run: (i) => agentFailed(i, makeCtx(), "boom"), from: ["running", "needs_you"], to: "failed", type: "agent.failed", actor: "system" },

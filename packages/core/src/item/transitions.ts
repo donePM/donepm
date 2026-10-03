@@ -139,6 +139,16 @@ export function draftCreated(
   );
 }
 
+/** User edited a pending draft. The item keeps waiting for the user. */
+export function draftEdited(item: WorkItem, ctx: Ctx, draftId: string): Transition {
+  return apply(
+    { name: "draftEdited", from: ["needs_you"], to: "needs_you", actor: "user", event: "draft.edited" },
+    item,
+    ctx,
+    draftId,
+  );
+}
+
 /** User approved the draft; the daemon executes it. Item is done. */
 export function draftApproved(item: WorkItem, ctx: Ctx, draftId: string): Transition {
   return apply(

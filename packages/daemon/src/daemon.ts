@@ -1,5 +1,7 @@
 import type { Ctx, WorkItem } from "@donepm/core";
 import type { FastifyInstance } from "fastify";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { agentEnv } from "./agent/env.js";
@@ -7,10 +9,14 @@ import { spawnProcess, type ProcessFactory } from "./agent/process.js";
 import { AgentRunner } from "./agent/runner.js";
 import { startItem } from "./agent/start.js";
 import { AskStore } from "./asks/store.js";
+import { writeMcpConfig } from "./bridge/mcp-config.js";
+import { listenBridge } from "./bridge/server.js";
+import { BridgeSessions } from "./bridge/sessions.js";
 import { detectClaude } from "./claude/detect.js";
 import { loadConfig, saveConfig, type Config } from "./config/config.js";
 import { expandHome, pathsFor } from "./config/paths.js";
 import { openDb, type Db } from "./db/database.js";
+import { editDraft, rejectDraft } from "./drafts/actions.js";
 import { DraftStore } from "./drafts/store.js";
 import { EventStore } from "./events/store.js";
 import { collectIssues } from "./gh/collect-issues.js";
@@ -48,6 +54,9 @@ export interface DaemonOptions {
   env?: NodeJS.ProcessEnv;
 }
 
+/** The stdio shim the agent's CLI starts for donePM's MCP server. */
+const BRIDGE_SCRIPT = fileURLToPath(new URL("./bridge/main.js", import.meta.url));
+
 /** Built-in playbook in the repository root, copied to the global folder on first start. */
 const DEFAULT_PLAYBOOK = fileURLToPath(new URL("../../../playbooks/implement.md", import.meta.url));
 
@@ -76,6 +85,12 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const repos = new RepoStore(db);
   const asks = new AskStore(db);
   const transcript = new TranscriptStore(db);
+  const drafts = new DraftStore(db);
+  // Short on purpose: a unix socket path is limited to 104 bytes on macOS and truncates silently.
+  const bridgeDir = mkdtempSync(join(tmpdir(), "donepm-"));
+  const bridgeSocket = join(bridgeDir, "mcp.sock");
+  const bridgeSessions = new BridgeSessions();
+  let bridge: { close: () => Promise<void> } | undefined;
   const status = new StatusStore(opts.version);
   const boundPort = () => {
     const a = app.server.address();
@@ -113,7 +128,21 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       const stored = items.get(itemId);
       if (stored) pushItem(stored.item);
     },
+    mcp: (item, playbook) => {
+      const token = bridgeSessions.mint({ itemId: item.id, drafts: playbook.drafts });
+      const file = writeMcpConfig({
+        dir: bridgeDir, itemId: item.id, nodePath: process.execPath, bridgePath: BRIDGE_SCRIPT, socketPath: bridgeSocket, token,
+      });
+      return {
+        configPath: file.path,
+        close: () => {
+          bridgeSessions.revoke(token);
+          file.remove();
+        },
+      };
+    },
   });
+  const draftDeps = { items, repos, drafts, writer, ctx: opts.ctx };
 
   const rescan = async () => {
     await discoverRepos({ root: expandHome(config.repoRoot, opts.home), exec: opts.exec, repos, ctx: opts.ctx, log: app.log });
@@ -137,7 +166,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     events,
     repos,
     status,
-    drafts: new DraftStore(db),
+    drafts,
     asks,
     transcript,
     getConfig: () => config,
@@ -169,6 +198,13 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     stopItem: (id) => runner.stop(id),
     view,
     answerAsk: (id, answer) => runner.answer(id, answer),
+    editDraft: (id, edits) => editDraft(draftDeps, id, edits),
+    rejectDraft: (id, reason) =>
+      rejectDraft(
+        { ...draftDeps, agentAlive: (itemId) => runner.hasProcess(itemId), say: (itemId, text) => runner.say(itemId, text) },
+        id,
+        reason,
+      ),
     publicDir: opts.publicDir ?? fileURLToPath(new URL("../public", import.meta.url)),
     ...(opts.extraOrigins ? { extraOrigins: opts.extraOrigins } : {}),
     ...(opts.logger !== undefined ? { logger: opts.logger } : {}),
@@ -186,6 +222,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
         app.log.warn({ err: e }, "could not write the default playbook"),
       );
       await app.listen({ host: "127.0.0.1", port });
+      bridge = await listenBridge({ ...draftDeps, sessions: bridgeSessions, log: app.log, version: opts.version }, bridgeSocket);
       app.log.info({ configFile: paths.configFile, dbFile: paths.dbFile }, "donepm started");
       await recheck();
       if (status.get().claude?.version) app.log.info({ version: status.get().claude?.version }, "claude cli");
@@ -200,6 +237,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       poller.stop();
       await Promise.all(starting);
       await runner.stopAll();
+      await bridge?.close();
+      rmSync(bridgeDir, { recursive: true, force: true });
       hub.close();
       await app.close();
       db.close();

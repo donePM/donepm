@@ -330,6 +330,8 @@ Notes:
 - Environment: copy the user's env, but remove `gh`, `glab`, `jira` from reach by setting
   `PATH` to a filtered copy without the directories that contain them. Also add deny rules via
   `--settings` for `Bash(gh *)`, `Bash(git push*)`. Both together.
+- The same `--settings` allows `mcp__donepm`: its tools only create drafts, so a permission
+  question per call would ask the user twice for the same thing.
 
 ### 9.2 First message
 
