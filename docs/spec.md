@@ -426,7 +426,7 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/asks/:id/answer` | `{ behavior: allow\|deny, message? }` |
 | POST | `/api/drafts/:id/edit` | `{ payload }` |
 | POST | `/api/drafts/:id/approve` | executes |
-| POST | `/api/drafts/:id/reject` | `{ reason }`; reason is sent to the agent as next message |
+| POST | `/api/drafts/:id/reject` | `{ reason }`; reason is sent to the agent as next message. Without a live process (e.g. after a restart) the session is resumed with `--resume` and the reason as its first message |
 | POST | `/api/items/:id/resume` | after daemon restart |
 | POST | `/api/items/:id/worktree/remove` | only `done` or `failed`; the branch stays |
 | GET | `/api/worktrees/orphaned` | worktrees under the root that no item uses |

@@ -87,7 +87,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
             v-if="draft && detail.state === 'needs_you'"
             :draft="draft"
             :created-at="draftCreatedAt"
-            :agent-running="detail.agent.running"
+            :can-reject="detail.agent.running || !!detail.agentSessionId"
             :publish-error="publishError"
             @changed="reload"
           />

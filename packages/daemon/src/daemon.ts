@@ -244,7 +244,12 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       }, id),
     rejectDraft: (id, reason) =>
       rejectDraft(
-        { ...draftDeps, agentAlive: (itemId) => runner.hasProcess(itemId), say: (itemId, text) => runner.say(itemId, text) },
+        {
+          ...draftDeps,
+          agentAlive: (itemId) => runner.hasProcess(itemId),
+          say: (itemId, text) => runner.say(itemId, text),
+          resume: async (itemId, how) => track(await resumeItem(startDeps(), itemId, how)),
+        },
         id,
         reason,
       ),
