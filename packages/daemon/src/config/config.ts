@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { normalizeOriginUrl } from "@donepm/core";
+import { DEFAULT_WEB_FETCH_DOMAINS, isDomain, normalizeOriginUrl } from "@donepm/core";
 import { z } from "zod";
 
 /** Hosts donePM can run a source query against. GitLab and Jira come later (issue #32). */
@@ -44,6 +44,10 @@ export const ConfigSchema = z
     maxConcurrentAgents: z.number().int().min(1).default(1),
     /** Keyed by normalised origin. Replaced as a whole by `PUT /api/settings`. */
     sources: z.record(SourceKey, SourceSchema).default({}),
+    /** WebFetch to these hosts (and their subdomains) is allowed by the daemon, not asked (D31). */
+    allowedWebFetchDomains: z
+      .array(z.string().trim().toLowerCase().refine(isDomain, { message: "must be a host name like docs.github.com" }))
+      .default([...DEFAULT_WEB_FETCH_DOMAINS]),
   })
   .strict();
 

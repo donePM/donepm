@@ -108,7 +108,7 @@ Event types in MVP: `item.collected`, `item.playbook_changed`, `agent.started`, 
 `agent.turn_started`, `agent.turn_ended`, `agent.failed`, `permission.asked`, `permission.answered`, `draft.created`,
 `draft.edited`, `draft.approved`, `draft.rejected`, `draft.executed`, `draft.execution_failed`,
 `agent.interrupted`, `worktree.removed`, `item.assigned`, `item.assign_failed` (assign on start,
-see 6.4).
+see 6.4), `permission.auto_allowed` (the daemon answered a WebFetch ask itself, see 9.4).
 
 ### 4.4 Draft
 
@@ -431,6 +431,16 @@ What asks and what does not (measured with `claude 2.1.288`):
   loop is Claude Code behaviour, not the user's hooks.
 - WebFetch asks per URL and suggests `WebFetch(domain:<host>)`.
 
+Web access without asking (D31). A WebFetch ask whose URL host is on `allowedWebFetchDomains`
+(14), or a subdomain of one, is answered by the daemon with a plain allow as soon as it arrives.
+The item stays `running`; the ask is stored as `allowed` and a `permission.auto_allowed` event
+(actor `system`, payload `{ toolName, host, domain }`) records it. Only `http`/`https` URLs without
+credentials qualify. The list is never turned into rules in `--settings`: Claude Code shares
+`WebFetch(domain:…)` rules with the sandbox's network, so a rule for `github.com` would let
+`git push https://github.com/…` from Bash through without an ask. Network asks from Bash keep
+asking (D27). Remaining risk, owned by the user per host: a URL can carry repository content out
+in its path or query.
+
 ### 9.5 Process lifecycle
 
 - One child process per running item.
@@ -536,6 +546,7 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
   Test button (count and first titles), "Open in GitHub" (the repo's issue list with this query, to
   refine it there and paste it back) and the assign-on-start checkbox. A failed query shows on its
   row.
+- Web access: the hosts the agent may read with WebFetch without asking (9.4), one per line.
 
 ## 13. CLI
 
@@ -559,7 +570,8 @@ and `PATH`, because launchd starts jobs with a bare `PATH` and the daemon needs 
   "branchPrefix": "dp/",
   "pollIntervalSeconds": 60,
   "maxConcurrentAgents": 1,
-  "sources": {}
+  "sources": {},
+  "allowedWebFetchDomains": ["github.com", "raw.githubusercontent.com", "docs.github.com", "nodejs.org", "developer.mozilla.org", "npmjs.com"]
 }
 ```
 

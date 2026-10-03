@@ -1,4 +1,4 @@
-import type { TranscriptKind } from "@donepm/core";
+import { parseRules, type PermissionRule, type TranscriptKind } from "@donepm/core";
 
 /** One stdout line of `claude -p --output-format stream-json`, decoded as far as donePM needs it. */
 export type Decoded =
@@ -8,8 +8,11 @@ export type Decoded =
   | { type: "message"; kind: TranscriptKind; sessionId: string | undefined; raw: unknown }
   /** Live typing only; pushed to the UI, never stored. */
   | { type: "stream"; sessionId: string | undefined; event: unknown }
-  /** `control_request/can_use_tool`: the CLI holds the turn until it gets an answer. */
-  | { type: "ask"; requestId: string; toolName: string; input: unknown; raw: unknown }
+  /**
+   * `control_request/can_use_tool`: the CLI holds the turn until it gets an answer. `rules` are the
+   * allow rules the CLI suggested, empty when it suggested none.
+   */
+  | { type: "ask"; requestId: string; toolName: string; input: unknown; rules: PermissionRule[]; raw: unknown }
   /** Last line of a turn. */
   | { type: "result"; sessionId: string | undefined; isError: boolean; subtype: string | undefined; raw: unknown }
   /** Not JSON, e.g. a line cut off by a crash. Skipped. */
@@ -51,12 +54,25 @@ export function decodeLine(line: string): Decoded {
       const req = msg.request;
       const requestId = str(msg.request_id);
       if (isObject(req) && req.subtype === "can_use_tool" && requestId) {
-        return { type: "ask", requestId, toolName: str(req.tool_name) ?? "unknown", input: req.input ?? {}, raw };
+        const rules = suggestedRules(req.permission_suggestions);
+        return { type: "ask", requestId, toolName: str(req.tool_name) ?? "unknown", input: req.input ?? {}, rules, raw };
       }
       break;
     }
   }
   return { type: "message", kind: "raw", sessionId, raw };
+}
+
+/**
+ * Rules from `permission_suggestions`. Only "add allow rules" suggestions count; anything else
+ * (other types, deny, malformed) is dropped. The suggested destination is ignored: grants are
+ * always for the session (see `askAnswerLine`).
+ */
+function suggestedRules(suggestions: unknown): PermissionRule[] {
+  if (!Array.isArray(suggestions)) return [];
+  return (suggestions as unknown[]).flatMap((s) =>
+    isObject(s) && s.type === "addRules" && s.behavior === "allow" ? parseRules(s.rules) : [],
+  );
 }
 
 /** `assistant` events carry exactly one content block. */

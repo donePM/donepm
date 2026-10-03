@@ -146,6 +146,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     env: () =>
       agentEnv(opts.env ?? process.env, { shimRoot: join(paths.dataDir, "bin-filtered"), emptyConfigDir: join(paths.dataDir, "no-credentials") }),
     maxConcurrent: () => config.maxConcurrentAgents,
+    webFetchDomains: () => config.allowedWebFetchDomains,
     onCountChanged: (runningAgents) => status.update({ runningAgents }),
     onActivity: (itemId) => {
       const stored = items.get(itemId);

@@ -1,14 +1,8 @@
 import { join } from "node:path";
-import type { Playbook } from "@donepm/core";
+import { BLOCKED_COMMANDS, DENY_RULES, isRuleOfferable, type PermissionRule, type Playbook } from "@donepm/core";
 
-/** Commands that reach a forge or tracker with the user's credentials. Never in the agent's reach. */
-export const BLOCKED_COMMANDS = ["gh", "glab", "jira"] as const;
-
-/**
- * Deny rules passed via `--settings`, on top of the filtered `PATH` (spec 9.1). Both together:
- * the rules stop a command spelled out in Bash, the `PATH` stops it being found at all.
- */
-export const DENY_RULES = [...BLOCKED_COMMANDS.map((c) => `Bash(${c} *)`), "Bash(git push*)"] as const;
+// One source for the deny list: core's `isRuleOfferable` checks grants against the same commands.
+export { BLOCKED_COMMANDS, DENY_RULES };
 
 /** donePM's own MCP server. Its tools only create drafts, so they need no question per call. */
 export const ALLOW_RULES = ["mcp__donepm"] as const;
@@ -70,14 +64,27 @@ export function userTurnLine(text: string): string {
 
 export type AskBehavior = "allow" | "deny";
 
-/** Answer to a `can_use_tool` question (spec 9.4). `request_id` must match the question. */
+/**
+ * Answer to a `can_use_tool` question (spec 9.4). `request_id` must match the question.
+ * `rules` on an allow grant those rules for the rest of the run: destination is always `session`,
+ * so nothing is written to the user's settings files, and a rule the deny list forbids is refused.
+ */
 export function askAnswerLine(
   requestId: string,
-  answer: { behavior: "allow"; input: unknown } | { behavior: "deny"; message: string },
+  answer:
+    | { behavior: "allow"; input: unknown; rules?: readonly PermissionRule[] }
+    | { behavior: "deny"; message: string },
 ): string {
-  const response =
-    answer.behavior === "allow"
-      ? { behavior: "allow", updatedInput: answer.input }
-      : { behavior: "deny", message: answer.message };
+  let response: Record<string, unknown>;
+  if (answer.behavior === "allow") {
+    response = { behavior: "allow", updatedInput: answer.input };
+    if (answer.rules?.length) {
+      const blocked = answer.rules.find((r) => !isRuleOfferable(r));
+      if (blocked) throw new Error(`refusing to grant ${blocked.toolName}(${blocked.ruleContent ?? ""})`);
+      response.updatedPermissions = [{ type: "addRules", rules: answer.rules, behavior: "allow", destination: "session" }];
+    }
+  } else {
+    response = { behavior: "deny", message: answer.message };
+  }
   return JSON.stringify({ type: "control_response", response: { request_id: requestId, subtype: "success", response } });
 }

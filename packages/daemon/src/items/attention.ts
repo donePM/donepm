@@ -1,10 +1,10 @@
-import type { Draft, DraftState, Event, ItemState, PermissionAsk } from "@donepm/core";
+import type { Draft, DraftState, Event, ItemState, PermissionAsk, PermissionRule } from "@donepm/core";
 
 const OPEN_DRAFT: ReadonlySet<DraftState> = new Set(["pending", "approved", "failed"]);
 
 /** What a Needs You card shows: the one thing the user has to do (spec §12.1). */
 export type Attention =
-  | { kind: "ask"; askId: string; toolName: string; input: unknown }
+  | { kind: "ask"; askId: string; toolName: string; input: unknown; rules: PermissionRule[] }
   | {
       kind: "draft";
       draftId: string;
@@ -35,7 +35,7 @@ export function attentionOf(input: {
 }): Attention | undefined {
   if (input.state === "needs_you") {
     const ask = input.asks.find((a) => a.state === "pending");
-    if (ask) return { kind: "ask", askId: ask.id, toolName: ask.toolName, input: ask.input };
+    if (ask) return { kind: "ask", askId: ask.id, toolName: ask.toolName, input: ask.input, rules: ask.rules };
     const draft = input.drafts.find((d) => OPEN_DRAFT.has(d.state));
     if (draft) {
       const title = (draft.userEdits ?? draft.payload).title;

@@ -158,12 +158,18 @@ was not a hook rewrite. Claude Code asks for a Bash command it cannot check stat
 in this command can't be checked before it runs", for example `for r in …; do curl …/$r; done`),
 sends no suggestion for it, and then the sandbox asks for the host. The user's hooks stay loaded.
 
+**D31. The daemon answers WebFetch asks for hosts on the user's list; no rules in `--settings`.**
+WebFetch is a GET without the user's credentials, and the agent reads documentation and release
+pages all the time; asking for each one trained the user to click Allow blindly (#46). The obvious
+fix, `WebFetch(domain:…)` allow rules in `--settings`, is wrong: Claude Code uses the same rule for
+the Bash sandbox's network, so `github.com` on the list would let `git push https://github.com/…`
+or `curl -X POST` through without an ask and undo D27. Instead the daemon answers a WebFetch ask
+whose host (or parent domain) is on `allowedWebFetchDomains` the moment it arrives and records
+`permission.auto_allowed`. The default list holds GitHub and documentation hosts; an empty list
+asks for every page. The cost is one round trip per fetch, which nobody sees.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.
 - Jira Cloud vs Server auth details. Decide when the Jira adapter starts.
 - Team/server component. Not before a second user asks.
-- Read-only WebFetch without asking (#46, part 2). `WebFetch(domain:…)` allow rules in `--settings`
-  also open that host to sandboxed Bash without an ask (Claude Code shares the rule between both),
-  so `github.com` in such a list would let `git push https://github.com/…` through. Alternatives:
-  the daemon answers WebFetch asks for listed hosts itself, or a list without push-capable hosts.

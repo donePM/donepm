@@ -7,6 +7,7 @@ export * from "./draft/types.js";
 export * from "./ask/types.js";
 export * from "./ask/rules.js";
 export * from "./ask/deny-list.js";
+export * from "./ask/web-fetch.js";
 export * from "./repo/types.js";
 export * from "./repo/setup.js";
 export * from "./transcript/types.js";

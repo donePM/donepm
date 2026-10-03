@@ -81,7 +81,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
         <div class="main">
           <section v-for="a in askPending" :key="a.id" class="needs" aria-label="Permission question">
             <h2>The agent asks for permission</h2>
-            <AskPanel :ask-id="a.id" :tool-name="a.toolName" :input="a.input" @answered="reload" />
+            <AskPanel :ask-id="a.id" :tool-name="a.toolName" :input="a.input" :rules="a.rules" @answered="reload" />
           </section>
           <DraftPanel
             v-if="draft && detail.state === 'needs_you'"

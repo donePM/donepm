@@ -76,7 +76,8 @@ export interface ServerDeps {
 }
 
 const AskAnswerSchema = z.discriminatedUnion("behavior", [
-  z.object({ behavior: z.literal("allow") }).strict(),
+  // `scope: "run"` also grants the rules the CLI suggested for the rest of the run.
+  z.object({ behavior: z.literal("allow"), scope: z.literal("run").optional() }).strict(),
   z.object({ behavior: z.literal("deny"), message: z.string().optional() }).strict(),
 ]);
 export type AskAnswer = z.infer<typeof AskAnswerSchema>;
@@ -221,7 +222,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   app.post<{ Params: { id: string } }>("/api/asks/:id/answer", async (req, reply) => {
     const answer = AskAnswerSchema.safeParse(req.body ?? {});
-    if (!answer.success) return reply.code(400).send({ error: "body must be {behavior: allow} or {behavior: deny, message?}" });
+    if (!answer.success) return reply.code(400).send({ error: "body must be {behavior: allow, scope?: run} or {behavior: deny, message?}" });
     try {
       deps.answerAsk(req.params.id, answer.data);
     } catch (e) {

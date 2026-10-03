@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Ctx } from "../ids.js";
 import {
-  InvalidTransitionError, agentAsked, agentFailed, answered, draftApproved, draftCreated, draftEdited, draftExecuted,
+  InvalidTransitionError, agentAsked, agentFailed, answered, autoAllowed, draftApproved, draftCreated, draftEdited, draftExecuted,
   draftExecutionFailed, draftRejected, interrupted, issueAssignFailed, issueAssigned, resume, start, worktreeRemoved,
   turnEnded, turnStarted,
 } from "./transitions.js";
@@ -126,5 +126,19 @@ describe("issueAssigned / issueAssignFailed", () => {
     const { item: after, events } = issueAssignFailed(item(state), makeCtx(), "HTTP 403");
     expect(after.state).toBe(state);
     expect(events[0]).toMatchObject({ type: "item.assign_failed", actor: "system", payload: { reason: "HTTP 403" } });
+  });
+});
+
+describe("autoAllowed", () => {
+  it.each(["running", "needs_you"] as const)("records the daemon's answer without leaving %s", (state) => {
+    const { item: after, events } = autoAllowed(item(state), makeCtx(), "ask-1", { toolName: "WebFetch", host: "github.com" });
+    expect(after.state).toBe(state);
+    expect(events[0]).toMatchObject({
+      type: "permission.auto_allowed", actor: "system", refId: "ask-1", payload: { toolName: "WebFetch", host: "github.com" },
+    });
+  });
+
+  it.each(["ready", "done", "failed"] as const)("throws from %s", (state) => {
+    expect(() => autoAllowed(item(state), makeCtx(), "ask-1")).toThrow(InvalidTransitionError);
   });
 });

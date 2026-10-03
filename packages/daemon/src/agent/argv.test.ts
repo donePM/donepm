@@ -65,6 +65,28 @@ describe("stdin lines", () => {
     });
   });
 
+  it("grants rules for the session on an allow for the run", () => {
+    const line = askAnswerLine("r1", {
+      behavior: "allow", input: { command: "curl x" }, rules: [{ toolName: "Bash", ruleContent: "curl *" }],
+    });
+    expect(JSON.parse(line).response.response).toEqual({
+      behavior: "allow",
+      updatedInput: { command: "curl x" },
+      updatedPermissions: [{ type: "addRules", rules: [{ toolName: "Bash", ruleContent: "curl *" }], behavior: "allow", destination: "session" }],
+    });
+  });
+
+  it("sends no updatedPermissions for an empty grant", () => {
+    expect(JSON.parse(askAnswerLine("r1", { behavior: "allow", input: {}, rules: [] })).response.response).toEqual({
+      behavior: "allow", updatedInput: {},
+    });
+  });
+
+  it("refuses to grant a rule the deny list forbids", () => {
+    expect(() => askAnswerLine("r1", { behavior: "allow", input: {}, rules: [{ toolName: "Bash", ruleContent: "git push*" }] })).toThrow(/refusing/);
+    expect(() => askAnswerLine("r1", { behavior: "allow", input: {}, rules: [{ toolName: "Bash" }] })).toThrow(/refusing/);
+  });
+
   it("answers deny with a message", () => {
     expect(JSON.parse(askAnswerLine("r1", { behavior: "deny", message: "no" })).response.response).toEqual({
       behavior: "deny", message: "no",
