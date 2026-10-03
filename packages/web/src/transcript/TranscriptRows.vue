@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive } from "vue";
 import { clock } from "../time/duration";
-import { resultNote, type Row } from "./rows";
+import { agentNote, resultNote, type Row } from "./rows";
+import TranscriptRows from "./TranscriptRows.vue";
 
 const props = defineProps<{ rows: Row[]; live: string; now: number; running: boolean }>();
 
@@ -81,6 +82,25 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
             <pre v-else class="body">{{ formatInput(row.input) }}</pre>
             <pre v-if="row.result" class="body result">{{ row.result.text || "(no output)" }}</pre>
           </template>
+        </div>
+      </div>
+
+      <div v-else-if="row.type === 'agent'" class="row">
+        <span class="who agent">Subagent</span>
+        <div class="tool sub" :class="{ running: running && row.status === 'running', failed: row.status === 'failed' }">
+          <button class="tool-head" type="button" @click="toggle(row.id)">
+            <span v-if="running && row.status === 'running'" class="dot dot-ok" aria-hidden="true"></span>
+            <span class="dim">{{ running && row.status === "running" ? "" : open.has(row.id) ? "▾" : "▸" }} {{ row.agentType ?? "Agent" }}</span>
+            <span class="summary">{{ row.description }}</span>
+            <span class="note dim">{{ agentNote(row, running, now) }}</span>
+          </button>
+          <div v-if="open.has(row.id)" class="children">
+            <p class="meta dim">
+              {{ [row.model, row.background ? "in the background" : "", `${row.children.length} steps`].filter(Boolean).join(" · ") }}
+            </p>
+            <TranscriptRows :rows="row.children" live="" :now="now" :running="running && row.status === 'running'" />
+          </div>
+          <pre v-if="open.has(row.id) && row.result" class="body result report">{{ row.result.text || "(no report)" }}</pre>
         </div>
       </div>
 
@@ -178,6 +198,11 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
 .diff span { display: block; padding: 0 12px; }
 .diff .add { background: var(--add); }
 .diff .del { background: var(--danger-tint); }
+.tool.sub { font-family: inherit; font-size: 13px; }
+.tool.sub > .tool-head { font-family: var(--mono); font-size: 12px; }
+.children { padding: 10px 12px 12px; border-top: 1px solid var(--border-soft); }
+.children .meta { margin: 0 0 10px; font-size: 12px; }
+.report { white-space: pre-wrap; font-family: inherit; font-size: 13px; }
 .ask-line { flex: 1; min-width: 0; color: var(--amber); overflow-wrap: anywhere; }
 .ask-line .mono { font-size: 12px; }
 .turn { font-size: 12px; color: var(--ink-3); }

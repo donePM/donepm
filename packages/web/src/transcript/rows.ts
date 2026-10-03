@@ -1,6 +1,17 @@
+import {
+  askAgentId,
+  isSubagentTool,
+  parentToolUseId,
+  subagentReport,
+  subagentStatus,
+  subagentTotals,
+  taskEvent,
+  type SubagentStatus,
+} from "@donepm/core/subagent";
 import { toolSummary } from "@donepm/core/tool-summary";
 import { diffLines } from "diff";
 import type { TranscriptMessage } from "../api/types";
+import { clock } from "../time/duration";
 
 export interface DiffLine {
   op: "+" | "-" | " ";
@@ -24,6 +35,25 @@ export type Row =
   | { type: "text"; id: string; text: string }
   /** A tool call and, once it arrived, its result. No result means it is still running. */
   | { type: "tool"; id: string; at: string; name: string; summary: string; input: unknown; diff?: DiffLine[]; result?: ToolResult }
+  /**
+   * A subagent: the `Agent` call, what it is doing, and the rows of its own messages. `result` is
+   * its report once it handed back.
+   */
+  | {
+      type: "agent";
+      id: string;
+      at: string;
+      description: string;
+      agentType?: string;
+      model?: string;
+      background: boolean;
+      status: SubagentStatus;
+      activity?: string;
+      toolUses?: number;
+      durationMs?: number;
+      result?: ToolResult;
+      children: Row[];
+    }
   /** The agent asked for permission. */
   | { type: "ask"; id: string; name: string; summary: string }
   /** The end of a turn. */
@@ -102,68 +132,166 @@ function resultRow(m: TranscriptMessage): Row {
   return { type: "result", id: m.id, ok, label: parts.join(" · ") };
 }
 
+type AgentRow = Extract<Row, { type: "agent" }>;
+type ToolRow = Extract<Row, { type: "tool" }>;
+
+/** Where rows go: the main flow, or the rows of one subagent. */
+interface Flow {
+  rows: Row[];
+  sawUser: boolean;
+}
+
+function agentRow(id: string, at: string, input: unknown): AgentRow {
+  const i = isObject(input) ? input : {};
+  return {
+    type: "agent",
+    id,
+    at,
+    description: typeof i.description === "string" ? i.description : "Subagent",
+    agentType: typeof i.subagent_type === "string" ? i.subagent_type : undefined,
+    model: typeof i.model === "string" ? i.model : undefined,
+    background: i.run_in_background === true,
+    status: "running",
+    children: [],
+  };
+}
+
+/** A foreground subagent is done when its result arrives; a background one only when its task ends. */
+function finishAgent(agent: AgentRow, m: TranscriptMessage, text: string, isError: boolean): void {
+  const totals = subagentTotals(m.raw);
+  agent.result = { text: subagentReport(text), isError };
+  if (totals.model) agent.model = totals.model;
+  if (totals.durationMs !== undefined) agent.durationMs = totals.durationMs;
+  if (totals.toolUses !== undefined) agent.toolUses = totals.toolUses;
+  if (isError) agent.status = "failed";
+  else if (!agent.background) agent.status = totals.status === undefined ? "done" : endStatus(totals.status);
+}
+
+/** A task that ended with a status donePM does not know still ended. */
+const endStatus = (status: string | undefined): SubagentStatus =>
+  subagentStatus(status) === "running" ? "done" : subagentStatus(status);
+
 /**
  * Turn stored messages into what the Agents view shows. Tool results are joined to their call;
- * messages it does not know (raw, init, answers) are left out, never an error.
+ * a subagent's messages go under its `Agent` call; messages it does not know (raw, init, answers)
+ * are left out, never an error.
  */
 export function toRows(messages: readonly TranscriptMessage[]): Row[] {
-  const rows: Row[] = [];
-  const tools = new Map<string, Extract<Row, { type: "tool" }>>();
-  let sawUser = false;
+  const main: Flow = { rows: [], sawUser: false };
+  const tools = new Map<string, ToolRow>();
+  const agents = new Map<string, { row: AgentRow; flow: Flow }>();
+  /** task id → `Agent` call, for lines that only carry the task id. */
+  const tasks = new Map<string, string>();
+
+  const flowOf = (m: TranscriptMessage): Flow => {
+    const parent = parentToolUseId(m.raw);
+    return (parent && agents.get(parent)?.flow) || main;
+  };
 
   for (const m of messages) {
     switch (m.kind) {
       case "user": {
-        const text = textOf(m.raw);
-        rows.push({ type: sawUser ? "user" : "task", id: m.id, text });
-        sawUser = true;
+        const flow = flowOf(m);
+        flow.rows.push({ type: flow.sawUser ? "user" : "task", id: m.id, text: textOf(m.raw) });
+        flow.sawUser = true;
         break;
       }
       case "system":
-        rows.push(setupRow(m));
+        main.rows.push(setupRow(m));
         break;
       case "assistant_thinking": {
         const b = blocks(m.raw)[0];
-        rows.push({ type: "thinking", id: m.id, text: typeof b?.thinking === "string" ? b.thinking : "" });
+        flowOf(m).rows.push({ type: "thinking", id: m.id, text: typeof b?.thinking === "string" ? b.thinking : "" });
         break;
       }
       case "assistant_text":
-        rows.push({ type: "text", id: m.id, text: textOf(m.raw) });
+        flowOf(m).rows.push({ type: "text", id: m.id, text: textOf(m.raw) });
         break;
-      case "tool_use":
+      case "tool_use": {
+        const flow = flowOf(m);
         for (const b of blocks(m.raw)) {
           if (b.type !== "tool_use" || typeof b.name !== "string") continue;
           const id = typeof b.id === "string" ? b.id : m.id;
-          const row: Extract<Row, { type: "tool" }> = {
+          if (isSubagentTool(b.name)) {
+            const row = agentRow(id, m.at, b.input);
+            agents.set(id, { row, flow: { rows: row.children, sawUser: false } });
+            flow.rows.push(row);
+            continue;
+          }
+          const row: ToolRow = {
             type: "tool", id, at: m.at, name: b.name, summary: toolSummary(b.name, b.input), input: b.input,
           };
           const diff = toolDiff(b.name, b.input);
           if (diff) row.diff = diff;
           tools.set(id, row);
-          rows.push(row);
+          flow.rows.push(row);
         }
         break;
+      }
       case "tool_result":
         for (const b of blocks(m.raw)) {
           if (b.type !== "tool_result" || typeof b.tool_use_id !== "string") continue;
+          const text = resultText(b.content);
+          const isError = b.is_error === true;
+          const agent = agents.get(b.tool_use_id)?.row;
+          if (agent) finishAgent(agent, m, text, isError);
           const call = tools.get(b.tool_use_id);
-          if (call) call.result = { text: resultText(b.content), isError: b.is_error === true };
+          if (call) call.result = { text, isError };
         }
         break;
       case "result":
-        rows.push(resultRow(m));
+        main.rows.push(resultRow(m));
         break;
       case "raw": {
         const raw = isObject(m.raw) ? m.raw : {};
         const req = raw.type === "control_request" && isObject(raw.request) ? raw.request : undefined;
         if (req?.subtype === "can_use_tool" && typeof req.tool_name === "string") {
-          rows.push({ type: "ask", id: m.id, name: req.tool_name, summary: toolSummary(req.tool_name, req.input) });
+          const task = askAgentId(raw);
+          const call = task ? tasks.get(task) : undefined;
+          const flow = (call && agents.get(call)?.flow) || main;
+          flow.rows.push({ type: "ask", id: m.id, name: req.tool_name, summary: toolSummary(req.tool_name, req.input) });
+          break;
+        }
+        const e = taskEvent(raw);
+        if (!e) break;
+        if (e.type === "started") tasks.set(e.taskId, e.toolUseId);
+        const call = e.type === "updated" ? tasks.get(e.taskId) : (e.toolUseId ?? tasks.get(e.taskId));
+        const agent = call ? agents.get(call)?.row : undefined;
+        if (!agent) break;
+        if (e.type === "started") {
+          agent.background = e.background;
+          if (e.agentType) agent.agentType = e.agentType;
+        } else if (e.type === "progress") {
+          agent.activity = e.activity;
+          if (e.toolUses !== undefined) agent.toolUses = e.toolUses;
+          if (e.durationMs !== undefined) agent.durationMs = e.durationMs;
+        } else if (e.status) {
+          const status = e.type === "notification" ? endStatus(e.status) : subagentStatus(e.status);
+          if (status !== "running") agent.status = status;
+          // A background subagent's report comes with its notification, not with its tool result.
+          if (e.type === "notification" && agent.background && e.summary) {
+            agent.result = { text: e.summary, isError: status === "failed" };
+          }
         }
         break;
       }
     }
   }
-  return rows;
+  return main.rows;
+}
+
+/**
+ * The note on a subagent's line: what it does now and for how long while it runs, its totals once
+ * it ended. A subagent still marked running after the agent stopped shows as "stopped".
+ */
+export function agentNote(row: AgentRow, agentRunning: boolean, now: number): string {
+  const tools = row.toolUses ? `${row.toolUses} tool${row.toolUses === 1 ? "" : "s"}` : "";
+  const took = row.durationMs !== undefined ? clock(row.durationMs) : "";
+  if (row.status === "running") {
+    if (!agentRunning) return "stopped";
+    return [row.activity ?? "running", clock(now - Date.parse(row.at))].join(" · ");
+  }
+  return [row.status === "failed" ? "failed" : "done", tools, took].filter(Boolean).join(" · ");
 }
 
 /** A short note for a finished tool: line count, or the first line of an error. */

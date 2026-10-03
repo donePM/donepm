@@ -19,3 +19,4 @@ export * from "./playbook/parse.js";
 export * from "./playbook/render.js";
 export * from "./playbook/select.js";
 export * from "./transcript/tool-summary.js";
+export * from "./transcript/subagent.js";

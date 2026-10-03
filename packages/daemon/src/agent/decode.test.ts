@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fixture } from "../test-support/fake-exec.js";
+import { parentToolUseId, taskEvent } from "@donepm/core";
 import { decodeLine, type Decoded } from "./decode.js";
 
 const lines = (name: string) => fixture(`stream/${name}`).split("\n").filter(Boolean);
@@ -70,9 +71,43 @@ describe("decodeLine against recorded sessions", () => {
   });
 
   it("never fails on any recorded line", () => {
-    for (const name of ["basic.jsonl", "ask-allow.jsonl", "ask-deny.jsonl", "deny-gh.jsonl"]) {
+    for (const name of ["basic.jsonl", "ask-allow.jsonl", "ask-deny.jsonl", "deny-gh.jsonl", "subagent.jsonl"]) {
       for (const d of decodeAll(name)) expect(d.type).not.toBe("malformed");
     }
+  });
+});
+
+describe("a session with a subagent", () => {
+  const AGENT = "toolu_01SBL4PYXe8HB6joVkWLMHdi";
+  const raws = () => lines("subagent.jsonl").map((l) => JSON.parse(l) as unknown);
+
+  it("stores the subagent's messages as ordinary messages that point at the Agent call", () => {
+    const decoded = decodeAll("subagent.jsonl");
+    const children = decoded.filter((d) => d.type === "message" && parentToolUseId(d.raw) === AGENT).map(summary);
+    expect(new Set(children)).toEqual(new Set(["message:user", "message:tool_use", "message:tool_result", "message:raw"]));
+    expect(children.filter((s) => s === "message:tool_use")).toHaveLength(13);
+    expect(children.filter((s) => s === "message:tool_result")).toHaveLength(13);
+    // The Agent call and its result belong to the main agent.
+    const call = decoded.find((d) => d.type === "message" && d.kind === "tool_use" && JSON.stringify(d.raw).includes(`"id":"${AGENT}"`));
+    expect(parentToolUseId(call?.type === "message" ? call.raw : undefined)).toBeUndefined();
+  });
+
+  it("keeps task lines raw and decodes their lifecycle", () => {
+    const events = raws().map(taskEvent).filter((e) => e !== undefined);
+    expect(events[0]).toMatchObject({ type: "started", toolUseId: AGENT, description: "Bump GitHub Actions to Node 24", background: false });
+    expect(events.filter((e) => e.type === "progress")).toHaveLength(13);
+    expect(events.at(-2)).toMatchObject({ type: "updated", status: "completed" });
+    expect(events.at(-1)).toMatchObject({ type: "notification", toolUseId: AGENT, status: "completed" });
+    for (const d of decodeAll("subagent.jsonl")) {
+      if (d.type === "message" && taskEvent(d.raw)) expect(d.kind).toBe("raw");
+    }
+  });
+
+  it("lifts the subagent's asks like the main agent's", () => {
+    const asks = decodeAll("subagent.jsonl").filter((d) => d.type === "ask");
+    expect(asks.map((a) => (a.type === "ask" ? a.toolName : ""))).toEqual([
+      "WebFetch", "WebFetch", "WebFetch", "WebFetch", "Bash", "SandboxNetworkAccess", "Bash", "SandboxNetworkAccess",
+    ]);
   });
 });
 

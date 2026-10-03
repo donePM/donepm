@@ -398,6 +398,18 @@ Parse line by line. Handle:
 A second `init` during a session means the CLI started a turn on its own (background task
 notification). Treat as turn start. Do not fail.
 
+Subagents (Claude Code's own, D10) arrive in the same stream. A tool call named `Agent` (`Task`
+in older CLIs) starts one. Every message the subagent produces is an ordinary `assistant` or
+`user` line with `parent_tool_use_id` set to that call's id; its asks are ordinary
+`can_use_tool` requests with `request.agent_id` set to the task id. Its lifecycle comes as
+`system` lines, stored as `raw`: `task_started` (task id, call id, type, background),
+`task_progress` (current activity, tool count, duration), `task_updated` (status, task id only)
+and `task_notification` (end status and summary; also sent for background Bash tasks, which have
+no `Agent` call). The `Agent` tool result carries the report and, in `tool_use_result`, the
+totals. `tool_progress` heartbeats are stored and not shown. The daemon treats all of these like
+any other line; grouping is the transcript view's job (`core/transcript/subagent.ts`, recorded in
+`fixtures/stream/subagent.jsonl`).
+
 ### 9.4 Permission answer
 
 ```json
@@ -536,6 +548,10 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
 - Left: list of running and recently finished agents (item title, state, elapsed, cost from
   `result.total_cost_usd`).
 - Right: transcript of the selected one, live.
+- A subagent is one collapsible line under the main agent's flow: type, description, live
+  activity and elapsed time while it runs (from `task_progress`), done/failed with tool count and
+  duration after. Opened, it shows the model, the subagent's own messages, tool calls and asks,
+  and its report. Subagents of subagents nest the same way. A run without subagents looks as before.
 
 ### 12.4 Settings
 
