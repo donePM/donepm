@@ -158,6 +158,36 @@ describe("AgentRunner", () => {
     expect(proc.sent().at(-1).response.response).not.toHaveProperty("updatedPermissions");
   });
 
+  it("answers AskUserQuestion with the user's answers written into the input", async () => {
+    const t = setup();
+    const proc = await t.launch(t.addItem(1));
+    const input = {
+      questions: [
+        { question: "Which color?", header: "Color", multiSelect: false, options: [{ label: "Red", description: "" }, { label: "Green", description: "" }] },
+        { question: "Which sizes?", header: "Sizes", multiSelect: true, options: [{ label: "S", description: "" }, { label: "L", description: "" }] },
+      ],
+    };
+    proc.emit({ type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "AskUserQuestion", input } });
+    const [ask] = t.asks.forItem("item-1");
+
+    expect(() => t.runner.answer(ask!.id, { behavior: "allow" })).toThrow("answer the questions or decline");
+    expect(() => t.runner.answer(ask!.id, { behavior: "allow", answers: { "Which color?": "Green" } })).toThrow("no answer for: Which sizes?");
+    expect(t.asks.pending("item-1")).toHaveLength(1);
+
+    const answers = { "Which color?": "Green", "Which sizes?": "S, L" };
+    t.runner.answer(ask!.id, { behavior: "allow", answers });
+    expect(proc.sent().at(-1).response.response).toEqual({ behavior: "allow", updatedInput: { ...input, answers } });
+    expect(t.events.forItem("item-1").find((e) => e.type === "permission.answered")!.payload).toEqual({ behavior: "allow", rules: [], answers });
+  });
+
+  it("refuses answers for an ask that is not a question", async () => {
+    const t = setup();
+    const proc = await t.launch(t.addItem(1));
+    proc.emit({ type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" } } });
+    const [ask] = t.asks.forItem("item-1");
+    expect(() => t.runner.answer(ask!.id, { behavior: "allow", answers: { x: "y" } })).toThrow("only AskUserQuestion takes answers");
+  });
+
   it("allows a WebFetch to a listed host itself, without asking the user", async () => {
     const t = setup(1, ["github.com"]);
     const proc = await t.launch(t.addItem(1));

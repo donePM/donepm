@@ -1,4 +1,4 @@
-import { parseRules, toolSummary, type Event, type PermissionAsk } from "@donepm/core";
+import { isQuestionTool, parseRules, questionsOf, toolSummary, type Event, type PermissionAsk } from "@donepm/core";
 import { grantText } from "../asks/grant";
 
 export type Tone = "attention" | "danger" | "user" | "system";
@@ -20,6 +20,25 @@ function askCode(ask: PermissionAsk | undefined, fallbackTool: unknown): string 
   if (!ask) return str(fallbackTool);
   const summary = toolSummary(ask.toolName, ask.input);
   return summary ? `${ask.toolName}: ${summary}` : ask.toolName;
+}
+
+function isQuestion(ask: PermissionAsk | undefined, fallbackTool: unknown): boolean {
+  return isQuestionTool(ask?.toolName ?? str(fallbackTool) ?? "");
+}
+
+function questionCode(ask: PermissionAsk | undefined): string | undefined {
+  return ask ? str(toolSummary(ask.toolName, ask.input)) : undefined;
+}
+
+/** "Color: Green · Sizes: Small, Large", headers where the agent gave them, in question order. */
+function answersText(ask: PermissionAsk | undefined, answers: unknown): string | undefined {
+  if (typeof answers !== "object" || answers === null) return undefined;
+  const given = answers as Record<string, unknown>;
+  const questions = ask ? questionsOf(ask.input) : [];
+  const parts = questions.length
+    ? questions.flatMap((q) => (str(given[q.question]) ? [`${q.header || q.question}: ${str(given[q.question])}`] : []))
+    : Object.entries(given).flatMap(([k, v]) => (str(v) ? [`${k}: ${str(v)}`] : []));
+  return parts.length ? parts.join(" · ") : undefined;
 }
 
 function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>): Omit<TimelineEntry, "id" | "at"> {
@@ -51,8 +70,18 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>): Omit<Timelin
     case "agent.failed":
       return { tone: "danger", text: "Agent failed", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
     case "permission.asked":
+      if (isQuestion(ask, p.toolName)) return { tone: "attention", text: "Agent asked you", ...withCode(questionCode(ask)) };
       return { tone: "attention", text: "Agent asked permission", ...withCode(askCode(ask, p.toolName)) };
     case "permission.answered": {
+      if (isQuestion(ask, undefined)) {
+        const detail = answersText(ask, p.answers);
+        return {
+          tone: "user",
+          text: p.behavior === "allow" ? "You answered" : "You declined the questions",
+          ...withCode(questionCode(ask)),
+          ...(detail ? { detail } : {}),
+        };
+      }
       const grant = p.behavior === "allow" ? grantText(parseRules(p.rules)) : undefined;
       return {
         tone: "user",

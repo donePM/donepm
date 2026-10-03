@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { toolSummary } from "@donepm/core";
+import { isQuestionTool, questionsOf, toolSummary, type Answers } from "@donepm/core";
 import { computed, ref } from "vue";
 import { api } from "../api/client";
 import { errorText } from "../api/errors";
 import type { PermissionRule } from "../api/types";
 import { grantText } from "./grant";
+import QuestionDialog from "./QuestionDialog.vue";
 
 const props = defineProps<{ askId: string; toolName: string; input: unknown; rules?: PermissionRule[] }>();
 const emit = defineEmits<{ answered: [] }>();
@@ -19,20 +20,27 @@ const label = computed(() => (network.value ? "Network access" : props.toolName)
 /** What "Allow for this run" adds; no button when the CLI suggested nothing we may grant. */
 const grant = computed(() => grantText(props.rules ?? []));
 
+/** AskUserQuestion: Allow alone is no answer; the user answers in a dialog or declines (spec 9.4). */
+const questions = computed(() => (isQuestionTool(props.toolName) ? questionsOf(props.input) : []));
+const asking = ref(false);
+
 const denying = ref(false);
 const message = ref("");
 const busy = ref(false);
 const error = ref<string>();
 
-async function answer(behavior: "allow" | "deny", scope?: "run") {
+async function answer(behavior: "allow" | "deny", scope?: "run", answers?: Answers) {
   busy.value = true;
   error.value = undefined;
   try {
     const msg = message.value.trim();
     await api.answer(
       props.askId,
-      behavior === "allow" ? (scope ? { behavior, scope } : { behavior }) : msg ? { behavior, message: msg } : { behavior },
+      behavior === "allow"
+        ? { behavior, ...(scope ? { scope } : {}), ...(answers ? { answers } : {}) }
+        : msg ? { behavior, message: msg } : { behavior },
     );
+    asking.value = false;
     emit("answered");
   } catch (e) {
     error.value = errorText(e);
@@ -44,7 +52,13 @@ async function answer(behavior: "allow" | "deny", scope?: "run") {
 
 <template>
   <div class="ask">
-    <div class="code mono"><span class="tool">{{ label }}</span><pre>{{ shown }}</pre></div>
+    <ul v-if="questions.length" class="questions">
+      <li v-for="q in questions" :key="q.question">
+        <span v-if="q.header" class="chip">{{ q.header }}</span>
+        {{ q.question }}
+      </li>
+    </ul>
+    <div v-else class="code mono"><span class="tool">{{ label }}</span><pre>{{ shown }}</pre></div>
     <p v-if="network" class="hint">
       A command wants to connect to this host. Publishing goes through drafts; allow only what the work needs.
     </p>
@@ -52,10 +66,14 @@ async function answer(behavior: "allow" | "deny", scope?: "run") {
       <label class="sr-only" :for="`deny-${askId}`">Message to the agent</label>
       <textarea :id="`deny-${askId}`" v-model="message" class="textarea" rows="2" placeholder="Why not, or what to do instead (optional)"></textarea>
       <div class="buttons">
-        <button class="btn btn-danger" type="submit" :disabled="busy">Deny</button>
+        <button class="btn btn-danger" type="submit" :disabled="busy">{{ questions.length ? "Decline" : "Deny" }}</button>
         <button class="btn" type="button" :disabled="busy" @click="denying = false">Cancel</button>
       </div>
     </form>
+    <div v-else-if="questions.length" class="buttons">
+      <button class="btn btn-primary" type="button" :disabled="busy" @click="asking = true">Answer…</button>
+      <button class="btn" type="button" :disabled="busy" @click="denying = true">Decline…</button>
+    </div>
     <div v-else class="buttons">
       <button class="btn btn-primary" type="button" :disabled="busy" @click="answer('allow')">Allow</button>
       <button v-if="grant" class="btn" type="button" :disabled="busy" :title="`Also allows ${grant} until this run ends`" @click="answer('allow', 'run')">
@@ -64,7 +82,16 @@ async function answer(behavior: "allow" | "deny", scope?: "run") {
       <button class="btn" type="button" :disabled="busy" @click="denying = true">Deny…</button>
     </div>
     <p v-if="grant && !denying" class="hint">For this run also allows: <span class="mono">{{ grant }}</span></p>
-    <p v-if="error" class="alert" role="alert">{{ error }}</p>
+    <p v-if="error && !asking" class="alert" role="alert">{{ error }}</p>
+    <QuestionDialog
+      v-if="asking"
+      :ask-id="askId"
+      :questions="questions"
+      :busy="busy"
+      :error="error"
+      @send="(a) => answer('allow', undefined, a)"
+      @close="asking = false"
+    />
   </div>
 </template>
 
@@ -73,6 +100,8 @@ async function answer(behavior: "allow" | "deny", scope?: "run") {
 .code { background: var(--code-bg); color: var(--code-ink); border-radius: 6px; padding: 10px 12px; font-size: 12px; }
 .tool { display: block; color: #9a9a92; margin-bottom: 4px; }
 pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; font: inherit; }
+.questions { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; line-height: 1.4; }
+.chip { margin-right: 6px; padding: 1px 7px; border-radius: 999px; background: var(--blue-tint); color: var(--blue); font-size: 12px; font-weight: 500; }
 .deny { display: flex; flex-direction: column; gap: 8px; }
 .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
 .hint { margin: 0; font-size: 12px; color: var(--muted, #6b6b63); }

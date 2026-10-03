@@ -32,6 +32,11 @@ export function toolSummary(name: string, input: unknown): string {
   const known = FIELD[name];
   if (known && typeof fields[known] === "string") return oneLine(fields[known]);
   if (name === "TodoWrite" && Array.isArray(fields.todos)) return `${fields.todos.length} todos`;
+  if (name === "AskUserQuestion" && Array.isArray(fields.questions)) {
+    const texts = fields.questions.map((q) => (q as { question?: unknown } | null)?.question).filter((q): q is string => typeof q === "string");
+    if (texts.length === 0) return "";
+    return texts.length > 1 ? `${oneLine(texts[0]!)} (+${texts.length - 1} more)` : oneLine(texts[0]!);
+  }
   const first = Object.values(fields).find((v): v is string => typeof v === "string");
   return first ? oneLine(first) : "";
 }

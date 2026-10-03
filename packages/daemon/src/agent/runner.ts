@@ -1,5 +1,5 @@
 import {
-  agentAsked, agentFailed, answered, autoAllowed, isRuleOfferable, matchingDomain, webFetchHost, toolSummary, turnEnded, turnStarted,
+  agentAsked, agentFailed, answered, answeredInput, checkAnswers, isQuestionTool, questionsOf, type Answers, autoAllowed, isRuleOfferable, matchingDomain, webFetchHost, toolSummary, turnEnded, turnStarted,
   type Ctx, type PermissionRule, type Playbook, type TranscriptKind, type WorkItem,
 } from "@donepm/core";
 import type { AskStore } from "../asks/store.js";
@@ -173,7 +173,10 @@ export class AgentRunner {
   }
 
   /** Answer a pending permission question (spec 9.4). */
-  answer(askId: string, answer: { behavior: "allow"; scope?: "run" } | { behavior: "deny"; message?: string }): void {
+  answer(
+    askId: string,
+    answer: { behavior: "allow"; scope?: "run"; answers?: Answers } | { behavior: "deny"; message?: string },
+  ): void {
     const ask = this.deps.asks.get(askId);
     if (!ask) throw new AskError(404, "ask not found");
     if (ask.state !== "pending") throw new AskError(409, `ask already ${ask.state}`);
@@ -185,9 +188,26 @@ export class AgentRunner {
     const granted = answer.behavior === "allow" && answer.scope === "run" ? ask.rules : [];
     if (!granted.every(isRuleOfferable)) throw new AskError(409, "this ask has a rule that may not be granted");
 
+    // AskUserQuestion: Allow alone tells the agent "the user did not answer". Answers go in the input.
+    let input = ask.input;
+    let answers: Answers | undefined;
+    if (answer.behavior === "allow") {
+      if (isQuestionTool(ask.toolName)) {
+        if (!answer.answers) throw new AskError(400, "answer the questions or decline");
+        try {
+          answers = checkAnswers(questionsOf(ask.input), answer.answers);
+        } catch (err) {
+          throw new AskError(400, (err as Error).message);
+        }
+        input = answeredInput(ask.input, answers);
+      } else if (answer.answers) {
+        throw new AskError(400, "only AskUserQuestion takes answers");
+      }
+    }
+
     const line =
       answer.behavior === "allow"
-        ? askAnswerLine(ask.requestId, { behavior: "allow", input: ask.input, rules: granted })
+        ? askAnswerLine(ask.requestId, { behavior: "allow", input, rules: granted })
         : askAnswerLine(ask.requestId, { behavior: "deny", message: answer.message || "The user denied this." });
     session.proc.write(line);
     const at = this.deps.ctx.now();
@@ -197,7 +217,7 @@ export class AgentRunner {
     const item = this.item(ask.itemId);
     if (item.state === "needs_you") {
       const others = this.deps.asks.pending(ask.itemId).length > 0;
-      this.deps.writer.commit(answered(item, this.deps.ctx, ask.id, { behavior: answer.behavior, rules: granted }, others));
+      this.deps.writer.commit(answered(item, this.deps.ctx, ask.id, { behavior: answer.behavior, rules: granted, ...(answers ? { answers } : {}) }, others));
     }
   }
 
@@ -403,7 +423,7 @@ export class StopError extends Error {
 
 export class AskError extends Error {
   constructor(
-    readonly status: 404 | 409,
+    readonly status: 400 | 404 | 409,
     message: string,
   ) {
     super(message);
