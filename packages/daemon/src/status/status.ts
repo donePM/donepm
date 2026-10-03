@@ -1,3 +1,4 @@
+import type { ClaudeStatus } from "../claude/detect.js";
 import type { GhStatus } from "../gh/detect.js";
 
 export interface PollStatus {
@@ -11,7 +12,10 @@ export interface PollStatus {
 export interface Status {
   version: string;
   gh: GhStatus | undefined;
+  claude: ClaudeStatus | undefined;
   lastPoll: PollStatus | undefined;
+  /** When the repo root was last scanned. */
+  lastScan: string | undefined;
   runningAgents: number;
 }
 
@@ -23,7 +27,7 @@ export class StatusStore {
   private readonly listeners = new Set<Listener>();
 
   constructor(version: string) {
-    this.status = { version, gh: undefined, lastPoll: undefined, runningAgents: 0 };
+    this.status = { version, gh: undefined, claude: undefined, lastPoll: undefined, lastScan: undefined, runningAgents: 0 };
   }
 
   get(): Status {

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -22,6 +22,9 @@ function execWith(search: () => string): Exec {
     "gh auth status": ok(fixture("gh/auth-status-ok.stdout")),
     "gh search issues": () => ok(search()),
     "gh issue view": ok(fixture("gh/issue-view-open.json")),
+    "which claude": ok("/usr/local/bin/claude\n"),
+    "claude --version": ok("2.1.288 (Claude Code)\n"),
+    "claude auth status": ok(fixture("claude/auth-status-logged-in.json")),
   });
   return (cmd, args, opts) => (cmd === "git" ? realExec(cmd, args, opts) : gh(cmd, args, opts));
 }
@@ -35,8 +38,12 @@ async function home(): Promise<string> {
   return h;
 }
 
-async function start(h: string, search = () => fixture("gh/search-issues.json")): Promise<Daemon> {
-  daemon = await createDaemon({ home: h, exec: execWith(search), ctx: testCtx(), version: "0.0.0-test", port: 0 });
+async function start(
+  h: string,
+  search = () => fixture("gh/search-issues.json"),
+  publicDir = join(h, "no-ui"),
+): Promise<Daemon> {
+  daemon = await createDaemon({ home: h, exec: execWith(search), ctx: testCtx(), version: "0.0.0-test", port: 0, publicDir });
   await daemon.start();
   await daemon.pollNow();
   return daemon;
@@ -95,9 +102,43 @@ describe("daemon", () => {
     expect(body).toMatchObject({
       version: "0.0.0-test",
       gh: { state: "ready", account: "octocat" },
+      claude: { state: "ready", version: "2.1.288" },
       lastPoll: { ok: true, issues: 4 },
       runningAgents: 0,
     });
+    expect(body.lastScan).toEqual(expect.any(String));
+  });
+
+  it("detects the CLIs again on recheck", async () => {
+    const d = await start(await home());
+    const { status, body } = await get(d, "/api/status/recheck", { method: "POST" });
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ gh: { state: "ready" }, claude: { state: "ready" } });
+  });
+
+  it("serves the web UI with a fallback to index.html for client routes", async () => {
+    const h = await home();
+    const ui = join(h, "public");
+    await mkdir(join(ui, "assets"), { recursive: true });
+    await writeFile(join(ui, "index.html"), "<!doctype html><title>donePM</title>");
+    await writeFile(join(ui, "assets", "app.js"), "console.log(1)");
+    const d = await start(h, undefined, ui);
+
+    const root = await fetch(d.address() + "/");
+    expect(root.headers.get("content-type")).toMatch(/text\/html/);
+    expect(await root.text()).toContain("<title>donePM</title>");
+    expect(await (await fetch(d.address() + "/assets/app.js")).text()).toBe("console.log(1)");
+    expect(await (await fetch(d.address() + "/settings")).text()).toContain("<title>donePM</title>");
+    expect((await get(d, "/api/nope")).status).toBe(404);
+
+    // A rebuild writes new hashed assets while the daemon runs.
+    await writeFile(join(ui, "assets", "app-2.js"), "console.log(2)");
+    expect(await (await fetch(d.address() + "/assets/app-2.js")).text()).toBe("console.log(2)");
+  });
+
+  it("answers 404 at / when the UI is not built", async () => {
+    const d = await start(await home());
+    expect((await fetch(d.address() + "/")).status).toBe(404);
   });
 
   it("reads and updates settings, persisting them", async () => {

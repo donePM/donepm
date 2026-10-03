@@ -5,3 +5,6 @@ dist/
 .env
 *.tsbuildinfo
 .idea/
+
+# web build output, served by the daemon
+packages/daemon/public/
