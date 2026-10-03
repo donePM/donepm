@@ -9,6 +9,7 @@ import { StartError } from "../agent/start.js";
 import { WorktreeError } from "../worktrees/create.js";
 import type { OrphanWorktree } from "../worktrees/reconcile.js";
 import { RemoveError } from "../worktrees/remove.js";
+import { DismissError } from "../items/dismiss.js";
 import type { AskStore } from "../asks/store.js";
 import { ConfigSchema, SourceKey, type Config } from "../config/config.js";
 import { DraftError } from "../drafts/actions.js";
@@ -50,6 +51,8 @@ export interface ServerDeps {
   orphans: () => Promise<OrphanWorktree[]>;
   /** Throws RemoveError (404 for paths that are not orphans) or WorktreeError. */
   removeOrphan: (path: string) => Promise<void>;
+  /** Throws DismissError. Moves an item whose issue was closed upstream to Done (D32). */
+  dismissItem: (id: string) => WorkItem;
   /** Throws StopError when no agent process is alive. Resolves once it exited. */
   stopItem: (id: string) => Promise<void>;
   /** The item as the API shows it: clone, badges, agent. */
@@ -186,6 +189,15 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       await deps.removeOrphan(body.data.path);
       return { ok: true };
     });
+  });
+
+  app.post<{ Params: { id: string } }>("/api/items/:id/dismiss", async (req, reply) => {
+    try {
+      return deps.view(deps.dismissItem(req.params.id));
+    } catch (e) {
+      if (e instanceof DismissError) return reply.code(e.status).send({ error: e.message });
+      throw e;
+    }
   });
 
   app.post<{ Params: { id: string } }>("/api/items/:id/stop", async (req, reply) => {

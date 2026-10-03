@@ -1,5 +1,5 @@
 import {
-  collect, externalIdOf, linkRepo, markClosedUpstream, normalizeOriginUrl, refresh,
+  closedUpstream, collect, externalIdOf, wasStarted, linkRepo, markClosedUpstream, normalizeOriginUrl, refresh,
   type Ctx, type SourceIssue, type WorkItem,
 } from "@donepm/core";
 import { transaction, type Db } from "../db/database.js";
@@ -69,11 +69,24 @@ export function syncIssues(issues: readonly SourceIssue[], deps: SyncDeps): Sync
   });
 }
 
-/** Flag an item whose issue was confirmed closed upstream. Returns the item if it changed. */
-export function applyClosedUpstream(itemId: string, deps: Pick<SyncDeps, "items" | "ctx">): WorkItem | undefined {
+/**
+ * An item whose issue was confirmed closed upstream (D32). A never-started ready item moves to Done
+ * with an `item.closed_upstream` event; any other gets the badge and waits for the user's Dismiss.
+ * Returns the item if it changed.
+ */
+export function applyClosedUpstream(itemId: string, deps: Pick<SyncDeps, "db" | "items" | "events" | "ctx">): WorkItem | undefined {
   const stored = deps.items.get(itemId);
   if (!stored) return undefined;
-  const next = markClosedUpstream(stored.item, deps.ctx);
+  const { item } = stored;
+  if (item.state === "ready" && !wasStarted(item)) {
+    const t = closedUpstream(item, deps.ctx);
+    transaction(deps.db, () => {
+      deps.items.update(t.item);
+      deps.events.append(t.events);
+    });
+    return t.item;
+  }
+  const next = markClosedUpstream(item, deps.ctx);
   if (next) deps.items.update(next);
   return next;
 }

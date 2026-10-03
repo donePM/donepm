@@ -21,3 +21,5 @@ export const startAgent = (id: string) => run(id, api.start);
 export const stopAgent = (id: string) => run(id, api.stop);
 export const resumeAgent = (id: string) => run(id, api.resume);
 export const removeWorktree = (id: string) => run(id, api.removeWorktree);
+/** Moves an item whose issue was closed upstream to Done (D32). The worktree stays. */
+export const dismissItem = (id: string) => run(id, api.dismiss);

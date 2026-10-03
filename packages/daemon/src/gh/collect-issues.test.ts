@@ -69,8 +69,28 @@ describe("collectIssues", () => {
     out = fixture("gh/search-issues-empty.json");
     pushed.length = 0;
     await collectIssues(deps);
-    expect(pushed.map((i) => [i.externalId, i.closedUpstream])).toEqual([["acme/widgets#161", true]]);
+    expect(pushed.map((i) => [i.externalId, i.state, i.closedUpstream])).toEqual([["acme/widgets#161", "done", true]]);
+    expect(deps.events.forItem(pushed[0]!.id).map((e) => e.type)).toEqual(["item.collected", "item.closed_upstream"]);
     expect(deps.items.all()).toHaveLength(4);
+  });
+
+  it("only flags a started item whose issue was closed upstream", async () => {
+    let out = fixture("gh/search-issues.json");
+    const exec = fakeExec({
+      ...ready,
+      "gh search issues": () => ok(out),
+      "gh issue view 161": ok(fixture("gh/issue-view-closed.json")),
+      "gh issue view": ok(fixture("gh/issue-view-open.json")),
+    });
+    const { deps, pushed } = setup(exec);
+    await collectIssues(deps);
+    const started = deps.items.byExternalId("acme/widgets#161")!.item;
+    deps.items.update({ ...started, worktreePath: "/wt/161" });
+    out = fixture("gh/search-issues-empty.json");
+    pushed.length = 0;
+    await collectIssues(deps);
+    expect(pushed.map((i) => [i.externalId, i.state, i.closedUpstream])).toEqual([["acme/widgets#161", "ready", true]]);
+    expect(deps.events.forItem(started.id).map((e) => e.type)).toEqual(["item.collected"]);
   });
 
   it("adds the issues of a repository query to the default search, one item per issue", async () => {

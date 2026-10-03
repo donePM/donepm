@@ -108,7 +108,9 @@ Event types in MVP: `item.collected`, `item.playbook_changed`, `agent.started`, 
 `agent.turn_started`, `agent.turn_ended`, `agent.failed`, `permission.asked`, `permission.answered`, `draft.created`,
 `draft.edited`, `draft.approved`, `draft.rejected`, `draft.executed`, `draft.execution_failed`,
 `agent.interrupted`, `worktree.removed`, `item.assigned`, `item.assign_failed` (assign on start,
-see 6.4), `permission.auto_allowed` (the daemon answered a WebFetch ask itself, see 9.4).
+see 6.4), `permission.auto_allowed` (the daemon answered a WebFetch ask itself, see 9.4),
+`item.closed_upstream` (a never-started item moved to Done) and `item.dismissed` (the user moved
+a started one to Done), both see 6.2.
 
 ### 4.4 Draft
 
@@ -201,7 +203,14 @@ On start and on Settings open:
 - Validate output with a schema (zod). On schema failure: log the raw output, do not crash, show
   an error badge in Settings.
 - Upsert items by `externalId`. New issue → `item.collected` event, state `ready`. Closed issue
-  that is not `done` → keep item, add badge "closed upstream".
+  that is not `done` (D32):
+  - never started (`ready`, no worktree, no agent session) → the daemon moves it to `done` with an
+    `item.closed_upstream` event (actor `system`). Nothing can be lost.
+  - started (any other state, or `ready` with a worktree or session) → keep item, add badge
+    "closed upstream". The card offers **Dismiss**, which moves it to `done` with `item.dismissed`
+    (actor `user`). Not while the agent runs: the user stops it first. The worktree stays until
+    the user removes it.
+  An issue seen open again clears the badge; an item already in `done` stays there.
 - Never delete items automatically.
 - Repos with a `query` (4.6) are polled in addition, one call each:
   ```
@@ -521,6 +530,7 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/drafts/:id/reject` | `{ reason }`; reason is sent to the agent as next message. Without a live process (e.g. after a restart) the session is resumed with `--resume` and the reason as its first message |
 | POST | `/api/items/:id/resume` | after daemon restart |
 | POST | `/api/items/:id/worktree/remove` | only `done` or `failed`; the branch stays |
+| POST | `/api/items/:id/dismiss` | closed upstream, not running → `done` (D32); 409 otherwise |
 | GET | `/api/worktrees/orphaned` | worktrees under the root that no item uses |
 | POST | `/api/worktrees/orphaned/remove` | `{ path }`; only paths from the orphan list |
 | GET | `/api/repos` | |
@@ -550,6 +560,8 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
   draft (title, body editable, diff of branch vs base, Approve / Reject with reason) or failure
   (stderr tail, Retry / Remove worktree).
 - Done card: PR link, Remove worktree.
+- Card of an item closed upstream: note "Closed on GitHub"; on a started, not running item a
+  Dismiss button next to it (6.2).
 - Sort: manual drag within a column (priority). Persist order.
 
 ### 12.2 Item detail (drawer or route)

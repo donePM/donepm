@@ -40,6 +40,7 @@ export const api = {
   orphans: () => call<OrphanWorktree[]>("GET", "/api/worktrees/orphaned"),
   removeOrphan: (path: string) => call<{ ok: true }>("POST", "/api/worktrees/orphaned/remove", { path }),
   stop: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/stop`),
+  dismiss: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/dismiss`),
   transcript: (id: string, after?: string) =>
     call<TranscriptMessage[]>(
       "GET",

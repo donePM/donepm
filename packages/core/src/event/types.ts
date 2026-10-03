@@ -5,6 +5,8 @@ export const EVENT_TYPES = [
   "item.playbook_changed",
   "item.assigned",
   "item.assign_failed",
+  "item.closed_upstream",
+  "item.dismissed",
   "agent.started",
   "agent.resumed",
   "agent.turn_started",

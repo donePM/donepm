@@ -64,6 +64,14 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("describes items closed upstream", () => {
+    const events = [ev("item.closed_upstream"), ev("item.dismissed", {}, { actor: "user" })];
+    expect(timelineEntries(events, []).map(({ tone, text }) => ({ tone, text }))).toEqual([
+      { tone: "user", text: "You dismissed it after it was closed on GitHub" },
+      { tone: "system", text: "Closed on GitHub, moved to Done" },
+    ]);
+  });
+
   it("describes assigning the issue on start", () => {
     const events = [ev("item.assigned", { assignee: "@me" }), ev("item.assign_failed", { reason: "HTTP 403" })];
     expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail }))).toEqual([

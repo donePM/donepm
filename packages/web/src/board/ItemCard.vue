@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { pending, removeWorktree, resumeAgent, startAgent, stopAgent } from "../agents/actions";
+import { dismissItem, pending, removeWorktree, resumeAgent, startAgent, stopAgent } from "../agents/actions";
 import { api } from "../api/client";
 import { errorText, isPublishFailure } from "../api/errors";
 import type { ItemView } from "../api/types";
@@ -14,6 +14,8 @@ const props = defineProps<{ item: ItemView; repoRoot?: string; now: number; hide
 
 const noClone = computed(() => props.item.badges.includes("no-local-clone"));
 const closedUpstream = computed(() => props.item.badges.includes("closed-upstream"));
+/** A started item stays when its issue closes upstream; the user moves it to Done (D32). */
+const dismissable = computed(() => closedUpstream.value && props.item.state !== "done" && props.item.state !== "running" && !props.item.agent.running);
 const column = computed(() => columnOf(props.item));
 const busy = computed(() => pending.value.has(props.item.id));
 /** Ready and failed items can start; a failed one starts again from its worktree. */
@@ -107,7 +109,17 @@ async function act(fn: (id: string) => Promise<void>) {
       </svg>
       No local clone<template v-if="repoRoot"> under {{ repoRoot }}</template>
     </div>
-    <div v-if="closedUpstream" class="note warn">Closed on GitHub</div>
+    <div v-if="closedUpstream" class="note warn">
+      Closed on GitHub
+      <button
+        v-if="dismissable"
+        class="btn subtle dismiss"
+        type="button"
+        :disabled="busy"
+        title="Move to Done. The worktree stays until you remove it."
+        @click="act(dismissItem)"
+      >Dismiss</button>
+    </div>
     <div v-if="item.state === 'running'" class="activity mono">
       <span v-if="item.branch">{{ item.branch }}</span>
       <span v-if="item.agent.currentTool" class="dim">{{ item.agent.currentTool.name }} · {{ item.agent.currentTool.summary }}</span>
@@ -215,6 +227,7 @@ h3 { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; overflow-wr
 .label.tone-feature { background: var(--blue-tint); color: var(--blue); }
 .note { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .note.warn { color: var(--amber); }
+.dismiss { margin-left: auto; height: 26px; padding: 0 10px; font-size: 12px; }
 .live { flex: none; display: flex; align-items: center; gap: 6px; color: var(--blue); }
 .activity { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
 .dim { color: var(--ink-3); }
