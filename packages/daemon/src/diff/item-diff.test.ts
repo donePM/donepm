@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -48,6 +48,19 @@ describe("itemDiff", () => {
     expect(d.patch).toMatch(/\+\+\+ b\/new\.txt/);
     // Changes that only happened on the base are not the branch's.
     expect(d.patch).not.toContain("main-only");
+  });
+
+  it("leaves out untracked files that setup copied in, as approving does", async () => {
+    mkdirSync(join(dir, ".donepm"));
+    writeFileSync(join(dir, ".donepm", "setup.yml"), "copy:\n  - .env\n");
+    await git("add", ".donepm");
+    await git("commit", "-qm", "setup");
+    writeFileSync(join(dir, ".env"), "SECRET=1\n");
+    writeFileSync(join(dir, "new.txt"), "hello\n");
+    const d = await itemDiff(exec, { worktreePath: dir, branch: "dp/1-x", defaultBranch: "main" });
+    expect(d.patch).toMatch(/\+\+\+ b\/new\.txt/);
+    expect(d.patch).not.toContain("b/.env");
+    expect(d.patch).not.toContain("SECRET");
   });
 
   it("is empty for a fresh branch and skips ignored files", async () => {

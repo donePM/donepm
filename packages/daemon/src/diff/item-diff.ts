@@ -1,4 +1,5 @@
 import type { Exec } from "../process/exec.js";
+import { setupCopies } from "../worktrees/setup.js";
 
 /** What the item's branch changes against its base, as the detail view and the draft card show it. */
 export interface ItemDiff {
@@ -9,7 +10,8 @@ export interface ItemDiff {
   commits: number;
   /**
    * Unified diff of the merge base against the working tree: committed and uncommitted changes,
-   * plus untracked files as additions (spec §12.2).
+   * plus untracked files as additions (spec §12.2). Untracked files that setup copied in (`.env`
+   * and the like) are left out: approving never commits them (D25).
    */
   patch: string;
 }
@@ -46,7 +48,8 @@ export async function itemDiff(exec: Exec, input: { worktreePath: string; branch
   const commits = Number((await git(exec, cwd, ["rev-list", "--count", `${mergeBase}..HEAD`])).trim());
   let patch = await git(exec, cwd, ["diff", ...DIFF_FLAGS, mergeBase, "--"]);
 
-  const untracked = (await git(exec, cwd, ["ls-files", "--others", "--exclude-standard", "-z"]))
+  const keepOut = (await setupCopies(cwd)).map((f) => `:(exclude,literal)${f}`);
+  const untracked = (await git(exec, cwd, ["ls-files", "--others", "--exclude-standard", "-z", "--", ".", ...keepOut]))
     .split("\0")
     .filter(Boolean)
     .slice(0, MAX_UNTRACKED);
