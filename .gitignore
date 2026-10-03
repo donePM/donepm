@@ -3,3 +3,5 @@ dist/
 *.db
 .DS_Store
 .env
+*.tsbuildinfo
+.idea/

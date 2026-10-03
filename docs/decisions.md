@@ -97,6 +97,11 @@ because argv is visible in `ps`.
 **D23. Playbooks are files from the MVP on**, with `model` in the frontmatter. One built-in
 `implement.md` written to `~/.config/donepm/playbooks/` on first start.
 
+**D24. `core` uses the `yaml` package for playbook frontmatter.** It is well tested, widely used
+and has no dependencies. A hand-rolled parser for the frontmatter subset would invite parser bugs
+in a place where a mistake means a wrong model or permission mode. `core` may import `zod` and
+`yaml`, nothing else.
+
 ## Open (not decided)
 
 - Whether the agent commits or the daemon commits before push. Decide after first live runs.
