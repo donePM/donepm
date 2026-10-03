@@ -29,4 +29,11 @@ async function shutdown(signal: string): Promise<void> {
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 
-await daemon.start();
+try {
+  await daemon.start();
+} catch (err) {
+  if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE") throw err;
+  const { port } = err as { port?: number };
+  console.error(`donePM: port ${port} is already in use. Is another donePM running? Stop it, or set "port" in the config.`);
+  process.exit(1);
+}

@@ -40,6 +40,7 @@ pnpm dev
 
 Vite proxies `/api` and `/ws` to the daemon. The daemon's dev script sets
 `DONEPM_DEV_ORIGIN=http://localhost:5173` so it accepts requests from the Vite origin.
+`pnpm dev` builds `core` once, then watches `core`, `daemon` and `web` together.
 
 ### Configuration
 
@@ -72,7 +73,14 @@ DONEPM_LIVE=1 pnpm test    # includes live agent tests (costs money)
 
 ### Troubleshooting
 
-If port 6174 is busy, a running daemon instance is likely; stop it first.
+`pnpm dev` needs both ports free:
+
+- **6174** (daemon): the daemon exits with "port 6174 is already in use". Stop the other
+  donePM first, e.g. a `node packages/daemon/dist/index.js` in another terminal.
+- **5173** (Vite): Vite exits with "Port 5173 is already in use", usually another Vite dev
+  server. Stop it.
+
+Check who holds a port with `lsof -iTCP:6174 -sTCP:LISTEN`.
 
 ## Resources
 
