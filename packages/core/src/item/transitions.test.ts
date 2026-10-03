@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Ctx } from "../ids.js";
 import {
   InvalidTransitionError, agentAsked, agentFailed, answered, draftApproved, draftCreated, draftRejected, start,
+  turnEnded, turnStarted,
 } from "./transitions.js";
 import type { ItemState, WorkItem } from "./types.js";
 
@@ -29,8 +30,10 @@ const table: Array<{
   actor: string;
 }> = [
   { name: "start", run: (i) => start(i, makeCtx()), from: ["ready", "failed"], to: "running", type: "agent.started", actor: "system" },
-  { name: "agentAsked", run: (i) => agentAsked(i, makeCtx(), "ask-1"), from: ["running"], to: "needs_you", type: "permission.asked", actor: "agent" },
+  { name: "agentAsked", run: (i) => agentAsked(i, makeCtx(), "ask-1"), from: ["running", "needs_you"], to: "needs_you", type: "permission.asked", actor: "agent" },
   { name: "answered", run: (i) => answered(i, makeCtx(), "ask-1"), from: ["needs_you"], to: "running", type: "permission.answered", actor: "user" },
+  { name: "turnEnded", run: (i) => turnEnded(i, makeCtx()), from: ["running"], to: "needs_you", type: "agent.turn_ended", actor: "agent" },
+  { name: "turnStarted", run: (i) => turnStarted(i, makeCtx()), from: ["needs_you"], to: "running", type: "agent.turn_started", actor: "agent" },
   { name: "draftCreated", run: (i) => draftCreated(i, makeCtx(), "d-1"), from: ["running"], to: "needs_you", type: "draft.created", actor: "agent" },
   { name: "draftApproved", run: (i) => draftApproved(i, makeCtx(), "d-1"), from: ["needs_you"], to: "done", type: "draft.approved", actor: "user" },
   { name: "draftRejected", run: (i) => draftRejected(i, makeCtx(), "d-1", "nope"), from: ["needs_you"], to: "running", type: "draft.rejected", actor: "user" },
@@ -55,6 +58,17 @@ describe.each(table)("$name", ({ run, from, to, type, actor, name }) => {
 });
 
 describe("details", () => {
+  it("agentFailed carries details next to the reason", () => {
+    const { events } = agentFailed(item("running"), makeCtx(), "exit 1", { stderrTail: ["boom"] });
+    expect(events[0]?.payload).toEqual({ reason: "exit 1", stderrTail: ["boom"] });
+  });
+
+  it("answered keeps the item waiting while other asks are pending", () => {
+    const { item: after, events } = answered(item("needs_you"), makeCtx(), "ask-1", {}, true);
+    expect(after.state).toBe("needs_you");
+    expect(events[0]?.type).toBe("permission.answered");
+  });
+
   it("start emits agent.resumed when a session exists", () => {
     const { events } = start(item("failed", { agentSessionId: "sess" }), makeCtx());
     expect(events[0]?.type).toBe("agent.resumed");

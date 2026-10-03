@@ -2,11 +2,13 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import { createDaemon, type Daemon } from "./daemon.js";
 import { testCtx } from "./test-support/ctx.js";
 import { fakeExec, fixture, ok } from "./test-support/fake-exec.js";
+import { fakeProcesses } from "./test-support/fake-process.js";
+import { cloneWithOrigin, git } from "./test-support/git-repo.js";
 import { exec as realExec, type Exec } from "./process/exec.js";
 
 let daemon: Daemon | undefined;
@@ -26,7 +28,11 @@ function execWith(search: () => string): Exec {
     "claude --version": ok("2.1.288 (Claude Code)\n"),
     "claude auth status": ok(fixture("claude/auth-status-logged-in.json")),
   });
-  return (cmd, args, opts) => (cmd === "git" ? realExec(cmd, args, opts) : gh(cmd, args, opts));
+  return (cmd, args, opts) => {
+    // origin points at github.com; the clone already has origin/main, so fetching is skipped.
+    if (cmd === "git" && args.includes("fetch")) return Promise.resolve(ok(""));
+    return cmd === "git" || cmd === "sh" ? realExec(cmd, args, opts) : gh(cmd, args, opts);
+  };
 }
 
 async function home(): Promise<string> {
@@ -38,12 +44,25 @@ async function home(): Promise<string> {
   return h;
 }
 
+/** Like `home`, but the clone has a commit, `origin/main` and a setup file. */
+async function homeWithHistory(): Promise<string> {
+  const h = await mkdtemp(join(tmpdir(), "donepm-home-"));
+  const { clone } = await cloneWithOrigin({ ".donepm/setup.yml": "copy: [.env]\nrun: [\"echo ready\"]\n" }, join(h, "Code"));
+  git(clone, "remote", "set-url", "origin", "git@github.com:acme/widgets.git");
+  await writeFile(join(clone, ".env"), "SECRET=1");
+  return h;
+}
+
 async function start(
   h: string,
   search = () => fixture("gh/search-issues.json"),
   publicDir = join(h, "no-ui"),
+  spawn = fakeProcesses(),
 ): Promise<Daemon> {
-  daemon = await createDaemon({ home: h, exec: execWith(search), ctx: testCtx(), version: "0.0.0-test", port: 0, publicDir });
+  daemon = await createDaemon({
+    home: h, exec: execWith(search), ctx: testCtx(), version: "0.0.0-test", port: 0, publicDir, spawn,
+    env: { PATH: "/usr/bin:/bin", GH_TOKEN: "secret" },
+  });
   await daemon.start();
   await daemon.pollNow();
   return daemon;
@@ -207,5 +226,84 @@ describe("daemon", () => {
     daemon = undefined;
     const d = await start(h, () => fixture("gh/search-issues-empty.json"));
     expect((await get(d, "/api/items")).body).toHaveLength(4);
+  });
+
+  it("starts an agent: worktree, setup, claude in the worktree, transcript stored", async () => {
+    const h = await homeWithHistory();
+    const spawn = fakeProcesses();
+    const d = await start(h, undefined, undefined, spawn);
+    expect(await readFile(join(h, ".config/donepm/playbooks/implement.md"), "utf8")).toMatch(/name: implement/);
+    const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
+
+    const started = await get(d, `/api/items/${item.id}/start`, { method: "POST" });
+    expect(started.status).toBe(202);
+    expect(started.body.state).toBe("running");
+    await vi.waitFor(() => expect(spawn.spawned).toHaveLength(1));
+
+    const proc = spawn.last();
+    const stored = (await get(d, `/api/items/${item.id}`)).body;
+    expect(stored.branch).toMatch(/^dp\/161-/);
+    expect(proc.opts.cwd).toBe(stored.worktreePath);
+    expect(stored.worktreePath.startsWith(join(h, ".local/share/donepm/worktrees/acme-widgets/"))).toBe(true);
+    expect(await readFile(join(stored.worktreePath, ".env"), "utf8")).toBe("SECRET=1");
+    expect(proc.opts.env.GH_TOKEN).toBeUndefined();
+    expect(proc.args).toEqual(expect.arrayContaining(["--model", "opus", "--permission-mode", "acceptEdits"]));
+    expect(proc.sent()[0].message.content[0].text).toContain(`branch\n\`${stored.branch}\``);
+
+    proc.emit(...fixture("stream/basic.jsonl").split("\n").filter(Boolean));
+    const transcript = (await get(d, `/api/items/${item.id}/transcript`)).body;
+    expect(transcript.slice(0, 3).map((m: any) => [m.kind, m.raw.step])).toEqual([
+      ["system", "copy"], ["system", "run"], ["user", undefined],
+    ]);
+    expect(transcript.at(-1).kind).toBe("result");
+    const after = (await get(d, `/api/items/${item.id}/transcript?after=${transcript[1].id}`)).body;
+    expect(after).toHaveLength(transcript.length - 2);
+    expect((await get(d, `/api/items/${item.id}`)).body.state).toBe("needs_you");
+    expect((await get(d, "/api/status")).body.runningAgents).toBe(1);
+  });
+
+  it("refuses to start twice, items without a clone, and a second agent", async () => {
+    const d = await start(await homeWithHistory());
+    const items = (await get(d, "/api/items")).body;
+    const [a, b] = items.filter((i: any) => i.externalId.startsWith("acme/widgets"));
+    const noClone = items.find((i: any) => i.externalId === "solo/tool#61");
+    expect((await get(d, `/api/items/${a.id}/start`, { method: "POST" })).status).toBe(202);
+    expect((await get(d, `/api/items/${a.id}/start`, { method: "POST" })).body).toEqual({ error: "item is running" });
+    expect((await get(d, `/api/items/${b.id}/start`, { method: "POST" })).body.error).toMatch(/already running/);
+    expect((await get(d, `/api/items/${noClone.id}/start`, { method: "POST" })).status).toBe(409);
+    expect((await get(d, "/api/items/nope/start", { method: "POST" })).status).toBe(404);
+  });
+
+  it("fails the item when setup fails, with the output in the transcript", async () => {
+    const h = await homeWithHistory();
+    await (await import("node:fs/promises")).rm(join(h, "Code", "acme", "widgets", ".env"));
+    const spawn = fakeProcesses();
+    const d = await start(h, undefined, undefined, spawn);
+    const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
+    await get(d, `/api/items/${item.id}/start`, { method: "POST" });
+    await vi.waitFor(async () => expect((await get(d, `/api/items/${item.id}`)).body.state).toBe("failed"));
+    expect(spawn.spawned).toHaveLength(0);
+    const detail = (await get(d, `/api/items/${item.id}`)).body;
+    expect(detail.events.at(-1).payload.reason).toBe("worktree setup failed");
+    expect((await get(d, `/api/items/${item.id}/transcript`)).body.map((m: any) => m.raw.ok)).toEqual([false]);
+    expect((await get(d, "/api/status")).body.runningAgents).toBe(0);
+  });
+
+  it("answers a permission ask over HTTP", async () => {
+    const spawn = fakeProcesses();
+    const d = await start(await homeWithHistory(), undefined, undefined, spawn);
+    const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
+    await get(d, `/api/items/${item.id}/start`, { method: "POST" });
+    await vi.waitFor(() => expect(spawn.spawned).toHaveLength(1));
+    spawn.last().emit({ type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "curl x" } } });
+    const [ask] = (await get(d, `/api/items/${item.id}`)).body.asks;
+
+    const post = (body: unknown) =>
+      get(d, `/api/asks/${ask.id}/answer`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    expect((await post({ behavior: "maybe" })).status).toBe(400);
+    expect((await post({ behavior: "deny", message: "no" })).body).toEqual({ ok: true });
+    expect(spawn.last().sent().at(-1).response).toMatchObject({ request_id: "r1", response: { behavior: "deny", message: "no" } });
+    expect((await post({ behavior: "allow" })).status).toBe(409);
+    expect((await get(d, "/api/asks/nope/answer", { method: "POST", headers: { "content-type": "application/json" }, body: "{\"behavior\":\"allow\"}" })).status).toBe(404);
   });
 });
