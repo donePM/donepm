@@ -513,6 +513,22 @@ export function autoAllowed(item: WorkItem, ctx: Ctx, askId: string, payload: Re
   );
 }
 
+/**
+ * The retention job took a finished item off the board (decision D37). The state stays `done`;
+ * nothing is deleted. `finishedAt` (from `finishedAt` in `finished.ts`) goes into the event.
+ */
+export function archived(item: WorkItem, ctx: Ctx, finishedAt: string): Transition {
+  if (item.archivedAt !== undefined) throw new InvalidTransitionError("archived", item.state);
+  const t = apply(
+    { name: "archived", from: ["done"], to: "done", actor: "system", event: "item.archived" },
+    item,
+    ctx,
+    undefined,
+    { finishedAt },
+  );
+  return { ...t, item: { ...t.item, archivedAt: t.events[0]!.at } };
+}
+
 /** Work an agent may have left: a worktree or a session. Such an item is never closed for the user. */
 export function wasStarted(item: WorkItem): boolean {
   return item.worktreePath !== undefined || item.agentSessionId !== undefined;

@@ -46,6 +46,10 @@ export const ConfigSchema = z
     maxConcurrentAgents: z.number().int().min(1).default(1),
     /** Remove a done item's clean worktree once the PR its draft opened is merged (D33). */
     removeWorktreeOnMerge: z.boolean().default(false),
+    /** Hours a finished item stays on the board before it moves to the Archive (D37). */
+    archiveAfterHours: z.number().int().min(0).default(24),
+    /** Days an archived item is kept before it is deleted with its history (D37). `null`: never. */
+    deleteAfterDays: z.number().int().min(0).nullable().default(7),
     /** Keyed by normalised origin. Replaced as a whole by `PUT /api/settings`; `PUT /api/repos/:id` changes one entry. */
     sources: z.record(SourceKey, SourceSchema).default({}),
     /** WebFetch to these hosts (and their subdomains) is allowed by the daemon, not asked (D31). */

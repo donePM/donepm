@@ -67,6 +67,8 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
       return { tone: "system", text: "Closed on GitHub, moved to Done" };
     case "item.dismissed":
       return { tone: "user", text: "You dismissed it after it was closed on GitHub" };
+    case "item.archived":
+      return { tone: "system", text: "Moved to the Archive" };
     case "item.assign_failed":
       return { tone: "attention", text: "Assigning the issue to you failed", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
     case "agent.started":

@@ -42,6 +42,8 @@ export interface ItemView extends WorkItem {
   attention?: Attention;
   /** The pull request an approved draft opened, and whether it was merged since (D33). */
   pr?: PrView;
+  /** When the item finished: done, and its PR merged if a draft opened one (D37). Its card is muted. */
+  finishedAt?: string;
 }
 
 /** `waiting`: the item sits in Needs You on the conflict; otherwise the user took it on (D36). */
@@ -117,6 +119,10 @@ export interface Settings {
   maxConcurrentAgents: number;
   /** Remove a clean worktree once its PR is merged (D33). */
   removeWorktreeOnMerge: boolean;
+  /** Hours from finished to archived (D37). */
+  archiveAfterHours: number;
+  /** Days from archived to deleted; null: never (D37). */
+  deleteAfterDays: number | null;
   /** Per repository, keyed by normalised origin (`github.com/owner/repo`). */
   sources: Record<string, SourceSettings>;
   /** WebFetch to these hosts is allowed by the daemon without asking (D31). */

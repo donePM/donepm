@@ -4,6 +4,7 @@ import { openDb } from "../db/database.js";
 import { EventStore } from "../events/store.js";
 import { RepoStore } from "../repos/store.js";
 import { testCtx } from "../test-support/ctx.js";
+import { TombstoneStore } from "../retention/tombstones.js";
 import { ItemStore } from "./store.js";
 import { applyClosedUpstream, issueOrigin, relinkItems, syncIssues } from "./sync.js";
 
@@ -40,7 +41,7 @@ describe("syncIssues", () => {
     const d = setup();
     syncIssues([a], d);
     const r = syncIssues([a], d);
-    expect(r).toEqual({ collected: [], updated: [], missing: [] });
+    expect(r).toEqual({ collected: [], updated: [], missing: [], openTombstones: [] });
     const id = d.items.byExternalId("Acme/Widgets#1")!.item.id;
     expect(d.events.forItem(id)).toHaveLength(1);
   });
@@ -101,6 +102,55 @@ describe("syncIssues", () => {
     expect(d.events.forItem(id).map((e) => e.type)).toEqual(["item.collected"]);
     expect(syncIssues([], d).missing).toEqual([]);
     expect(syncIssues([a], d).updated[0]).not.toHaveProperty("closedUpstream");
+  });
+});
+
+describe("syncIssues: archived and purged issues (D37)", () => {
+  const archive = (d: ReturnType<typeof setup>, externalId: string) => {
+    const { item } = d.items.byExternalId(externalId)!;
+    d.items.update({ ...item, state: "done", archivedAt: "2026-10-02T00:00:00.000Z" });
+    return item.id;
+  };
+
+  it("skips an archived item's issue while it stays open, and asks whether it was closed", () => {
+    const d = setup();
+    syncIssues([a], d);
+    const id = archive(d, "Acme/Widgets#1");
+    const r = syncIssues([a], d);
+    expect(r).toEqual({ collected: [], updated: [], missing: [], openTombstones: [] });
+    expect(d.items.all()).toHaveLength(1);
+    // Not in the poll: confirm whether it was closed, so a later reopen is recognised.
+    expect(syncIssues([], d).missing.map((i) => i.id)).toEqual([id]);
+    applyClosedUpstream(id, d);
+    expect(d.items.get(id)!.item).toMatchObject({ closedUpstream: true, state: "done" });
+    expect(syncIssues([], d).missing).toEqual([]);
+  });
+
+  it("collects a reopened issue as a new item and keeps the archived one", () => {
+    const d = setup();
+    syncIssues([a], d);
+    const old = archive(d, "Acme/Widgets#1");
+    applyClosedUpstream(old, d);
+    const r = syncIssues([a], d);
+    expect(r.collected).toHaveLength(1);
+    expect(r.collected[0]!.id).not.toBe(old);
+    expect(d.items.byExternalId("Acme/Widgets#1")!.item.id).toBe(r.collected[0]!.id);
+    expect(d.items.get(old)!.item.archivedAt).toBeDefined();
+    expect(syncIssues([a], d).collected).toEqual([]);
+  });
+
+  it("skips a purged issue while its tombstone is open, imports it fresh once seen closed", () => {
+    const d = setup();
+    const tombstones = new TombstoneStore(d.db);
+    tombstones.put({ externalId: "Acme/Widgets#1", source: "github-issue", originUrl: "github.com/acme/widgets", closed: false, deletedAt: "t" });
+    expect(syncIssues([a], d).collected).toEqual([]);
+    expect(syncIssues([], d).openTombstones.map((t) => t.externalId)).toEqual(["Acme/Widgets#1"]);
+    expect(syncIssues([], d, new Set(["github.com/acme/widgets"])).openTombstones).toEqual([]);
+
+    tombstones.markClosed("Acme/Widgets#1");
+    expect(syncIssues([], d).openTombstones).toEqual([]);
+    expect(syncIssues([a], d).collected.map((i) => i.externalId)).toEqual(["Acme/Widgets#1"]);
+    expect(tombstones.get("Acme/Widgets#1")).toBeUndefined();
   });
 });
 

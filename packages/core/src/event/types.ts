@@ -8,6 +8,7 @@ export const EVENT_TYPES = [
   "item.closed_upstream",
   "item.dismissed",
   "item.pr_merged",
+  "item.archived",
   "agent.started",
   "agent.resumed",
   "agent.turn_started",
@@ -36,7 +37,7 @@ export const EVENT_TYPES = [
 
 export type EventType = (typeof EVENT_TYPES)[number];
 
-/** Append-only. Never updated or deleted. */
+/** Append-only: never updated; deleted only together with their archived item by the retention purge (D37). */
 export interface Event {
   id: string;
   itemId: string;

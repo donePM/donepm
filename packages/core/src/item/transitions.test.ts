@@ -4,7 +4,7 @@ import {
   InvalidTransitionError, agentAsked, agentFailed, answered, autoAllowed, draftApproved, draftCreated, draftEdited, draftExecuted,
   draftExecutionFailed, draftRejected, interrupted, issueAssignFailed, issueAssigned, resume, start, worktreeRemoved,
   turnEnded, turnStarted, closedUpstream, ciFailed, ciFix, ciMarkedDone, ciPassed, ciRerun, dismissed, wasStarted, prMerged, worktreeRemovedOnMerge, worktreeRemoveSkipped,
-  prConflicted, prConflictResolved, prConflictDismissed, prConflictFix,
+  prConflicted, prConflictResolved, prConflictDismissed, prConflictFix, archived,
 } from "./transitions.js";
 import type { PrConflict } from "../pr/conflict.js";
 import type { ItemState, WorkItem } from "./types.js";
@@ -291,5 +291,26 @@ describe("dismissed", () => {
 
   it("throws when the issue is not closed upstream", () => {
     expect(() => dismissed(item("ready"), makeCtx())).toThrow(InvalidTransitionError);
+  });
+});
+
+describe("archived", () => {
+  it("archives a done item, keeping its state, with a system event carrying finishedAt (D37)", () => {
+    const { item: after, events } = archived(item("done"), makeCtx(), "2026-10-02T08:00:00.000Z");
+    expect(after).toMatchObject({ state: "done", archivedAt: "2026-10-03T12:00:00.000Z" });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "item.archived", actor: "system", at: "2026-10-03T12:00:00.000Z",
+      payload: { finishedAt: "2026-10-02T08:00:00.000Z" },
+    });
+  });
+
+  it.each(ALL.filter((s) => s !== "done"))("throws from %s", (state) => {
+    expect(() => archived(item(state), makeCtx(), "2026-10-02T08:00:00.000Z")).toThrow(InvalidTransitionError);
+  });
+
+  it("throws for an item already archived", () => {
+    const once = archived(item("done"), makeCtx(), "2026-10-02T08:00:00.000Z").item;
+    expect(() => archived(once, makeCtx(), "2026-10-02T08:00:00.000Z")).toThrow(InvalidTransitionError);
   });
 });

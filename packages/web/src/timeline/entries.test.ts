@@ -128,6 +128,13 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("describes archiving a finished item", () => {
+    expect(timelineEntries([ev("item.archived", { finishedAt: "2026-10-01T00:00:00Z" })], [])[0]).toMatchObject({
+      tone: "system",
+      text: "Moved to the Archive",
+    });
+  });
+
   it("describes assigning the issue on start", () => {
     const events = [ev("item.assigned", { assignee: "@me" }), ev("item.assign_failed", { reason: "HTTP 403" })];
     expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail }))).toEqual([

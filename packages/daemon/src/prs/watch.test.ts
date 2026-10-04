@@ -215,8 +215,26 @@ describe("watchPrs: conflicts", () => {
     view = fixture("gh/pr-view-open.json");
     await watchPrs(t.deps);
     expect(t.types()).toEqual(["pr.conflicted", "pr.conflict_dismissed", "pr.conflict_resolved"]);
+    // Resolved, done and without a worktree: asked until the merge is recorded (D37), then no more.
+    view = fixture("gh/pr-view-merged.json");
     await watchPrs(t.deps);
-    // Resolved, done and without a worktree: nothing left to ask.
+    expect(t.types()).toEqual(["pr.conflicted", "pr.conflict_dismissed", "pr.conflict_resolved", "item.pr_merged"]);
+    await watchPrs(t.deps);
+    expect(t.gh.calls).toHaveLength(3);
+  });
+
+  it("records the merge of a done item whose worktree the user removed before it (D37)", async () => {
+    let view = fixture("gh/pr-view-open.json");
+    const t = await setup({ removeOnMerge: true, prView: () => view });
+    const { worktreePath: _, ...rest } = t.item();
+    t.writer.save(rest);
+
+    await watchPrs(t.deps);
+    expect(t.types()).toEqual([]);
+    view = fixture("gh/pr-view-merged.json");
+    await watchPrs(t.deps);
+    await watchPrs(t.deps);
+    expect(t.types()).toEqual(["item.pr_merged"]);
     expect(t.gh.calls).toHaveLength(2);
   });
 });

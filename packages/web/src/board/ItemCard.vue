@@ -8,6 +8,7 @@ import AskPanel from "../asks/AskPanel.vue";
 import { diffFiles, diffStats, type DiffStats } from "../diff/files";
 import { agentElapsed, clock } from "../time/duration";
 import { columnOf, displayId, labelTone, shortId } from "./columns";
+import { isFinished } from "./finished";
 import { mergeNote } from "./merge-note";
 
 /**
@@ -21,11 +22,13 @@ const closedUpstream = computed(() => props.item.badges.includes("closed-upstrea
 /** A started item stays when its issue closes upstream; the user moves it to Done (D32). */
 const dismissable = computed(() => closedUpstream.value && props.item.state !== "done" && props.item.state !== "running" && !props.item.agent.running);
 const column = computed(() => columnOf(props.item));
+/** Finished: muted, and nothing to do on it but open it (D37). The detail page still offers everything. */
+const finished = computed(() => isFinished(props.item));
 const busy = computed(() => pending.value.has(props.item.id));
 /** Ready and failed items can start; a failed one starts again from its worktree. */
 const startable = computed(() => (props.item.state === "ready" || props.item.state === "failed") && !noClone.value);
 /** The user removes a finished or failed item's worktree; only a merged PR's goes on its own (D33). */
-const removable = computed(() => (props.item.state === "done" || props.item.state === "failed") && !!props.item.worktreePath && !props.item.agent.running);
+const removable = computed(() => (props.item.state === "done" || props.item.state === "failed") && !!props.item.worktreePath && !props.item.agent.running && !finished.value);
 const merge = computed(() => mergeNote(props.item, props.removeOnMerge ?? false));
 const elapsed = computed(() => {
   const ms = agentElapsed(props.item.agent, props.now);
@@ -94,7 +97,7 @@ async function act(fn: (id: string) => Promise<void>) {
 </script>
 
 <template>
-  <article class="card" :class="[`in-${column}`, { muted: noClone }]">
+  <article class="card" :class="[`in-${column}`, { muted: noClone, finished }]">
     <div class="meta mono">
       <a
         :href="item.externalUrl"
@@ -245,6 +248,9 @@ async function act(fn: (id: string) => Promise<void>) {
 .card.in-needs_you { background: var(--amber-tint); border-color: var(--amber-border); }
 .card.muted { background: var(--card-muted); border: 1px dashed var(--border-control); color: var(--ink-3); }
 .card.muted h3, .card.in-done h3 { color: var(--ink-2); }
+.card.finished { background: var(--card-muted); border-color: var(--border-soft); color: var(--ink-3); }
+.card.finished h3, .card.finished .label { color: var(--ink-3); }
+.card.finished .label { background: transparent; border: 1px solid var(--border-soft); }
 .meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; color: var(--ink-3); }
 .ext { color: inherit; text-decoration: none; min-width: 0; overflow-wrap: anywhere; }
 .ext:hover { color: var(--blue); text-decoration: underline; }

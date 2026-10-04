@@ -228,6 +228,27 @@ approved), or "I'll do it myself", which returns the item and leaves a quiet not
 conflict ends when GitHub reports the PR mergeable, merged or closed, and a still-waiting item goes
 back where it was. Bloom does not watch PRs.
 
+**D37. Finished items are muted, archived after 24 h and deleted after 7 days; events go with
+their item.** The Done column only grew, and finished cards looked like ones still needing a look
+(#63). Finished means `done` and, if a draft opened a PR, that PR merged; a done item without a PR
+(closed upstream, dismissed, marked done) has nothing left in git and is finished when it became
+done. A PR closed without merge never finishes the item; the user deals with it. Finished cards are
+muted and offer nothing but opening them. After `archiveAfterHours` (default 24, 0 = at once) the
+poll archives the item: an `item.archived` event and a flag, no new state, because an archived item
+is still done and its detail page must read as before. Items waiting on a draft or an ask stay. To
+see the merge of an item whose worktree the user already removed, the PR watch now also polls done
+items without a worktree until the merge is recorded. After `deleteAfterDays` (default 7, null =
+never) an archived item without a worktree is deleted with its events, drafts, asks and transcript.
+This amends "append-only events": events are never updated, and deleted only with their whole item.
+Keeping them forever would keep transcripts of tens of MB per item for nothing the user asked for,
+and an event log of a deleted item has nothing to point to. A database trigger refuses deleting the
+events of an item that is not archived. The purge is logged by the daemon, not recorded as an event.
+A purged item leaves a tombstone, so its still-open issue is not collected again the next poll. A
+reopened issue (an archived item flagged closed upstream, or a closed tombstone, seen open again)
+becomes a **new** item rather than unarchiving the old one: unarchiving would bring back old PR and
+merge events, so the item would count as finished at once and leave again, and the new work deserves
+a fresh run. External ids are unique among live items only. Bloom has no board to clear.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

@@ -7,6 +7,7 @@ import { ItemStore } from "../items/store.js";
 import { silentLog, type Log } from "../log.js";
 import type { Exec } from "../process/exec.js";
 import { RepoStore } from "../repos/store.js";
+import { TombstoneStore } from "../retention/tombstones.js";
 import { StatusStore } from "../status/status.js";
 import { testCtx } from "../test-support/ctx.js";
 import { fail, fakeExec, fixture, ok } from "../test-support/fake-exec.js";
@@ -91,6 +92,49 @@ describe("collectIssues", () => {
     await collectIssues(deps);
     expect(pushed.map((i) => [i.externalId, i.state, i.closedUpstream])).toEqual([["acme/widgets#161", "ready", true]]);
     expect(deps.events.forItem(started.id).map((e) => e.type)).toEqual(["item.collected"]);
+  });
+
+  it("collects a reopened issue whose archived item was seen closed as a new item (D37)", async () => {
+    let out = fixture("gh/search-issues.json");
+    const exec = fakeExec({
+      ...ready,
+      "gh search issues": () => ok(out),
+      "gh issue view 161": ok(fixture("gh/issue-view-closed.json")),
+      "gh issue view": ok(fixture("gh/issue-view-open.json")),
+    });
+    const { deps } = setup(exec);
+    await collectIssues(deps);
+    const old = deps.items.byExternalId("acme/widgets#161")!.item;
+    deps.items.update({ ...old, state: "done", archivedAt: "2026-10-03T11:00:00.000Z" });
+    await collectIssues(deps);
+    expect(deps.items.all()).toHaveLength(4);
+
+    out = fixture("gh/search-issues-empty.json");
+    await collectIssues(deps);
+    expect(deps.items.get(old.id)!.item.closedUpstream).toBe(true);
+
+    out = fixture("gh/search-issues.json");
+    await collectIssues(deps);
+    expect(deps.items.all()).toHaveLength(5);
+    expect(deps.items.byExternalId("acme/widgets#161")!.item).toMatchObject({ state: "ready" });
+    expect(deps.items.byExternalId("acme/widgets#161")!.item.id).not.toBe(old.id);
+  });
+
+  it("marks a purged issue's tombstone closed once gh says so (D37)", async () => {
+    const exec = fakeExec({
+      ...ready,
+      "gh search issues": ok(fixture("gh/search-issues-empty.json")),
+      "gh issue view 5": ok(fixture("gh/issue-view-closed.json")),
+      "gh issue view": ok(fixture("gh/issue-view-open.json")),
+    });
+    const { deps } = setup(exec);
+    const tombstones = new TombstoneStore(deps.db);
+    for (const n of [5, 6]) {
+      tombstones.put({ externalId: `acme/widgets#${n}`, source: "github-issue", originUrl: "github.com/acme/widgets", closed: false, deletedAt: "t" });
+    }
+    await collectIssues(deps);
+    expect(tombstones.get("acme/widgets#5")?.closed).toBe(true);
+    expect(tombstones.get("acme/widgets#6")?.closed).toBe(false);
   });
 
   it("adds the issues of a repository query to the default search, one item per issue", async () => {

@@ -31,6 +31,11 @@ export interface WorkItem {
   agentSessionId?: string;
   /** The issue was closed upstream while the item was not done. */
   closedUpstream?: boolean;
+  /**
+   * When the retention job took the finished item off the board (decision D37). Archived items
+   * keep everything; they leave the database `deleteAfterDays` later.
+   */
+  archivedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

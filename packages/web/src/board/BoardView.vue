@@ -55,6 +55,7 @@ const shownCounts = (lane: Lane) => COLUMNS.filter((c) => lane.counts[c.key] > 0
         <div v-for="col in COLUMNS" :key="col.key" class="cell">
           <h2 :class="{ amber: col.key === 'needs_you' }">{{ col.title }}</h2>
           <span class="count">{{ totals[col.key] }}</span>
+          <RouterLink v-if="col.key === 'done'" to="/archive" class="archive-link">Archive</RouterLink>
         </div>
       </div>
       <p v-if="itemsLoaded && !lanes.length" class="empty">No open issues assigned to you.</p>
@@ -132,6 +133,8 @@ const shownCounts = (lane: Lane) => COLUMNS.filter((c) => lane.counts[c.key] > 0
 h2, .subhead { margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-2); }
 h2.amber, .subhead.amber { color: var(--amber); }
 .count { font-size: 12px; font-weight: 400; color: var(--ink-3); }
+.archive-link { margin-left: auto; font-size: 12px; color: var(--ink-3); text-decoration: none; }
+.archive-link:hover { color: var(--blue); text-decoration: underline; }
 .lane { margin-bottom: 12px; }
 .lane-head {
   position: sticky;

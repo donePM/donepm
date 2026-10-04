@@ -174,6 +174,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     deps.items.all().filter(deps.onBoard).map(({ item }) => deps.view(item)),
   );
 
+  /** Archived items, the most recently archived first (D37). The web filters them. */
+  app.get("/api/archive", async () => deps.items.archived().map(({ item }) => deps.view(item)));
+
   app.get<{ Params: { id: string } }>("/api/items/:id", async (req, reply) => {
     const stored = deps.items.get(req.params.id);
     if (!stored) return reply.code(404).send({ error: "item not found" });
