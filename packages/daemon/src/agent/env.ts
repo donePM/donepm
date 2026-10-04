@@ -6,6 +6,8 @@ import { filteredPath } from "./path.js";
 export const TOKEN_VARIABLES = [
   "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
   "GLAB_TOKEN", "GITLAB_TOKEN", "JIRA_API_TOKEN",
+  // `az devops` and Atlassian's `acli` (D50).
+  "AZURE_DEVOPS_EXT_PAT", "ATLASSIAN_API_TOKEN",
 ] as const;
 
 /**
@@ -16,7 +18,7 @@ export const TOKEN_VARIABLES = [
 export const HOST_VARIABLES = ["GH_HOST"] as const;
 
 /** Where `gh` and `glab` look for their logins. Pointed at an empty directory for the agent. */
-export const CONFIG_DIR_VARIABLES = ["GH_CONFIG_DIR", "GLAB_CONFIG_DIR"] as const;
+export const CONFIG_DIR_VARIABLES = ["GH_CONFIG_DIR", "GLAB_CONFIG_DIR", "AZURE_CONFIG_DIR"] as const;
 
 /**
  * Variables that describe how the daemon itself was started, not the user's machine (#115).

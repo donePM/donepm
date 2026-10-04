@@ -21,6 +21,9 @@ Recorded with `gh` 2.102.0 on 2026-10-03.
   conflicted when recording. `pr-view-review.json` is vuejs/core#15766 (2026-10-04), an open PR
   into `minor`.
 - `auth-status-*`: `gh auth status` output; account name replaced.
+- `auth-status-hosts.json`: `gh auth status --json hosts` (never `--show-token`, so no token
+  field). The github.com entry is as recorded with the account name replaced; the two other hosts
+  are added by hand in the same shape, one of them with a failing token.
 - `search-unknown-command.stderr`: what an old `gh` without `search issues` prints.
 - `pr-checks-pass.json`: `gh pr checks 80 --json name,state,bucket,link,workflow,startedAt,completedAt`
   on this repository (2026-10-04).

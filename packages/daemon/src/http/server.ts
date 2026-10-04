@@ -19,7 +19,8 @@ import { CiActionError } from "../ci/actions.js";
 import { PrActionError } from "../prs/actions.js";
 import { GrantError } from "../asks/revoke.js";
 import type { AskStore } from "../asks/store.js";
-import { ConfigSchema, SourceKey, type Config } from "../config/config.js";
+import { ConfigSchema, noConnectionFor, SourceKey, ValidConfigSchema, type Config } from "../config/config.js";
+import { connectionFor, connectionsOf } from "../config/connections.js";
 import { DraftError } from "../drafts/actions.js";
 import { ExecutionError } from "../drafts/execute.js";
 import type { DraftStore } from "../drafts/store.js";
@@ -198,6 +199,10 @@ const PlaybookSchema = z.object({ playbook: z.string().trim().min(1) }).strict()
 const SaySchema = z.object({ text: z.string() }).strict();
 
 const DraftRejectSchema = z.object({ reason: z.string().optional() }).strict();
+
+function issuesText(issues: readonly { path: PropertyKey[]; message: string }[]): string {
+  return issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+}
 
 const SourceTestSchema = z.object({ origin: SourceKey, query: z.string().trim().min(1) }).strict();
 
@@ -487,17 +492,20 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!body.success) return reply.code(400).send({ error: "body must be {managed: boolean}" });
     const repo = deps.repos.get(req.params.id);
     if (!repo) return reply.code(404).send({ error: "repository not found" });
-    const settings = ConfigSchema.parse({
+    const parsed = ValidConfigSchema.safeParse({
       ...deps.getConfig(),
       sources: withManaged(deps.getConfig().sources, repo.originUrl, body.data.managed),
     });
+    if (!parsed.success) return reply.code(400).send({ error: issuesText(parsed.error.issues) });
+    const settings = parsed.data;
     await deps.saveConfig(settings);
     return { repos: repoViews(), settings };
   });
 
   app.post("/api/sources/test", async (req, reply) => {
     const body = SourceTestSchema.safeParse(req.body ?? {});
-    if (!body.success) return reply.code(400).send({ error: body.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") });
+    if (!body.success) return reply.code(400).send({ error: issuesText(body.error.issues) });
+    if (!connectionFor(connectionsOf(deps.getConfig()), body.data.origin)) return reply.code(400).send({ error: noConnectionFor(body.data.origin) });
     const r = await deps.testSource(body.data.origin, body.data.query);
     if (!r.ok) return reply.code(502).send({ error: r.error });
     return {
@@ -544,7 +552,11 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     }
     const choice = WorktreeChoiceSchema.safeParse(req.query ?? {});
     if (!choice.success) return reply.code(400).send({ error: "worktrees must be move or leave" });
-    const next = ConfigSchema.parse({ ...deps.getConfig(), ...patch.data });
+    const parsed = ValidConfigSchema.safeParse({ ...deps.getConfig(), ...patch.data });
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "invalid settings", issues: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })) });
+    }
+    const next = parsed.data;
     // A new worktree root with worktrees under the old one: nothing is saved until the user chose.
     const atOldRoot = deps.worktreesAtOldRoot(next);
     if (atOldRoot.length && !choice.data.worktrees) {

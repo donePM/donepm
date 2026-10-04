@@ -12,6 +12,11 @@ export interface ExecOptions {
   timeoutMs?: number;
   /** Set on top of the daemon's own environment, e.g. `GH_HOST` for one GitHub host (issue #140). */
   env?: Record<string, string>;
+  /**
+   * Written to the child's stdin, which is then closed. For secrets: unlike argv, stdin is not
+   * visible to other processes through `ps` (D50).
+   */
+  input?: string;
 }
 
 /** Runs a command without a shell. Never throws; failures are in `code` and `stderr`. */
@@ -19,7 +24,7 @@ export type Exec = (cmd: string, args: string[], opts?: ExecOptions) => Promise<
 
 export const exec: Exec = (cmd, args, opts = {}) =>
   new Promise((resolve) => {
-    execFile(
+    const child = execFile(
       cmd,
       args,
       { cwd: opts.cwd, env: opts.env ? { ...process.env, ...opts.env } : undefined, timeout: opts.timeoutMs ?? 60_000, maxBuffer: 64 * 1024 * 1024, encoding: "utf8" },
@@ -29,4 +34,8 @@ export const exec: Exec = (cmd, args, opts = {}) =>
         resolve({ code, stdout: stdout ?? "", stderr: stderr || err.message });
       },
     );
+    if (opts.input !== undefined) {
+      child.stdin?.on("error", () => {});
+      child.stdin?.end(opts.input);
+    }
   });

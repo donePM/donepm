@@ -21,7 +21,7 @@ describe("claudeArgv", () => {
   it("denies forge commands and sandboxes Bash with no way out (D27)", () => {
     const args = claudeArgv({ playbook, home: "/Users/x" });
     expect(JSON.parse(args[args.indexOf("--settings") + 1]!)).toEqual({
-      permissions: { allow: ["mcp__donepm"], deny: ["Bash(gh *)", "Bash(glab *)", "Bash(jira *)", "Bash(git push*)"] },
+      permissions: { allow: ["mcp__donepm"], deny: ["Bash(gh *)", "Bash(glab *)", "Bash(jira *)", "Bash(az *)", "Bash(acli *)", "Bash(security *)", "Bash(git push*)"] },
       sandbox: {
         enabled: true,
         autoAllowBashIfSandboxed: true,
@@ -58,7 +58,7 @@ describe("claudeArgv", () => {
     expect(settings.permissions).toEqual({
       allow: ["mcp__donepm", "Bash(git diff *)", "Bash(git log *)", "Bash(git show *)"],
       deny: [
-        "Bash(gh *)", "Bash(glab *)", "Bash(jira *)", "Bash(git push*)",
+        "Bash(gh *)", "Bash(glab *)", "Bash(jira *)", "Bash(az *)", "Bash(acli *)", "Bash(security *)", "Bash(git push*)",
         "Edit", "Write", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch",
       ],
     });

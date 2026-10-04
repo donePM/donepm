@@ -25,6 +25,19 @@ export interface PollStatus {
   discovered?: Record<string, number>;
 }
 
+/** Where one connection stands (D50), shown per connection in Settings. */
+export type ConnectionState = "not_installed" | "not_logged_in" | "unreachable" | "unauthorized" | "ready";
+
+export interface ConnectionStatus {
+  id: string;
+  kind: string;
+  backend: "cli" | "api";
+  host?: string;
+  state: ConnectionState;
+  /** The account for a `cli` connection, or why it is not ready. Never a token. */
+  detail?: string;
+}
+
 /** A failed poll, kept for Settings > Tools. */
 export interface PollError {
   at: string;
@@ -44,6 +57,10 @@ export interface Status {
   gh: GhStatus | undefined;
   /** `gh` for each other GitHub host donePM works with, by host (issue #140); unset without any. */
   ghHosts?: Record<string, GhStatus>;
+  /** The GitHub hosts `gh` is logged in to, which Settings offers as connections (issue #140). */
+  ghKnownHosts?: string[];
+  /** Each configured connection (D50); undefined until first detected. */
+  connections?: ConnectionStatus[];
   claude: ClaudeStatus | undefined;
   /** Optional helper CLIs by id (issue #152); undefined until first detected. */
   helpers: Record<string, HelperStatus> | undefined;

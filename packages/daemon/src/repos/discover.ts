@@ -1,7 +1,7 @@
-import { normalizeOriginUrl, type Ctx, type Repo } from "@donepm/core";
+import { normalizeOriginUrl, parseCloneOrigin, type Ctx, type Repo } from "@donepm/core";
 import type { Exec } from "../process/exec.js";
 import type { Log } from "../log.js";
-import { cloneableOrigin, cloneTarget, hasGitDir } from "./clone.js";
+import { cloneTarget, hasGitDir } from "./clone.js";
 import { readDefaultBranch, readOrigin } from "./git.js";
 import { findGitRepos } from "./scan.js";
 import type { RepoStore } from "./store.js";
@@ -54,7 +54,7 @@ async function clonedOutsideScan(repos: RepoStore, root: string, scanned: readon
   const seen = new Set(scanned);
   const found: string[] = [];
   for (const repo of repos.all()) {
-    const origin = cloneableOrigin(repo.originUrl);
+    const origin = parseCloneOrigin(repo.originUrl);
     if (!origin || seen.has(repo.path) || repo.path !== cloneTarget(root, origin)) continue;
     if (await hasGitDir(repo.path)) found.push(repo.path);
   }
