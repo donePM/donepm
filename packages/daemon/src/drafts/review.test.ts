@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { githubProviders } from "../gh/adapter.js";
 import { describe, expect, it } from "vitest";
 import { draftStores } from "../test-support/draft-stores.js";
 import { fail, fakeExec, fixture, ok, type FakeCall } from "../test-support/fake-exec.js";
@@ -26,7 +27,7 @@ function setup(routes: Parameters<typeof fakeExec>[0] = {}) {
     ...routes,
   });
   const stopped: string[] = [];
-  const deps = { ...t.deps, exec, stopAgent: async (id: string) => void stopped.push(id), continueAgent: async () => undefined };
+  const deps = { ...t.deps, exec, providers: githubProviders(exec), stopAgent: async (id: string) => void stopped.push(id), continueAgent: async () => undefined };
   return { ...t, exec, deps, stopped, request: () => request };
 }
 

@@ -1,4 +1,5 @@
 import type { PrStatus, WorkItem } from "@donepm/core";
+import { githubProviders } from "../gh/adapter.js";
 import { describe, expect, it } from "vitest";
 import { openDb } from "../db/database.js";
 import { EventStore } from "../events/store.js";
@@ -27,7 +28,7 @@ function setup(over: Partial<WorkItem> = {}, routes: Parameters<typeof fakeExec>
     stateSince: ctx.now(), createdAt: ctx.now(), updatedAt: ctx.now(), prStatus: BEHIND, ...over,
   };
   items.insert(item, "github.com/acme/widgets");
-  return { deps: { items, events, writer, ctx, exec }, exec, events };
+  return { deps: { items, events, writer, ctx, providers: githubProviders(exec) }, exec, events };
 }
 
 const line = (c: FakeCall) => [c.cmd, ...c.args].join(" ");

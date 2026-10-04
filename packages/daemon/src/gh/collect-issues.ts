@@ -1,4 +1,4 @@
-import { externalIdOf, initialPlaybook, type Ctx, type ItemSource, type WorkItem } from "@donepm/core";
+import { externalIdOf, initialPlaybook, type Ctx, type ItemSource, type SourceIssue, type WorkItem } from "@donepm/core";
 import type { Config } from "../config/config.js";
 import type { Db } from "../db/database.js";
 import type { EventStore } from "../events/store.js";
@@ -11,15 +11,14 @@ import { managedOrigins } from "../repos/managed.js";
 import type { RepoStore } from "../repos/store.js";
 import { TombstoneStore } from "../retention/tombstones.js";
 import type { SourcePollStatus, StatusStore } from "../status/status.js";
+import type { Providers } from "../providers/registry.js";
+import type { FetchedIssue, FetchResult, TicketSource } from "../providers/ticket-source.js";
 import { detectGh } from "./detect.js";
-import { withPriorityFields } from "./issue-fields.js";
-import { fetchAssignedIssues, fetchIssueState, fetchQueryIssues, type FetchResult } from "./issues.js";
-import { fetchPullRequests } from "./pull-requests.js";
-import type { FetchedIssue } from "./schema.js";
 
 export interface CollectDeps {
   db: Db;
   exec: Exec;
+  providers: Providers;
   items: ItemStore;
   events: EventStore;
   repos: RepoStore;
@@ -44,7 +43,7 @@ const RAW_LOG_LIMIT = 10_000;
  * Never throws: failures are logged and recorded in the status, so Settings can show them.
  */
 export async function collectIssues(deps: CollectDeps): Promise<void> {
-  const { exec, repos, status, ctx, log } = deps;
+  const { exec, providers, repos, status, ctx, log } = deps;
   const at = ctx.now();
   try {
     if (status.get().gh?.state !== "ready") {
@@ -59,13 +58,12 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
     const managed = managedOrigins(sourceConfig);
     // The searches are one call each however many repositories there are, and they find the
     // repositories to offer; an unmanaged repository costs no call of its own.
-    const fetched: Array<{ origin?: string; label?: string; result: FetchResult }> = [
-      { result: await fetchAssignedIssues(exec, () => repos.all().map((r) => r.originUrl).filter((origin) => managed.has(origin))) },
-      { label: "review requests", result: await fetchPullRequests(exec, "--review-requested=@me") },
-      { label: "assigned pull requests", result: await fetchPullRequests(exec, "--assignee=@me") },
-    ];
+    const fetched: Array<{ origin?: string; label?: string; result: FetchResult }> = [];
+    const known = () => repos.all().map((r) => r.originUrl).filter((origin) => managed.has(origin));
+    for (const { source } of providers.ticketSources()) fetched.push(...(await source.collect(known)));
     for (const [origin, source] of Object.entries(sourceConfig)) {
-      if (source.query && managed.has(origin)) fetched.push({ origin, result: await fetchQueryIssues(exec, origin, source.query) });
+      const tickets = providers.ticketSource(origin);
+      if (source.query && managed.has(origin) && tickets) fetched.push({ origin, result: await tickets.query(origin, source.query) });
     }
 
     const issues: FetchedIssue[] = [];
@@ -92,12 +90,12 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
       if (origin) sources[origin] = { ok: false, error: result.error };
     }
     // The default search failing on the command maybe means logged out; detect again next cycle.
-    const main = fetched[0]!.result;
-    if (!main.ok && main.kind === "command") status.update({ gh: await detectGh(exec) });
+    const main = fetched[0]?.result;
+    if (main && !main.ok && main.kind === "command") status.update({ gh: await detectGh(exec) });
 
     // GitHub's "Priority" issue field, one batched call for all issues of the poll (D45).
     const synced = syncIssues(
-      await withPriorityFields(exec, issues),
+      await withFields(providers, issues),
       {
         ...deps,
         playbookFor: (origin, source) => initialPlaybook(source, sourceConfig[origin]?.playbook, deps.allowedPlaybooks?.(origin, source) ?? []),
@@ -109,8 +107,8 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
     // An item is only "missing" if every source answered; otherwise it may just not have been asked.
     if (errors.length === 0) {
       for (const item of synced.missing) {
-        const [repository, number] = item.externalId.split("#");
-        const state = await fetchIssueState(exec, repository!, Number(number));
+        const origin = deps.items.get(item.id)?.originUrl;
+        const state = origin && (await providers.ticketSource(origin)?.state({ externalId: item.externalId, origin }));
         if (state !== "CLOSED") continue;
         const flagged = applyClosedUpstream(item.id, deps);
         if (flagged) deps.onItemUpdated(flagged);
@@ -118,8 +116,8 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
       // A purged issue seen closed is imported fresh if it ever shows up again (D37).
       const tombstones = new TombstoneStore(deps.db);
       for (const t of synced.openTombstones) {
-        const [repository, number] = t.externalId.split("#");
-        if ((await fetchIssueState(exec, repository!, Number(number))) === "CLOSED") tombstones.markClosed(t.externalId);
+        const state = await providers.ticketSource(t.originUrl)?.state({ externalId: t.externalId, origin: t.originUrl });
+        if (state === "CLOSED") tombstones.markClosed(t.externalId);
       }
     }
 
@@ -143,4 +141,16 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
     log.error({ err: e }, "poll crashed");
     status.update({ lastPoll: { at, ok: false, error: (e as Error).message } });
   }
+}
+
+/** The fields read in a batch (D45), one batch per ticket source; a ticket no source serves keeps what it has. */
+async function withFields(providers: Providers, issues: readonly FetchedIssue[]): Promise<SourceIssue[]> {
+  const bySource = new Map<TicketSource | undefined, FetchedIssue[]>();
+  for (const issue of issues) {
+    const source = providers.ticketSource(issue.url);
+    bySource.set(source, [...(bySource.get(source) ?? []), issue]);
+  }
+  const out: SourceIssue[] = [];
+  for (const [source, group] of bySource) out.push(...(source ? await source.withFields(group) : group));
+  return out;
 }

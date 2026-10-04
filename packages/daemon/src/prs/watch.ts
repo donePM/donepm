@@ -2,12 +2,12 @@ import {
   executedPr, newFeedback, prConflicted, prConflictOf, prConflictResolved, prFeedback, prMergeOf,
   type PrConflict, type PrDraftResult, type WorkItem,
 } from "@donepm/core";
-import { fetchPrFeedback } from "../gh/pr-feedback.js";
-import { fetchPrState, type PrState } from "../gh/pr-state.js";
+import type { PrState } from "../providers/code-host.js";
+import { noConnection, type Providers } from "../providers/registry.js";
 import { settleMerged, type OnMergeDeps } from "../worktrees/on-merge.js";
 import { conflictFiles } from "./conflict-files.js";
 
-export type PrWatchDeps = OnMergeDeps;
+export type PrWatchDeps = OnMergeDeps & { providers: Providers };
 
 /**
  * Part of each poll, after the CI watch: one `gh pr view` per open PR donePM opened. A done item
@@ -39,7 +39,8 @@ async function watch(deps: PrWatchDeps, item: WorkItem, pr: PrDraftResult): Prom
   // A known conflict is asked about until it ends, wherever the item went meanwhile.
   if (!settles && item.state !== "checking" && !conflict) return;
 
-  const state = await fetchPrState(deps.exec, pr);
+  const host = deps.providers.codeHost(pr.url);
+  const state: PrState = host ? await host.prState(pr) : { ok: false, error: noConnection(pr.url) };
   if (!state.ok) {
     deps.log.warn({ itemId: item.id, pr: pr.url, error: state.error }, "gh pr view failed");
     return;
@@ -55,7 +56,8 @@ async function watch(deps: PrWatchDeps, item: WorkItem, pr: PrDraftResult): Prom
  * brings the item back to the user; what arrived while the agent worked counts once it is done.
  */
 async function noteFeedback(deps: PrWatchDeps, item: WorkItem, pr: PrDraftResult): Promise<void> {
-  const fetched = await fetchPrFeedback(deps.exec, pr);
+  const host = deps.providers.codeHost(pr.url);
+  const fetched = host ? await host.prFeedback(pr) : { ok: false as const, error: noConnection(pr.url) };
   if (!fetched.ok) {
     deps.log.warn({ itemId: item.id, pr: pr.url, error: fetched.error }, "reading the PR's reviews failed");
     return;

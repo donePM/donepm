@@ -1,4 +1,5 @@
 import type { PrStatus, WorkItem } from "@donepm/core";
+import { githubProviders } from "../gh/adapter.js";
 import { describe, expect, it } from "vitest";
 import { openDb } from "../db/database.js";
 import { EventStore } from "../events/store.js";
@@ -25,7 +26,7 @@ function setup(patch: Partial<WorkItem> = {}, exec = fakeExec({ "gh pr merge": o
   };
   items.insert(item, ORIGIN);
   const commands = () => exec.calls.map((c) => [c.cmd, ...c.args].join(" "));
-  return { deps: { items, events, writer, ctx, exec, log: silentLog }, exec, commands, item: () => items.get("item-1")!.item, last: () => events.forItem("item-1").at(-1) };
+  return { deps: { items, events, writer, ctx, providers: githubProviders(exec), log: silentLog }, exec, commands, item: () => items.get("item-1")!.item, last: () => events.forItem("item-1").at(-1) };
 }
 
 describe("mergePr (D47)", () => {

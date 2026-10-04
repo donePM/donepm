@@ -10,6 +10,7 @@ import type { ItemStore } from "../items/store.js";
 import type { Log } from "../log.js";
 import { loadPlaybooks } from "../playbooks/load.js";
 import type { Exec } from "../process/exec.js";
+import type { Providers } from "../providers/registry.js";
 import type { RepoStore } from "../repos/store.js";
 import type { TranscriptStore } from "../transcript/store.js";
 import { isManaged } from "../repos/managed.js";
@@ -40,6 +41,7 @@ export interface StartDeps {
   transcript: TranscriptStore;
   push: (type: PushType, payload: unknown) => void;
   exec: Exec;
+  providers: Providers;
   ctx: Ctx;
   log: Log;
   playbooksDir: string;
@@ -140,7 +142,7 @@ function reserve(deps: StartDeps, itemId: string): { release: () => void } {
 async function prepareAndLaunch(deps: StartDeps, item: WorkItem, playbook: Playbook): Promise<void> {
   const repo = deps.repos.get(item.repoId!)!;
   const review = item.source === "github-pr";
-  const wtInput = { exec: deps.exec, item, repo, worktreeRoot: deps.worktreeRoot(), branchPrefix: deps.branchPrefix() };
+  const wtInput = { exec: deps.exec, providers: deps.providers, item, repo, worktreeRoot: deps.worktreeRoot(), branchPrefix: deps.branchPrefix() };
   // A pull request to review is checked out at its head and compared against its own base (D41).
   const wt = review ? await ensureReviewWorktree(wtInput) : { ...(await ensureWorktree(wtInput)), baseBranch: undefined };
   if (wt.path !== item.worktreePath || wt.branch !== item.branch || wt.baseBranch !== item.baseBranch) {

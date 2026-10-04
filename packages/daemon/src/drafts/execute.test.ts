@@ -1,10 +1,11 @@
 import { readFileSync } from "node:fs";
+import { githubProviders } from "../gh/adapter.js";
 import { agentFailed, ciFailed, ciFix, ciPassed, prFeedback, prFeedbackFix } from "@donepm/core";
 import { describe, expect, it } from "vitest";
 import { draftStores } from "../test-support/draft-stores.js";
 import { fail, fakeExec, ok, type FakeCall } from "../test-support/fake-exec.js";
 import { createCommentDraft, createPrDraft, createPushDraft, editDraft } from "./actions.js";
-import { approveDraft, ExecutionError, failInterrupted, prResult, WIP_MESSAGE } from "./execute.js";
+import { approveDraft, ExecutionError, failInterrupted, WIP_MESSAGE } from "./execute.js";
 
 const PR_URL = "https://github.com/o/r/pull/42";
 
@@ -21,7 +22,7 @@ function setup(routes: Parameters<typeof fakeExec>[0] = {}) {
     },
     ...routes,
   });
-  const deps = { ...t.deps, exec, stopAgent: async (id: string) => void stopped.push(id), continueAgent: async () => undefined };
+  const deps = { ...t.deps, exec, providers: githubProviders(exec), stopAgent: async (id: string) => void stopped.push(id), continueAgent: async () => undefined };
   const draft = createPrDraft(t.deps, "item-1", { title: "Fix it", body: "Closes #1" });
   return { ...t, exec, deps, draft, stopped, body: () => body };
 }
@@ -206,11 +207,5 @@ describe("failInterrupted", () => {
     expect(t.state()).toBe("needs_you");
     await approveDraft(t.deps, t.draft.id);
     expect(t.state()).toBe("checking");
-  });
-});
-
-describe("prResult", () => {
-  it("takes the URL from the last line", () => {
-    expect(prResult("Warning: 1 uncommitted change\nhttps://github.com/o/r/pull/7\n")).toEqual({ url: "https://github.com/o/r/pull/7", number: 7 });
   });
 });

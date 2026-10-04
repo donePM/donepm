@@ -1,13 +1,12 @@
 import type { ZodType } from "zod";
+import type { Done } from "../providers/result.js";
+import type { FetchedIssue, FetchResult } from "../providers/ticket-source.js";
 import type { Exec } from "../process/exec.js";
-import { IssueStateSchema, ListIssuesSchema, SearchIssuesSchema, toSourceIssue, type FetchedIssue } from "./schema.js";
+import { IssueStateSchema, ListIssuesSchema, SearchIssuesSchema, toSourceIssue } from "./schema.js";
 
 export const ISSUE_LIMIT = "1000";
 
-export type FetchResult =
-  | { ok: true; issues: FetchedIssue[] }
-  | { ok: false; kind: "command"; error: string }
-  | { ok: false; kind: "schema"; error: string; raw: string };
+export type { FetchResult };
 
 type Parsed<T> = { ok: true; value: T } | { ok: false; kind: "schema"; error: string; raw: string };
 
@@ -113,7 +112,7 @@ export async function assignIssueToMe(
   exec: Exec,
   repository: string,
   number: number,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<Done> {
   const r = await exec("gh", ["issue", "edit", String(number), "--repo", repository, "--add-assignee", "@me"]);
   return r.code === 0 ? { ok: true } : { ok: false, error: r.stderr.trim() || `gh exited with ${r.code}` };
 }

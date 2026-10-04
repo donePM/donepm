@@ -1,12 +1,11 @@
 import { autoMergeDue, autoMergeFailed, autoMergeSet, InvalidTransitionError, mergeBlockers, reviewedPrMerged, type MergeMethod, type WorkItem } from "@donepm/core";
 import type { Config } from "../config/config.js";
 import type { Log } from "../log.js";
-import type { Exec } from "../process/exec.js";
+import { noConnection, type Providers } from "../providers/registry.js";
+import type { Done } from "../providers/result.js";
 import { PrActionError, type PrActionDeps } from "./actions.js";
 
-const MERGE_TIMEOUT_MS = 2 * 60_000;
-
-export type MergeDeps = PrActionDeps & { exec: Exec };
+export type MergeDeps = PrActionDeps & { providers: Providers };
 
 /** The repository's merge settings for someone else's pull request (D47). */
 export function mergeDefaults(sources: Config["sources"], origin: string): { auto: boolean; method: MergeMethod } {
@@ -14,18 +13,11 @@ export function mergeDefaults(sources: Config["sources"], origin: string): { aut
   return { auto: s?.autoMerge ?? false, method: s?.mergeMethod ?? "squash" };
 }
 
-/**
- * `gh pr merge` as the user. Someone else's branch is left alone: no `--delete-branch`, the author
- * (or Dependabot) decides about it.
- */
-async function ghMerge(exec: Exec, item: WorkItem, method: MergeMethod): Promise<{ ok: true } | { ok: false; error: string }> {
-  const u = new URL(item.externalUrl);
-  const [owner, name] = u.pathname.split("/").filter(Boolean);
-  const number = item.externalId.split("#")[1];
-  if (!owner || !name || !number) return { ok: false, error: `not a pull request URL: ${item.externalUrl}` };
-  const r = await exec("gh", ["pr", "merge", number, "--repo", `${u.host}/${owner}/${name}`, `--${method}`], { timeoutMs: MERGE_TIMEOUT_MS });
-  if (r.code !== 0) return { ok: false, error: (r.stderr || r.stdout).trim() || `gh pr merge exited with ${r.code}` };
-  return { ok: true };
+/** Merge as the user, through the pull request's code host. */
+async function merge(providers: Providers, item: WorkItem, method: MergeMethod): Promise<Done> {
+  const host = providers.codeHost(item.externalUrl);
+  if (!host) return { ok: false, error: noConnection(item.externalUrl) };
+  return host.merge({ number: Number(item.externalId.split("#")[1]), url: item.externalUrl }, method);
 }
 
 function prItem(deps: PrActionDeps, itemId: string): WorkItem {
@@ -43,7 +35,7 @@ export async function mergePr(deps: MergeDeps, itemId: string, method: MergeMeth
   const item = prItem(deps, itemId);
   const blockers = mergeBlockers(item);
   if (blockers.length) throw new PrActionError(409, `cannot merge yet: ${blockers.join(", ")}`);
-  const merged = await ghMerge(deps.exec, item, method);
+  const merged = await merge(deps.providers, item, method);
   if (!merged.ok) throw new PrActionError(502, merged.error);
   return deps.writer.commit(reviewedPrMerged(item, deps.ctx, { method, auto: false }));
 }
@@ -75,7 +67,7 @@ export async function autoMergeReady(
     const defaults = mergeDefaults(sources, originUrl);
     if (!autoMergeDue(item, defaults.auto)) continue;
     try {
-      const merged = await ghMerge(deps.exec, item, defaults.method);
+      const merged = await merge(deps.providers, item, defaults.method);
       const t = merged.ok
         ? reviewedPrMerged(item, deps.ctx, { method: defaults.method, auto: true })
         : autoMergeFailed(item, deps.ctx, { method: defaults.method, error: merged.error });

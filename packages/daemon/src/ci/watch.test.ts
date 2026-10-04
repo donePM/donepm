@@ -1,4 +1,5 @@
 import { draftCreated, draftExecuted, start, type Ctx, type WorkItem } from "@donepm/core";
+import { githubProviders } from "../gh/adapter.js";
 import { describe, expect, it } from "vitest";
 import { openDb } from "../db/database.js";
 import { EventStore } from "../events/store.js";
@@ -34,7 +35,7 @@ function setup(checks: () => ExecResult) {
     "gh pr checks 62": checks,
     "gh run view 37149187747 --repo github.com/donePM/donepm --log-failed": ok(fixture("gh/run-view-log-failed.txt")),
   });
-  const deps = { items, events, writer, exec, ctx, log: silentLog };
+  const deps = { items, events, writer, providers: githubProviders(exec), ctx, log: silentLog };
   return {
     deps,
     exec,

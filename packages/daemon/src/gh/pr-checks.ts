@@ -1,11 +1,13 @@
 import { stripVTControlCharacters } from "node:util";
 import type { CheckLog, CiCheck, PrDraftResult } from "@donepm/core";
+import type { PrChecks } from "../providers/ci-source.js";
+import type { Done } from "../providers/result.js";
 import type { Exec } from "../process/exec.js";
 import { parseJson } from "./issues.js";
 import { prRepository } from "./pr-state.js";
 import { PrChecksSchema } from "./schema.js";
 
-export type PrChecks = { ok: true; checks: CiCheck[] } | { ok: false; error: string };
+export type { PrChecks };
 
 const FIELDS = "name,state,bucket,link,workflow,startedAt,completedAt";
 
@@ -46,6 +48,15 @@ export async function fetchFailedLogs(exec: Exec, repository: string, runId: str
     jobs.set(job, lines);
   }
   return [...jobs].map(([name, lines]) => ({ name, tail: lines.slice(-tailLines).join("\n") }));
+}
+
+/** `gh run rerun --failed` for each run, in order; the first failure stops (D35). */
+export async function rerunFailedRuns(exec: Exec, repository: string, runs: readonly string[]): Promise<Done> {
+  for (const run of runs) {
+    const r = await exec("gh", ["run", "rerun", run, "--failed", "--repo", repository]);
+    if (r.code !== 0) return { ok: false, error: r.stderr.trim() || `gh run rerun exited with ${r.code}` };
+  }
+  return { ok: true };
 }
 
 function withoutUndefined(c: CiCheck): CiCheck {

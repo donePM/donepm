@@ -2,8 +2,8 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { branchName, type Repo, type WorkItem } from "@donepm/core";
-import { fetchPrState } from "../gh/pr-state.js";
 import type { Exec } from "../process/exec.js";
+import { noConnection, type Providers } from "../providers/registry.js";
 import { issueNumber, worktreePath, WorktreeError } from "./create.js";
 
 /** Where the daemon keeps a reviewed pull request's head: outside branches and remote branches. */
@@ -19,6 +19,7 @@ export function reviewRef(number: number): string {
  */
 export async function ensureReviewWorktree(input: {
   exec: Exec;
+  providers: Providers;
   item: WorkItem;
   repo: Repo;
   worktreeRoot: string;
@@ -30,7 +31,8 @@ export async function ensureReviewWorktree(input: {
   }
 
   const number = issueNumber(item.externalId);
-  const pr = await fetchPrState(exec, { number, url: item.externalUrl });
+  const host = input.providers.codeHost(item.externalUrl);
+  const pr = host ? await host.prState({ number, url: item.externalUrl }) : { ok: false as const, error: noConnection(item.externalUrl) };
   if (!pr.ok) throw new WorktreeError(`gh pr view ${number} failed`, pr.error);
   if (pr.state !== "OPEN") throw new WorktreeError(`pull request #${number} is ${pr.state.toLowerCase()}`);
   const baseBranch = pr.baseRefName ?? repo.defaultBranch;

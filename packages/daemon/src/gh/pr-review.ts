@@ -1,8 +1,9 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ReviewDraftPayload, ReviewDraftResult } from "@donepm/core";
+import type { ReviewDraftPayload } from "@donepm/core";
 import { z } from "zod";
+import type { ReviewResult } from "../providers/code-host.js";
 import type { Exec } from "../process/exec.js";
 import { parseJson } from "./issues.js";
 
@@ -11,7 +12,7 @@ const REVIEW_TIMEOUT_MS = 60_000;
 /** The part of GitHub's answer to `POST /repos/{owner}/{repo}/pulls/{n}/reviews` the daemon keeps. */
 export const PullReviewSchema = z.object({ id: z.number(), html_url: z.string() });
 
-export type ReviewResult = { ok: true; result: ReviewDraftResult } | { ok: false; error: string };
+export type { ReviewResult };
 
 /**
  * Post an approved review of someone else's pull request (decision D43), as the user, never from
