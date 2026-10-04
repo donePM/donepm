@@ -7,6 +7,7 @@ import type { EventStore } from "../events/store.js";
 import type { ItemWriter } from "../items/commit.js";
 import type { ItemStore } from "../items/store.js";
 import { noConnection, type Providers } from "../providers/registry.js";
+import { ciSourceFor } from "./route.js";
 
 export class CiActionError extends Error {
   constructor(
@@ -35,13 +36,14 @@ function failureOf(deps: CiActionDeps, itemId: string): { item: WorkItem; failur
 
 /**
  * The user's "Rerun failed jobs" on a red CI (decision D35): the CI source reruns the failed jobs of
- * each run a failed check belongs to, then the item waits for CI again. The user's click is the approval.
+ * each run a failed check belongs to (a GitHub Actions run, or the failed stages of an Azure
+ * Pipelines build, issue #143), then the item waits for CI again. The user's click is the approval.
  */
 export async function rerunCi(deps: CiActionDeps & { providers: Providers }, itemId: string): Promise<WorkItem> {
   const { item, failure } = failureOf(deps, itemId);
   if (!failure.pr || !prUrl(failure.pr.url)) throw new CiActionError(409, "the failure names no pull request");
-  if (failure.runs.length === 0) throw new CiActionError(409, "no failed check belongs to a GitHub Actions run");
-  const ci = deps.providers.ciSource(failure.pr.url);
+  if (failure.runs.length === 0) throw new CiActionError(409, "no failed check belongs to a GitHub Actions run or an Azure Pipelines build");
+  const ci = ciSourceFor(deps.providers, failure.pr.url);
   if (!ci) throw new CiActionError(502, noConnection(failure.pr.url));
   const done = await ci.rerunFailed(failure.pr, failure.runs);
   if (!done.ok) throw new CiActionError(502, done.error);

@@ -81,6 +81,8 @@ ciSourceContract("gh", {
   answering,
   failing,
   pr,
-  runs: ["37149187747"],
-  failedChecks: ["test (ubuntu-latest, node 24)", "test (ubuntu-latest, node 22)"],
+  failed: [
+    { name: "test (ubuntu-latest, node 24)", link: "https://github.com/donePM/donepm/actions/runs/37149187747/job/111279498956" },
+    { name: "test (ubuntu-latest, node 22)", link: "https://github.com/donePM/donepm/actions/runs/37149187747/job/111279499110" },
+  ],
 });

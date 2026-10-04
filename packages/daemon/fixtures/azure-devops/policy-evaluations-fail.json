@@ -1,0 +1,79 @@
+{
+  "count": 4,
+  "value": [
+    {
+      "evaluationId": "6c4ddb2e-0c6b-4a0e-9e1f-55a2a2f4b001",
+      "artifactId": "vstfs:///CodeReview/CodeReviewId/0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11/123",
+      "status": "rejected",
+      "startedDate": "2026-10-03T19:48:02.113Z",
+      "completedDate": "2026-10-03T19:52:40.870Z",
+      "configuration": {
+        "id": 14,
+        "revision": 3,
+        "isEnabled": true,
+        "isBlocking": true,
+        "type": { "id": "0609b952-1397-4640-95ec-e00a01b2c241", "displayName": "Build" },
+        "settings": {
+          "buildDefinitionId": 41,
+          "queueOnSourceUpdateOnly": true,
+          "manualQueueOnly": false,
+          "displayName": "api CI",
+          "validDuration": 720,
+          "scope": [{ "refName": "refs/heads/main", "matchKind": "Exact", "repositoryId": "3411ebc1-d5aa-464f-9615-0b527bc66719" }]
+        }
+      },
+      "context": {
+        "lastMergeCommitId": "39f52d24533cc712fc845ed9fd1b6c06b3942588",
+        "lastMergeSourceCommit": "b60280bc6e62e2f880f1b63c1e24987664d3bda3",
+        "lastMergeTargetCommit": "f47bbc106853afe3c1b07a81754bce5f4b8dbf62",
+        "buildId": 812,
+        "buildDefinitionId": 41,
+        "buildDefinitionName": "acme.api",
+        "buildIsNotCurrent": false,
+        "buildStartedUtc": "2026-10-03T19:48:02.113Z",
+        "isExpired": false,
+        "wasAutoQueued": true
+      }
+    },
+    {
+      "evaluationId": "6c4ddb2e-0c6b-4a0e-9e1f-55a2a2f4b002",
+      "artifactId": "vstfs:///CodeReview/CodeReviewId/0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11/123",
+      "status": "approved",
+      "startedDate": "2026-10-03T19:48:05.000Z",
+      "completedDate": "2026-10-03T19:49:10.000Z",
+      "configuration": {
+        "id": 15,
+        "isEnabled": true,
+        "isBlocking": false,
+        "type": { "id": "cbdc66da-9728-4af8-aada-9a5a32e4a226", "displayName": "Status" },
+        "settings": { "statusGenre": "security", "statusName": "scan", "authorId": "a1b2c3d4-0000-4000-8000-000000000001" }
+      },
+      "context": null
+    },
+    {
+      "evaluationId": "6c4ddb2e-0c6b-4a0e-9e1f-55a2a2f4b003",
+      "artifactId": "vstfs:///CodeReview/CodeReviewId/0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11/123",
+      "status": "running",
+      "startedDate": "2026-10-03T19:48:00.000Z",
+      "configuration": {
+        "id": 3,
+        "isEnabled": true,
+        "isBlocking": true,
+        "type": { "id": "fa4e907d-c16b-4a4c-9dfa-4906e5d171dd", "displayName": "Minimum number of reviewers" },
+        "settings": { "minimumApproverCount": 2, "creatorVoteCounts": false }
+      }
+    },
+    {
+      "evaluationId": "6c4ddb2e-0c6b-4a0e-9e1f-55a2a2f4b004",
+      "artifactId": "vstfs:///CodeReview/CodeReviewId/0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11/123",
+      "status": "queued",
+      "configuration": {
+        "id": 16,
+        "isEnabled": false,
+        "isBlocking": false,
+        "type": { "id": "0609b952-1397-4640-95ec-e00a01b2c241", "displayName": "Build" },
+        "settings": { "buildDefinitionId": 52, "displayName": "nightly docs" }
+      }
+    }
+  ]
+}

@@ -22,7 +22,8 @@ export interface SourceForm {
  * The sources map with one repository's form choices replaced; its `managed` flag stays unless the
  * form sets it. Defaults (no query, no assign, no auto-merge, squash, no playbook, the default
  * playbooks per ingest) are left out, and an entry that says nothing beyond
- * them is dropped, so the config stays small.
+ * them is dropped, so the config stays small. A `ci` opt-in (issue #143), which only the config
+ * file sets, stays as it is.
  */
 export function withSource(
   sources: Readonly<Record<string, SourceSettings>>,
@@ -36,7 +37,8 @@ export function withSource(
   const autoMerge = next.autoMerge === true;
   const mergeMethod = next.mergeMethod && next.mergeMethod !== "squash" ? next.mergeMethod : undefined;
   const playbooks = next.playbooks?.issue || next.playbooks?.pr ? next.playbooks : undefined;
-  if (!query && !next.assignOnStart && managed === undefined && !autoMerge && !mergeMethod && !playbook && !playbooks) return rest;
+  const ci = old?.ci;
+  if (!query && !next.assignOnStart && managed === undefined && !autoMerge && !mergeMethod && !playbook && !playbooks && !ci) return rest;
   return {
     ...rest,
     [origin]: {
@@ -47,6 +49,7 @@ export function withSource(
       ...(mergeMethod ? { mergeMethod } : {}),
       ...(playbook ? { playbook } : {}),
       ...(playbooks ? { playbooks } : {}),
+      ...(ci ? { ci } : {}),
     },
   };
 }

@@ -13,7 +13,7 @@ export interface CiFailure {
   pr?: CiPr;
   failed: FailedCheck[];
   logs: CheckLog[];
-  /** GitHub Actions runs "Rerun failed jobs" reruns; empty when no check links to one. */
+  /** GitHub Actions run ids and Azure Pipelines build URLs "Rerun failed jobs" reruns; empty when no check links to one. */
   runs: string[];
 }
 

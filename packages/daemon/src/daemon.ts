@@ -72,6 +72,8 @@ import { autoMergeReady, mergeDefaults, mergePr, setAutoMerge } from "./prs/merg
 import { updatePrBranch } from "./prs/update-branch.js";
 import { fixCi, markCiDone, rerunCi } from "./ci/actions.js";
 import { watchCi } from "./ci/watch.js";
+import { worktreeHead } from "./ci/head.js";
+import { pipelinesOptIn } from "./config/pipelines.js";
 import { removeItemWorktree, removeOrphan } from "./worktrees/remove.js";
 import { Hub } from "./ws/hub.js";
 
@@ -332,7 +334,11 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       const ready = readyProviders(providers, status.get());
       if (ready.connections.length > 0) {
         for (const id of ciChecks.keys()) if (items.get(id)?.item.state !== "checking") ciChecks.delete(id);
-        await watchCi({ items, events, writer, providers: ready, ctx: opts.ctx, log: app.log, onChecks });
+        await watchCi({
+          items, events, writer, providers: ready, ctx: opts.ctx, log: app.log, onChecks,
+          pipelinesOf: (origin) => pipelinesOptIn(origin, config.sources[origin]?.ci),
+          headOf: (item) => worktreeHead(opts.exec, item.worktreePath),
+        });
         await autoMergeReady({ items, events, writer, providers: ready, ctx: opts.ctx, log: app.log }, config.sources, (o) => isManaged(config.sources, o));
         await watchPrs({
           items, events, drafts, repos, writer, exec: opts.exec, providers: ready, ctx: opts.ctx, log: app.log,

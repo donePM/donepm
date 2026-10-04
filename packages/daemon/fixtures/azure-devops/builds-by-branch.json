@@ -1,0 +1,163 @@
+{
+  "count": 4,
+  "value": [
+    {
+      "id": 831,
+      "buildNumber": "20261003.31",
+      "status": "completed",
+      "queueTime": "2026-10-03T19:48:01.000Z",
+      "definition": {
+        "id": 41,
+        "name": "acme.api",
+        "path": "\\",
+        "type": "build",
+        "queueStatus": "enabled",
+        "revision": 7,
+        "project": {
+          "id": "0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11",
+          "name": "Platform"
+        }
+      },
+      "project": {
+        "id": "0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11",
+        "name": "Platform"
+      },
+      "uri": "vstfs:///Build/Build/831",
+      "sourceBranch": "refs/heads/dp/7-fix-the-build",
+      "sourceVersion": "b60280bc6e62e2f880f1b63c1e24987664d3bda3",
+      "priority": "normal",
+      "reason": "individualCI",
+      "repository": {
+        "id": "acme/api",
+        "type": "GitHubEnterprise",
+        "name": "acme/api"
+      },
+      "_links": {
+        "web": {
+          "href": "https://dev.azure.com/acme/0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11/_build/results?buildId=831"
+        }
+      },
+      "result": "failed",
+      "startTime": "2026-10-03T19:48:10.000Z",
+      "finishTime": "2026-10-03T19:52:38.000Z"
+    },
+    {
+      "id": 830,
+      "buildNumber": "20261003.30",
+      "status": "inProgress",
+      "queueTime": "2026-10-03T19:30:00.000Z",
+      "definition": {
+        "id": 77,
+        "name": "acme.api e2e",
+        "path": "\\",
+        "type": "build",
+        "queueStatus": "enabled",
+        "revision": 7,
+        "project": {
+          "id": "0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11",
+          "name": "Platform"
+        }
+      },
+      "project": {
+        "id": "0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11",
+        "name": "Platform"
+      },
+      "uri": "vstfs:///Build/Build/830",
+      "sourceBranch": "refs/heads/dp/7-fix-the-build",
+      "sourceVersion": "9a1e4c7d2b3f8e6a0c5d1b2e3f4a5b6c7d8e9f01",
+      "priority": "normal",
+      "reason": "individualCI",
+      "repository": {
+        "id": "acme/api",
+        "type": "GitHubEnterprise",
+        "name": "acme/api"
+      },
+      "_links": {
+        "web": {
+          "href": "https://dev.azure.com/acme/0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11/_build/results?buildId=830"
+        }
+      },
+      "startTime": "2026-10-03T19:30:09.000Z"
+    },
+    {
+      "id": 829,
+      "buildNumber": "20261003.29",
+      "status": "completed",
+      "queueTime": "2026-10-03T19:29:58.000Z",
+      "definition": {
+        "id": 41,
+        "name": "acme.api",
+        "path": "\\",
+        "type": "build",
+        "queueStatus": "enabled",
+        "revision": 7,
+        "project": {
+          "id": "0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11",
+          "name": "Platform"
+        }
+      },
+      "project": {
+        "id": "0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11",
+        "name": "Platform"
+      },
+      "uri": "vstfs:///Build/Build/829",
+      "sourceBranch": "refs/heads/dp/7-fix-the-build",
+      "sourceVersion": "9a1e4c7d2b3f8e6a0c5d1b2e3f4a5b6c7d8e9f01",
+      "priority": "normal",
+      "reason": "individualCI",
+      "repository": {
+        "id": "acme/api",
+        "type": "GitHubEnterprise",
+        "name": "acme/api"
+      },
+      "_links": {
+        "web": {
+          "href": "https://dev.azure.com/acme/0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11/_build/results?buildId=829"
+        }
+      },
+      "result": "succeeded",
+      "startTime": "2026-10-03T19:30:05.000Z",
+      "finishTime": "2026-10-03T19:33:40.000Z"
+    },
+    {
+      "id": 828,
+      "buildNumber": "20261003.28",
+      "status": "completed",
+      "queueTime": "2026-10-03T19:10:00.000Z",
+      "definition": {
+        "id": 77,
+        "name": "acme.api e2e",
+        "path": "\\",
+        "type": "build",
+        "queueStatus": "enabled",
+        "revision": 7,
+        "project": {
+          "id": "0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11",
+          "name": "Platform"
+        }
+      },
+      "project": {
+        "id": "0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11",
+        "name": "Platform"
+      },
+      "uri": "vstfs:///Build/Build/828",
+      "sourceBranch": "refs/heads/dp/7-fix-the-build",
+      "sourceVersion": "9a1e4c7d2b3f8e6a0c5d1b2e3f4a5b6c7d8e9f01",
+      "priority": "normal",
+      "reason": "individualCI",
+      "repository": {
+        "id": "acme/api",
+        "type": "GitHubEnterprise",
+        "name": "acme/api"
+      },
+      "_links": {
+        "web": {
+          "href": "https://dev.azure.com/acme/0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11/_build/results?buildId=828"
+        }
+      },
+      "result": "succeeded",
+      "startTime": "2026-10-03T19:10:08.000Z",
+      "finishTime": "2026-10-03T19:21:11.000Z"
+    }
+  ]
+}

@@ -309,6 +309,18 @@ export interface SourceSettings {
    * read-only, pull requests `review`.
    */
   playbooks?: IngestPlaybooks;
+  /**
+   * Pipelines that run in Azure Pipelines without reporting to the host (issue #143); set in the
+   * config file, kept as it is by the form.
+   */
+  ci?: CiOptIn;
+}
+
+export interface CiOptIn {
+  source: "azure-pipelines";
+  definitions: number[];
+  organization?: string;
+  project?: string;
 }
 
 export interface IngestPlaybooks {
