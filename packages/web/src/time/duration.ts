@@ -18,3 +18,15 @@ export function agentElapsed(agent: { elapsedMs?: number; activeSince?: string }
   if (agent.elapsedMs === undefined && !agent.activeSince) return undefined;
   return (agent.elapsedMs ?? 0) + (agent.activeSince ? Math.max(0, now - Date.parse(agent.activeSince)) : 0);
 }
+
+/** "950", "12.3k", "1.2M": k from 1000 with one decimal. */
+export function tokens(n: number): string {
+  if (n < 1000) return String(Math.round(n));
+  if (n < 999_950) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+/** "12.3k in · 4.1k out"; undefined when no usage was reported. */
+export function usageLabel(usage: { inputTokens: number; outputTokens: number } | undefined): string | undefined {
+  return usage ? `${tokens(usage.inputTokens)} in · ${tokens(usage.outputTokens)} out` : undefined;
+}

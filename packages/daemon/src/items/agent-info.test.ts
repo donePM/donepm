@@ -74,4 +74,23 @@ describe("agentHistory: elapsed time", () => {
     const events = [ev("agent.started", 0), ev("agent.failed", 5), ev("agent.started", 20)];
     expect(agentHistory(events)).toMatchObject({ elapsedMs: 0, activeSince: t(20) });
   });
+
+  const u = (i: number, o: number) => ({ inputTokens: i, outputTokens: o, cacheReadInputTokens: 0, cacheWriteInputTokens: 0 });
+
+  it("sums tokens like the cost: last value per process, a new process starts a new sum", () => {
+    expect(
+      agentHistory([
+        ev("agent.started", 1),
+        ev("agent.turn_ended", 2, { usage: u(100, 10) }),
+        ev("agent.turn_started", 3),
+        ev("agent.turn_ended", 4, { usage: u(250, 30) }),
+        ev("agent.resumed", 5),
+        ev("agent.turn_ended", 6, { usage: u(50, 5) }),
+      ]).usage,
+    ).toEqual(u(300, 35));
+  });
+
+  it("has no usage when none was reported or it is malformed", () => {
+    expect(agentHistory([ev("agent.started", 1), ev("agent.turn_ended", 2, { usage: "x" })])).not.toHaveProperty("usage");
+  });
 });

@@ -7,7 +7,7 @@ import type { ItemView } from "../api/types";
 import AskPanel from "../asks/AskPanel.vue";
 import { repoOf } from "../markdown/render";
 import { diffFiles, diffStats, type DiffStats } from "../diff/files";
-import { agentElapsed, clock } from "../time/duration";
+import { agentElapsed, clock, usageLabel } from "../time/duration";
 import { columnOf, displayId, labelTone, shortId } from "./columns";
 import { isFinished } from "./finished";
 import { mergeNote } from "./merge-note";
@@ -33,6 +33,11 @@ const startable = computed(() => (props.item.state === "ready" || props.item.sta
 /** The user removes a finished or failed item's worktree; only a merged PR's goes on its own (D33). */
 const removable = computed(() => (props.item.state === "done" || props.item.state === "failed") && !!props.item.worktreePath && !props.item.agent.running && !finished.value);
 const merge = computed(() => mergeNote(props.item, props.removeOnMerge ?? false));
+const usage = computed(() => usageLabel(props.item.agent.usage));
+const usageTitle = computed(() => {
+  const u = props.item.agent.usage;
+  return u ? `${u.cacheReadInputTokens} cache read, ${u.cacheWriteInputTokens} cache write (both counted in input)` : undefined;
+});
 const elapsed = computed(() => {
   const ms = agentElapsed(props.item.agent, props.now);
   return ms === undefined ? undefined : clock(ms);
@@ -144,6 +149,7 @@ async function act(fn: (id: string) => Promise<void>) {
         @click="act(dismissItem)"
       >Dismiss</button>
     </div>
+    <div v-if="usage" class="dim tokens mono" :title="usageTitle">{{ usage }}</div>
     <div v-if="item.state === 'running'" class="activity mono">
       <span v-if="item.branch">{{ item.branch }}</span>
       <span v-if="item.agent.currentTool" class="dim">{{ item.agent.currentTool.name }} · {{ item.agent.currentTool.summary }}</span>
