@@ -1,7 +1,9 @@
+import { usageFromResult } from "./usage.js";
 import {
-  agentAsked, agentFailed, answered, answeredInput, checkAnswers, isQuestionTool, questionsOf, type Answers, autoAllowed, isRuleOfferable, matchingDomain, webFetchHost, toolSummary, turnEnded, turnStarted,
+  agentAsked, agentFailed, alwaysAllowed, answered, askDeniedBySystem, matchGrants, rawRule, repoName, type AskFlags, type GrantRef, interrupted, answeredInput, checkAnswers, isQuestionTool, questionsOf, type Answers, autoAllowed, isRuleOfferable, matchingDomain, webFetchHost, toolSummary, turnEnded, turnStarted,
   type Ctx, type PermissionRule, type Playbook, type TranscriptKind, type WorkItem,
 } from "@donepm/core";
+import type { GrantStore } from "../asks/grants.js";
 import type { AskStore } from "../asks/store.js";
 import type { ItemStore } from "../items/store.js";
 import type { ItemWriter } from "../items/commit.js";
@@ -15,6 +17,8 @@ import type { AgentProcess, ProcessFactory } from "./process.js";
 
 export const STDERR_TAIL_LINES = 50;
 export const KILL_GRACE_MS = 5_000;
+export const DENY_ON_SHUTDOWN = "donePM is shutting down; the ask was not answered.";
+export const DENY_ON_STOP = "The user stopped the agent; the ask was not answered.";
 
 export interface RunnerDeps {
   items: ItemStore;
@@ -38,6 +42,8 @@ export interface RunnerDeps {
   mcp?: (item: WorkItem, playbook: Playbook) => { configPath: string; close: () => void };
   /** Hosts whose WebFetch asks the daemon allows itself (D31). Absent or empty: every one asks. */
   webFetchDomains?: () => readonly string[];
+  /** "Always allow" grants per repository (D38). Absent: every ask goes to the user. */
+  grants?: GrantStore;
 }
 
 export interface LaunchInput {
@@ -61,6 +67,12 @@ interface Session {
   /** The user pressed Stop: the item fails with a reason it can be retried from. */
   stoppedByUser: boolean;
   done: boolean;
+  /** Why asks are denied from now on: set when the process is being stopped. */
+  closing?: string;
+  /** The item was already marked interrupted for this stop. */
+  interruptedNoted?: boolean;
+  /** A read-only playbook (D42): the repository's "Always allow" grants do not apply. */
+  readOnly?: boolean;
   /** Tool calls without a result yet, by tool_use id, in call order. */
   tools: Map<string, CurrentTool>;
   exited?: Promise<void>;
@@ -136,6 +148,7 @@ export class AgentRunner {
     });
     const proc = this.deps.spawn(this.deps.claudePath(), args, { cwd: input.cwd, env });
     session.proc = proc;
+    session.readOnly = input.playbook.readOnly === true;
     if (input.resumeSessionId) session.sessionId = input.resumeSessionId;
 
     session.exited = new Promise((resolve) => {
@@ -175,7 +188,7 @@ export class AgentRunner {
   /** Answer a pending permission question (spec 9.4). */
   answer(
     askId: string,
-    answer: { behavior: "allow"; scope?: "run"; answers?: Answers } | { behavior: "deny"; message?: string },
+    answer: { behavior: "allow"; scope?: "run" | "always"; answers?: Answers } | { behavior: "deny"; message?: string; interrupt?: boolean },
   ): void {
     const ask = this.deps.asks.get(askId);
     if (!ask) throw new AskError(404, "ask not found");
@@ -187,6 +200,14 @@ export class AgentRunner {
     // check again because a blocked grant must never reach the CLI.
     const granted = answer.behavior === "allow" && answer.scope === "run" ? ask.rules : [];
     if (!granted.every(isRuleOfferable)) throw new AskError(409, "this ask has a rule that may not be granted");
+    // "Always allow" (D38) answers with a plain allow: the CLI keeps asking, and the daemon answers
+    // from the grants, so removing one in Settings applies to this run too.
+    const always = answer.behavior === "allow" && answer.scope === "always";
+    if (always) {
+      if (!this.deps.grants) throw new AskError(409, "always allow is not available");
+      if (ask.rules.length === 0) throw new AskError(409, "this ask has no rule to always allow");
+      if (!ask.rules.every(isRuleOfferable)) throw new AskError(409, "this ask has a rule that may not be granted");
+    }
 
     // AskUserQuestion: Allow alone tells the agent "the user did not answer". Answers go in the input.
     let input = ask.input;
@@ -208,17 +229,39 @@ export class AgentRunner {
     const line =
       answer.behavior === "allow"
         ? askAnswerLine(ask.requestId, { behavior: "allow", input, rules: granted })
-        : askAnswerLine(ask.requestId, { behavior: "deny", message: answer.message || "The user denied this." });
+        : askAnswerLine(ask.requestId, { behavior: "deny", message: answer.message || "The user denied this.", interrupt: answer.interrupt });
     session.proc.write(line);
     const at = this.deps.ctx.now();
     this.deps.asks.setState(ask.id, answer.behavior === "allow" ? "allowed" : "denied", at);
     this.store(session, "raw", JSON.parse(line));
 
+    const grants = always ? this.grant(ask.itemId, ask.id, ask.rules, `${ask.toolName}: ${toolSummary(ask.toolName, ask.input)}`, at) : [];
+
     const item = this.item(ask.itemId);
     if (item.state === "needs_you") {
       const others = this.deps.asks.pending(ask.itemId).length > 0;
-      this.deps.writer.commit(answered(item, this.deps.ctx, ask.id, { behavior: answer.behavior, rules: granted, ...(answers ? { answers } : {}) }, others));
+      if (always) {
+        this.deps.writer.commit(alwaysAllowed(item, this.deps.ctx, ask.id, grants, others));
+        return;
+      }
+      this.deps.writer.commit(answered(item, this.deps.ctx, ask.id, { behavior: answer.behavior, rules: granted, interrupt: answer.behavior === "deny" && answer.interrupt === true, ...(answers ? { answers } : {}) }, others));
     }
+  }
+
+  /** Store a grant per rule for the item's repository; rules it already has are skipped. */
+  private grant(itemId: string, askId: string, rules: readonly PermissionRule[], call: string, at: string): GrantRef[] {
+    const repo = this.repoOf(itemId);
+    return rules.flatMap((rule) => {
+      const g = this.deps.grants!.add({ id: this.deps.ctx.newId(), repo, rule, askId, itemId, call }, at);
+      return g ? [{ id: g.id, repo: g.repo, toolName: g.toolName, ...(g.ruleContent !== undefined ? { ruleContent: g.ruleContent } : {}) }] : [];
+    });
+  }
+
+  /** The normalised origin of the item's repository: grants belong to it, not to one clone. */
+  private repoOf(itemId: string): string {
+    const stored = this.deps.items.get(itemId);
+    if (!stored) throw new Error(`item ${itemId} not found`);
+    return stored.originUrl;
   }
 
   /**
@@ -231,6 +274,8 @@ export class AgentRunner {
     if (!s?.proc) throw new StopError("no agent is running for this item");
     if (!s.stoppedByUser) {
       s.stoppedByUser = true;
+      s.closing = DENY_ON_STOP;
+      this.denyPending(s, "stopped by you");
       s.proc.kill("SIGTERM");
       if (!s.done) {
         const timer = setTimeout(() => {
@@ -248,6 +293,8 @@ export class AgentRunner {
     const live = [...this.sessions.values()].filter((s) => s.proc);
     for (const s of live) {
       s.stopping = true;
+      s.closing = DENY_ON_SHUTDOWN;
+      this.denyPending(s, "donePM is shutting down");
       s.proc!.kill("SIGTERM");
     }
     const exited = Promise.all(live.map((s) => s.exited));
@@ -260,6 +307,33 @@ export class AgentRunner {
       await exited;
     }
     clearTimeout(timer);
+  }
+
+  /**
+   * Answer every pending ask of the process with a deny before it is signalled, so the agent does not
+   * wait on a question nobody can answer (spec 9.5). The item keeps its state; if it waited on those
+   * asks it is interrupted, to be resumed.
+   */
+  private denyPending(session: Session, interruptReason: string): void {
+    const message = session.closing;
+    if (!message || !session.proc) return;
+    const pending = this.deps.asks.pending(session.itemId);
+    if (pending.length === 0) return;
+    for (const ask of pending) {
+      const line = askAnswerLine(ask.requestId, { behavior: "deny", message });
+      session.proc.write(line);
+      this.deps.asks.setState(ask.id, "denied", this.deps.ctx.now(), message);
+      this.store(session, "raw", JSON.parse(line));
+      const item = this.item(ask.itemId);
+      if (item.state === "running" || item.state === "needs_you") {
+        this.deps.writer.commit(askDeniedBySystem(item, this.deps.ctx, ask.id, message));
+      }
+    }
+    const item = this.item(session.itemId);
+    if (item.state === "needs_you" && !session.interruptedNoted) {
+      session.interruptedNoted = true;
+      this.deps.writer.commit(interrupted(item, this.deps.ctx, interruptReason));
+    }
   }
 
   private ingest(session: Session, line: string): void {
@@ -280,7 +354,7 @@ export class AgentRunner {
         return;
       case "ask":
         this.store(session, "raw", d.raw);
-        this.onAsk(session, d.requestId, d.toolName, d.input, d.rules, d.reason);
+        this.onAsk(session, d.requestId, d.toolName, d.input, d.rules, d.reason, d.suggested, d.flags);
         return;
       case "result":
         this.store(session, "result", d.raw);
@@ -299,15 +373,19 @@ export class AgentRunner {
     let item = this.item(session.itemId);
     // Persist the moment it arrives: it is what --resume needs after a crash.
     if (item.agentSessionId !== sessionId) item = this.deps.writer.save({ ...item, agentSessionId: sessionId });
-    if (!first && startedOwnTurn && item.state === "needs_you" && this.deps.asks.pending(item.id).length === 0) {
+    if (!first && startedOwnTurn && !session.closing && item.state === "needs_you" && this.deps.asks.pending(item.id).length === 0) {
       // A second init: the CLI started a turn on its own (spec 9.3).
       this.deps.writer.commit(turnStarted(item, this.deps.ctx));
     }
   }
 
-  private onAsk(session: Session, requestId: string, toolName: string, input: unknown, rules: PermissionRule[], reason?: string): void {
+  private onAsk(
+    session: Session, requestId: string, toolName: string, input: unknown, rules: PermissionRule[], reason?: string,
+    suggested: PermissionRule[] = [], flags: AskFlags = { suppressAlwaysAllowRule: false, requiresUserInteraction: false },
+  ): void {
     const at = this.deps.ctx.now();
     if (this.autoAllow(session, requestId, toolName, input, at)) return;
+    if (this.allowByGrant(session, requestId, toolName, input, suggested, flags, at)) return;
     const ask = {
       id: this.deps.ctx.newId(), itemId: session.itemId, requestId, toolName, input, state: "pending" as const, rules, ...(reason ? { reason } : {}),
     };
@@ -316,6 +394,8 @@ export class AgentRunner {
     if (item.state === "running" || item.state === "needs_you") {
       this.deps.writer.commit(agentAsked(item, this.deps.ctx, ask.id, { toolName }));
     }
+    // A question that arrives while the process is being stopped cannot be answered either.
+    if (session.closing) this.denyPending(session, session.stoppedByUser ? "stopped by you" : "donePM is shutting down");
   }
 
   /**
@@ -337,13 +417,45 @@ export class AgentRunner {
     return true;
   }
 
+  /**
+   * An ask whose every suggested rule has an "Always allow" grant in the item's repository is
+   * answered with a plain allow (D38). The grants are read on every ask, so a removal in Settings
+   * applies to a running agent from its next ask on.
+   */
+  private allowByGrant(
+    session: Session, requestId: string, toolName: string, input: unknown, suggested: PermissionRule[], flags: AskFlags, at: string,
+  ): boolean {
+    // Grants were given for the user's own work; code under review asks every time (D42).
+    if (!this.deps.grants || !session.proc || session.closing || session.readOnly) return false;
+    const repo = this.repoOf(session.itemId);
+    const grants = matchGrants(toolName, suggested, flags, this.deps.grants.active(repo));
+    if (!grants) return false;
+    const item = this.item(session.itemId);
+    if (item.state !== "running" && item.state !== "needs_you") return false;
+
+    const line = askAnswerLine(requestId, { behavior: "allow", input });
+    session.proc.write(line);
+    this.store(session, "raw", JSON.parse(line));
+    const reason = `always allowed in ${repoName(repo)}: ${grants.map(rawRule).join(", ")}`;
+    const ask = { id: this.deps.ctx.newId(), itemId: session.itemId, requestId, toolName, input, state: "pending" as const, rules: [] };
+    this.deps.asks.insert(ask, at);
+    this.deps.asks.setState(ask.id, "allowed", at, reason);
+    this.deps.grants.used(grants.map((g) => g.id), at);
+    this.deps.writer.commit(autoAllowed(item, this.deps.ctx, ask.id, {
+      toolName, repo, grants: grants.map((g) => ({ grantId: g.id, toolName: g.toolName, ...(g.ruleContent !== undefined ? { ruleContent: g.ruleContent } : {}) })),
+    }));
+    return true;
+  }
+
   private onResult(session: Session, d: { isError: boolean; subtype: string | undefined; raw: unknown }): void {
     session.turnClosed = true;
     const item = this.item(session.itemId);
     if (item.state !== "running" || this.deps.asks.pending(item.id).length > 0) return;
-    const raw = d.raw as { total_cost_usd?: unknown };
+    const raw = d.raw as { total_cost_usd?: unknown; usage?: unknown };
     const payload: Record<string, unknown> = { subtype: d.subtype ?? null, isError: d.isError };
     if (typeof raw.total_cost_usd === "number") payload.costUsd = raw.total_cost_usd;
+    const usage = usageFromResult(raw.usage);
+    if (usage) payload.usage = usage;
     this.deps.writer.commit(turnEnded(item, this.deps.ctx, payload));
   }
 

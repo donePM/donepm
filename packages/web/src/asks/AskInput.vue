@@ -19,7 +19,7 @@ async function copy() {
 </script>
 
 <template>
-  <div class="input">
+  <div class="ask">
     <p v-if="view.kind === 'command' && view.description" class="description">{{ view.description }}</p>
     <div v-if="view.kind === 'edit'" class="edit">
       <div class="path mono">{{ view.path }}</div>
@@ -34,9 +34,9 @@ async function copy() {
 </template>
 
 <style scoped>
-.input { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.description { margin: 0; font-size: 13px; color: var(--ink-2); }
-.code { position: relative; background: var(--code-bg); color: var(--code-ink); border-radius: 6px; padding: 10px 12px; font-size: 12px; }
+.ask { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.description { margin: 0; font-size: 13px; color: var(--fg-2); }
+.code { position: relative; background: var(--code-bg); color: var(--code-fg); border-radius: 6px; padding: 10px 12px; font-size: 12px; }
 pre { margin: 0; padding-right: 48px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; font: inherit; }
 pre.target { font-size: 14px; font-weight: 600; }
 .copy {
@@ -44,16 +44,16 @@ pre.target { font-size: 14px; font-weight: 600; }
   top: 6px;
   right: 6px;
   padding: 2px 8px;
-  border: 1px solid #55554f;
+  border: 1px solid var(--code-border);
   border-radius: 4px;
   background: none;
-  color: #9a9a92;
+  color: var(--code-fg-3);
   font: inherit;
   font-size: 11px;
   cursor: pointer;
 }
-.copy:hover { color: var(--code-ink); }
+.copy:hover { color: var(--code-fg); }
 .edit { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--card); }
-.path { padding: 6px 12px; border-bottom: 1px solid var(--border-soft); font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
-.cwd { margin: 0; font-size: 12px; color: var(--muted, #6b6b63); }
+.path { padding: 6px 12px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--fg-2); overflow-wrap: anywhere; }
+.cwd { margin: 0; font-size: 12px; color: var(--fg-3); }
 </style>

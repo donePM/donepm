@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { DEFAULT_WEB_FETCH_DOMAINS, isDomain, normalizeOriginUrl } from "@donepm/core";
+import { DEFAULT_WEB_FETCH_DOMAINS, isDomain, MERGE_METHODS, normalizeOriginUrl } from "@donepm/core";
 import { z } from "zod";
 
 /** Hosts donePM can run a source query against. GitLab and Jira come later (issue #32). */
@@ -15,13 +15,22 @@ export function providerOf(origin: string): SourceProvider | undefined {
 
 /**
  * Per repository: which issues donePM collects (spec 4.6). `query` is the provider's search
- * string as pasted from its UI; without one the repo gets the default (assigned to me). `ignored`
- * keeps the repo off the board: it is not polled and its items are hidden, nothing is deleted.
+ * string as pasted from its UI; without one the repo gets the default (assigned to me). Only a
+ * `managed` repo is polled and shown; an unmanaged one's items are hidden, nothing is deleted (D46).
  */
 export const SourceSchema = z
   .object({
     query: z.string().trim().min(1).optional(),
     assignOnStart: z.boolean().default(false),
+    /** Playbook new issues of this repository start with, instead of `implement` (issue #127). */
+    playbook: z.string().trim().min(1).optional(),
+    /** donePM collects, shows and starts work for this repository only when true (issue #94, D46). */
+    managed: z.boolean().optional(),
+    /** Default of the per-item "Merge automatically" choice for others' pull requests (D47). Off. */
+    autoMerge: z.boolean().optional(),
+    /** How donePM merges others' pull requests here, by the card's default and by auto-merge (D47). */
+    mergeMethod: z.enum(MERGE_METHODS).optional(),
+    /** Issue #33's flag, replaced by `managed`; only read once to migrate (D46). */
     ignored: z.boolean().optional(),
   })
   .strict();
@@ -41,11 +50,20 @@ export const ConfigSchema = z
     port: z.number().int().min(1).max(65535).default(6174),
     repoRoot: z.string().min(1).default("~/Code"),
     worktreeRoot: z.string().min(1).default("~/.local/share/donepm/worktrees"),
+    /**
+     * Former worktree roots that may still hold worktrees (issue #93). Kept by the daemon, not set
+     * through the API: orphan detection looks here too until nothing is left under them.
+     */
+    previousWorktreeRoots: z.array(z.string().min(1)).default([]),
     branchPrefix: z.string().default("dp/"),
     pollIntervalSeconds: z.number().int().min(10).default(60),
     maxConcurrentAgents: z.number().int().min(1).default(1),
     /** Remove a done item's clean worktree once the PR its draft opened is merged (D33). */
     removeWorktreeOnMerge: z.boolean().default(false),
+    /** Hours a finished item stays on the board before it moves to the Archive (D37). */
+    archiveAfterHours: z.number().int().min(0).default(24),
+    /** Days an archived item is kept before it is deleted with its history (D37). `null`: never. */
+    deleteAfterDays: z.number().int().min(0).nullable().default(7),
     /** Keyed by normalised origin. Replaced as a whole by `PUT /api/settings`; `PUT /api/repos/:id` changes one entry. */
     sources: z.record(SourceKey, SourceSchema).default({}),
     /** WebFetch to these hosts (and their subdomains) is allowed by the daemon, not asked (D31). */

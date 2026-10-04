@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diffFiles, diffStats } from "./files";
+import { allOpen, collapseAll, diffFiles, diffStats, expandAll, fileKey, noneOpen, toggleKey } from "./files";
 
 const PATCH = `diff --git a/a.txt b/a.txt
 index 814f4a4..b2a3b1e 100644
@@ -63,4 +63,26 @@ describe("diffFiles", () => {
   });
 
   it("is empty for an empty patch", () => expect(diffFiles("")).toEqual([]));
+});
+
+describe("expand/collapse state", () => {
+  const files = [{ path: "a.txt" }, { path: "b.txt", oldPath: "c.txt" }];
+  it("expands every file and collapses to empty", () => {
+    expect([...expandAll(files)]).toEqual(["→a.txt", "c.txt→b.txt"]);
+    expect(collapseAll().size).toBe(0);
+    expect(fileKey(files[1]!)).toBe("c.txt→b.txt");
+  });
+  it("toggles one key without mutating", () => {
+    const open = new Set(["→a.txt"]);
+    expect([...toggleKey(open, "→a.txt")]).toEqual([]);
+    expect([...toggleKey(open, "x")]).toEqual(["→a.txt", "x"]);
+    expect(open.size).toBe(1);
+  });
+  it("reports all/none open", () => {
+    expect(allOpen(files, expandAll(files))).toBe(true);
+    expect(allOpen(files, new Set(["→a.txt"]))).toBe(false);
+    expect(allOpen([], new Set())).toBe(false);
+    expect(noneOpen(files, new Set())).toBe(true);
+    expect(noneOpen(files, new Set(["→a.txt"]))).toBe(false);
+  });
 });

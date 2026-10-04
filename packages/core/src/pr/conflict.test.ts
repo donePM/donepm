@@ -40,4 +40,12 @@ describe("conflictFixPrompt", () => {
     expect(text).toContain("draft_push");
     expect(conflictFixPrompt({ pr, base: "main", files: [] })).not.toContain("Conflicting files");
   });
+
+  it("merges what only the PR branch on GitHub has before the base (#119)", () => {
+    const text = conflictFixPrompt({ pr, base: "main", files: [] }, "dp/7-fix");
+    expect(text).toContain("`origin/main` and `origin/dp/7-fix` are fetched");
+    expect(text.indexOf("git merge origin/dp/7-fix")).toBeGreaterThan(-1);
+    expect(text.indexOf("git merge origin/dp/7-fix")).toBeLessThan(text.indexOf("git merge origin/main"));
+    expect(conflictFixPrompt({ pr, base: "main", files: [] })).not.toContain("origin/dp/7-fix");
+  });
 });

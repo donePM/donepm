@@ -1,4 +1,4 @@
-export type DraftType = "pr" | "push";
+export type DraftType = "pr" | "push" | "comment" | "review";
 export type DraftState = "pending" | "approved" | "rejected" | "executed" | "failed";
 
 export interface PrDraftPayload {
@@ -30,11 +30,70 @@ export interface PushDraftPayload {
   commits: DraftCommit[];
   /** Uncommitted changes the push commits first, as with a PR draft. */
   uncommitted: boolean;
+  /** Answers to reviewers, posted after the push (D39). */
+  replies?: DraftReply[];
+}
+
+/**
+ * An answer to review feedback (D39). With `inReplyTo` it goes into that inline comment thread,
+ * without it into the pull request's conversation.
+ */
+export interface DraftReply {
+  body: string;
+  inReplyTo?: number;
+}
+
+/** A reply that was posted: its index in the draft's `replies` and where it is. */
+export interface PostedReply {
+  index: number;
+  url: string;
 }
 
 export interface PushDraftResult {
   /** The branch head after the push. */
   sha: string;
+  posted?: PostedReply[];
+}
+
+/** Replies to review feedback without a code change (D39): `draft_comment`. */
+export interface CommentDraftPayload {
+  number: number;
+  url: string;
+  replies: DraftReply[];
+}
+
+/** Also kept while posting failed halfway, so a retry skips what is out. */
+export interface CommentDraftResult {
+  posted: PostedReply[];
+}
+
+/** The verdict of a review, as GitHub's API names it. */
+export type ReviewVerdict = "COMMENT" | "REQUEST_CHANGES" | "APPROVE";
+
+/** A comment on one line of the pull request's new version. */
+export interface ReviewComment {
+  path: string;
+  line: number;
+  body: string;
+}
+
+/**
+ * A review of someone else's pull request (decision D43): `draft_review`. The daemon fills in the
+ * PR and the commit the agent read; the user approves, the daemon posts it as the user.
+ */
+export interface ReviewDraftPayload {
+  number: number;
+  url: string;
+  /** The head commit the agent reviewed; the comments' lines are of this commit. */
+  commitId: string;
+  verdict: ReviewVerdict;
+  body: string;
+  comments: ReviewComment[];
+}
+
+export interface ReviewDraftResult {
+  id: number;
+  url: string;
 }
 
 interface DraftBase {
@@ -57,7 +116,37 @@ export interface PushDraft extends DraftBase {
   result?: PushDraftResult;
 }
 
-export type Draft = PrDraft | PushDraft;
+export interface CommentDraft extends DraftBase {
+  type: "comment";
+  payload: CommentDraftPayload;
+  result?: CommentDraftResult;
+}
+
+export interface ReviewDraft extends DraftBase {
+  type: "review";
+  payload: ReviewDraftPayload;
+  result?: ReviewDraftResult;
+}
+
+export type Draft = PrDraft | PushDraft | CommentDraft | ReviewDraft;
+
+const VERDICT_TITLE: Record<ReviewVerdict, string> = {
+  APPROVE: "Approve",
+  REQUEST_CHANGES: "Request changes on",
+  COMMENT: "Comment on",
+};
+
+/** "Request changes on PR #12, 3 inline comments". */
+export function reviewTitle(p: Pick<ReviewDraftPayload, "number" | "verdict" | "comments">): string {
+  const n = p.comments.length;
+  const head = `${VERDICT_TITLE[p.verdict]} PR #${p.number}`;
+  return n ? `${head}, ${n} inline comment${n === 1 ? "" : "s"}` : head;
+}
+
+export function repliesTitle(p: Pick<CommentDraftPayload, "number" | "replies">): string {
+  const n = p.replies.length;
+  return `Reply ${n} time${n === 1 ? "" : "s"} on PR #${p.number}`;
+}
 
 /** "Push 2 commits to PR #45": what a card calls a push draft. */
 export function pushTitle(p: Pick<PushDraftPayload, "commits" | "number" | "uncommitted">): string {
@@ -68,7 +157,11 @@ export function pushTitle(p: Pick<PushDraftPayload, "commits" | "number" | "unco
 
 /** The title a card shows for any draft. */
 export function draftTitle(d: Draft): string {
-  return d.type === "pr" ? (d.userEdits ?? d.payload).title : pushTitle(d.payload);
+  if (d.type === "pr") return (d.userEdits ?? d.payload).title;
+  if (d.type === "comment") return repliesTitle(d.payload);
+  if (d.type === "review") return reviewTitle(d.payload);
+  const replies = d.payload.replies?.length ?? 0;
+  return replies ? `${pushTitle(d.payload)}, reply ${replies} time${replies === 1 ? "" : "s"}` : pushTitle(d.payload);
 }
 
 /** The pull request the item's executed PR draft opened. Push drafts go to that same PR. */

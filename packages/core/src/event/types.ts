@@ -8,6 +8,8 @@ export const EVENT_TYPES = [
   "item.closed_upstream",
   "item.dismissed",
   "item.pr_merged",
+  "item.archived",
+  "item.refreshed",
   "agent.started",
   "agent.resumed",
   "agent.turn_started",
@@ -17,6 +19,8 @@ export const EVENT_TYPES = [
   "permission.asked",
   "permission.answered",
   "permission.auto_allowed",
+  "permission.granted",
+  "permission.grant_revoked",
   "draft.created",
   "draft.edited",
   "draft.approved",
@@ -25,6 +29,7 @@ export const EVENT_TYPES = [
   "draft.execution_failed",
   "worktree.removed",
   "worktree.remove_skipped",
+  "worktree.moved",
   "ci.started",
   "ci.passed",
   "ci.failed",
@@ -32,11 +37,17 @@ export const EVENT_TYPES = [
   "pr.conflicted",
   "pr.conflict_resolved",
   "pr.conflict_dismissed",
+  "pr.feedback",
+  "pr.feedback_dismissed",
+  "pr.commented",
+  "pr.merged",
+  "pr.merge_failed",
+  "pr.auto_merge_set",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
 
-/** Append-only. Never updated or deleted. */
+/** Append-only: never updated; deleted only together with their archived item by the retention purge (D37). */
 export interface Event {
   id: string;
   itemId: string;

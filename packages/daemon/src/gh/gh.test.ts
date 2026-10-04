@@ -33,6 +33,7 @@ describe("fetchAssignedIssues", () => {
     if (!r.ok) return;
     expect(r.issues).toHaveLength(4);
     expect(r.issues[0]).toEqual({
+      nodeId: "I_kwDOredacted161",
       repository: "acme/widgets",
       number: 161,
       url: "https://github.com/acme/widgets/issues/161",
@@ -45,7 +46,7 @@ describe("fetchAssignedIssues", () => {
     expect(r.issues[2]!.title).toBe("Prüfung der Eingabe vor dem Speichern");
     expect(exec.calls[0]!.args).toEqual([
       "search", "issues", "--assignee=@me", "--state=open",
-      "--json", "number,title,body,createdAt,labels,repository,url", "--limit", "1000",
+      "--json", "id,number,title,body,createdAt,labels,repository,url", "--limit", "1000",
     ]);
   });
 
@@ -116,6 +117,10 @@ describe("fetchIssueState", () => {
     expect(await fetchIssueState(fakeExec({ "gh issue view": ok(fixture("gh/issue-view-open.json")) }), "o/r", 1)).toBe("OPEN");
   });
 
+  it("reads a merged pull request as closed (D40)", async () => {
+    expect(await fetchIssueState(fakeExec({ "gh issue view": ok(fixture("gh/issue-view-merged-pr.json")) }), "o/r", 1)).toBe("CLOSED");
+  });
+
   it("is undefined when gh fails", async () => {
     expect(await fetchIssueState(fakeExec({ "gh issue view": fail("GraphQL: Could not resolve") }), "o/r", 1)).toBeUndefined();
   });
@@ -129,7 +134,7 @@ describe("fetchQueryIssues", () => {
     expect(exec.calls[0]!.args).toEqual([
       "issue", "list", "--repo", "github.com/acme/widgets",
       "--search", "is:issue (label:bug OR label:docs) no:assignee", "--state", "open",
-      "--json", "number,title,body,createdAt,labels,url", "--limit", "1000",
+      "--json", "id,number,title,body,createdAt,labels,url", "--limit", "1000",
     ]);
   });
 

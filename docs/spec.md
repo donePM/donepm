@@ -6,19 +6,23 @@ See `intent.md` for the why. This file says what to build. MVP only.
 
 In scope:
 
-- Source: GitHub issues assigned to the current user, via `gh`.
+- Sources: GitHub issues assigned to the current user, and open pull requests that request the
+  user's review (D40), via `gh`.
 - Repositories: found by scanning one root folder.
 - Board with four columns: Ready, In Progress, Needs You, Done.
 - One agent type: Claude Code, run as a child process, in a git worktree.
-- One playbook: `implement`. Playbooks are Markdown files.
-- One draft type: `pr`. The user approves it. The daemon pushes and creates the PR.
+- Two playbooks: `implement`, and `review` for pull requests under review (D42). Playbooks are
+  Markdown files.
+- One draft type: `pr`. The user approves it. The daemon pushes and creates the PR. Follow-ups on
+  that PR: `push` (6.6, 6.7) and `comment` (replies to review feedback, 6.9). A `review` draft is
+  the review of someone else's pull request (D43).
 - Agent permission questions shown as cards.
 - Live agent transcript in the UI.
 - Settings: repo root, worktree root, port, CLI status.
 - Event log per work item, shown as a timeline on the card.
 - CLI: `donepm start|stop|status`.
 
-Out of scope for the MVP: Jira, GitLab, review playbook, review feedback, schedules, Dependabot,
+Out of scope for the MVP: Jira, GitLab, schedules, Dependabot,
 log analysis, token login (only `gh` auth), multiple agents per item, agent budget, AI playbook
 selection, server sync.
 
@@ -54,7 +58,7 @@ functions. `daemon` calls them and persists the result.
 | field | type | notes |
 |---|---|---|
 | id | uuid | |
-| source | `github-issue` | more later |
+| source | `github-issue` \| `github-pr` | `github-pr`: a pull request that requests the user's review (D40) |
 | externalId | string | `owner/repo#123` |
 | externalUrl | string | |
 | repoId | uuid | |
@@ -62,14 +66,19 @@ functions. `daemon` calls them and persists the result.
 | body | string | raw issue body |
 | labels | string[] | |
 | state | enum | see 4.2 |
-| playbook | string | playbook name, default `implement` |
-| priority | int | tier from the labels, 0 most urgent (see 12.1); recomputed on every poll |
+| playbook | string | playbook name, default `implement`; `review` for `github-pr` |
+| priority | int | tier from GitHub's "Priority" issue field, else from the labels, 0 most urgent (see 6.2, 12.1, D45); recomputed on every poll |
 | issueCreatedAt | datetime? | when the issue was opened upstream (6.2) |
 | startedAt | datetime? | first `start`; kept on retry and through Needs You |
 | stateSince | datetime | when the item entered its current state; transitions that keep the state leave it |
 | worktreePath | string? | set when agent starts |
 | branch | string? | |
+| baseBranch | string? | a review's PR base, set when its worktree is created (D41); else the repo's default branch is the base |
 | agentSessionId | string? | Claude `session_id`, for `--resume` |
+| author | string? | `github-pr`: the PR author's login, `dependabot[bot]` for Dependabot (D47) |
+| prStatus | object? | `github-pr`: `{ state, closedAt?, mergeable, base, reviewDecision?, viewerReview?, checks? }` in GitHub's words, read each poll (6.2, D47) |
+| autoMerge | boolean? | `github-pr`: the card's "Merge automatically"; absent: the repo's `autoMerge` decides (6.2, D47) |
+| archivedAt | datetime? | set once by `archived` (6.8); an archived item is off the board and in the Archive (12.5) |
 | createdAt, updatedAt | datetime | |
 
 ### 4.2 Item states
@@ -78,13 +87,14 @@ functions. `daemon` calls them and persists the result.
 ready → running → needs_you → running → ... → checking → done
                 ↘ failed                         ↘ needs_you (CI red) → running (fix) → …
 checking | done → needs_you (PR conflicts, 6.7) → running (resolve) → … | back where it was
+done → needs_you (review feedback, 6.9) → running (address) → … | done
 ```
 
 | state | column | meaning |
 |---|---|---|
 | ready | Ready | collected, no agent yet |
 | running | In Progress | agent turn is open |
-| needs_you | Needs You | agent waits: permission question, or a draft is pending; or the PR's CI is red or it conflicts with its base |
+| needs_you | Needs You | agent waits: permission question, or a draft is pending; or the PR's CI is red, it conflicts with its base, or reviewers left feedback |
 | checking | In Progress | the PR is open and the daemon waits for its CI (6.6); no agent runs |
 | done | Done | CI of the PR passed, the PR has no CI, or the user marked it done |
 | failed | Needs You | agent exited with error; card shows stderr tail and offers retry |
@@ -94,12 +104,16 @@ Transitions are functions in `core`: `start(item)`, `agentAsked(item)`, `answere
 `draftRejected(item)`, `agentFailed(item)`, `interrupted(item)`, `resume(item)`,
 `worktreeRemoved(item)`, `ciPassed(item)`, `ciFailed(item)`, `ciRerun(item)`, `ciMarkedDone(item)`,
 `ciFix(item)`, `prConflicted(item)`, `prConflictResolved(item)`, `prConflictDismissed(item)`,
-`prConflictFix(item)`.
+`prConflictFix(item)`, `prFeedback(item)`, `prFeedbackFix(item)`, `prFeedbackDismissed(item)`,
+`repliesPosted(item)`, `reviewPosted(item)` (needs_you → done, D43), `reviewedPrMerged(item)` (`github-pr`,
+ready or done → done, D47), `archived(item, finishedAt)` (only from `done`, once; sets `archivedAt`, 6.8).
 Invalid transitions throw.
 
 ### 4.3 Event
 
-Append-only. Never updated or deleted.
+Append-only. Never updated. Deleted only together with their whole item, by the retention purge
+(6.8); a trigger refuses any other delete. The purge itself is logged, not recorded as an event:
+nothing would be left to attach it to.
 
 | field | type |
 |---|---|
@@ -112,17 +126,26 @@ Append-only. Never updated or deleted.
 | refId | uuid? (draft id, ask id, message id) |
 
 Event types in MVP: `item.collected`, `item.playbook_changed`, `agent.started`, `agent.resumed`,
-`agent.turn_started`, `agent.turn_ended`, `agent.failed`, `permission.asked`, `permission.answered`, `draft.created`,
+`agent.turn_started`, `agent.turn_ended` (payload: `subtype`, `isError`, `costUsd` from `total_cost_usd`, and `usage` from `result.usage` as `inputTokens` = input + cache read + cache creation, `outputTokens`, `cacheReadInputTokens`, `cacheWriteInputTokens`; `reasoningTokens` is never reported; a missing `usage` is left out), `agent.failed`, `permission.asked`, `permission.answered`, `draft.created`,
 `draft.edited`, `draft.approved`, `draft.rejected`, `draft.executed`, `draft.execution_failed`,
 `agent.interrupted`, `worktree.removed`, `item.assigned`, `item.assign_failed` (assign on start,
-see 6.4), `permission.auto_allowed` (the daemon answered a WebFetch ask itself, see 9.4),
+see 6.4), `permission.auto_allowed` (the daemon answered an ask itself: a WebFetch host on the
+list or an "Always allow" grant, see 9.4), `permission.granted` and `permission.grant_revoked`
+(an "Always allow" grant was added or removed, see 9.4),
 `item.closed_upstream` (a never-started item moved to Done) and `item.dismissed` (the user moved
 a started one to Done), both see 6.2, `item.pr_merged` (the item's PR was merged, the worktree
 stays) and `worktree.remove_skipped` (merged, but the worktree has uncommitted changes), both see
 6.5, `ci.started`, `ci.passed`, `ci.failed` and `ci.marked_done` (see 6.6), `pr.conflicted`,
-`pr.conflict_resolved` and `pr.conflict_dismissed` (see 6.7). `agent.resumed` carries
+`pr.conflict_resolved` and `pr.conflict_dismissed` (see 6.7), `pr.feedback` and
+`pr.feedback_dismissed` (see 6.9), `pr.commented` (actor `user`, payload `{ body }`: the user posted a
+comment on someone else's PR from its card, 6.2, D47), `pr.merged` (payload `{ method, auto }`;
+actor `user` for the card's Merge, `system` for auto-merge), `pr.merge_failed` (actor `system`,
+payload `{ method, auto, error }`: auto-merge failed and was turned off for the item) and
+`pr.auto_merge_set` (actor `user`, payload `{ on }`), all 6.2 and D47, `item.archived` (actor `system`,
+payload `{ finishedAt }`, see 6.8), `item.refreshed` (actor `system`, payload `{ changed: {
+priority?, title?, labels? } }`, each `{ from, to }` and only the fields that changed, see 6.2). `agent.resumed` carries
 `reason: "ci_failed"` when the user let the agent fix a red CI, `reason: "pr_conflict"` when it
-resolves a merge conflict. `worktree.removed` carries `reason: "pr_merged"` and actor `system` when the poll removed it.
+resolves a merge conflict, `reason: "pr_feedback"` when it addresses review feedback. `worktree.removed` carries `reason: "pr_merged"` and actor `system` when the poll removed it.
 
 ### 4.4 Draft
 
@@ -130,11 +153,11 @@ resolves a merge conflict. `worktree.removed` carries `reason: "pr_merged"` and 
 |---|---|---|
 | id | uuid | |
 | itemId | uuid | |
-| type | `pr` \| `push` | |
-| payload | JSON | for `pr`: `{ title, body, base }`; for `push`: `{ summary, number, url, branch, commits, uncommitted }` |
+| type | `pr` \| `push` \| `comment` \| `review` | |
+| payload | JSON | for `pr`: `{ title, body, base }`; for `push`: `{ summary, number, url, branch, commits, uncommitted, replies? }`; for `comment`: `{ number, url, replies }`. A reply is `{ body, inReplyTo? }` (6.9); for `review`: `{ number, url, commitId, verdict, body, comments }`, a comment `{ path, line, body }` (D43) |
 | state | `pending` \| `approved` \| `rejected` \| `executed` \| `failed` | |
 | userEdits | JSON? | the payload after user edits |
-| result | JSON? | for `pr`: `{ url, number }`; for `push`: `{ sha }` |
+| result | JSON? | for `pr`: `{ url, number }`; for `push`: `{ sha, posted? }`; for `comment`: `{ posted }`; for `review`: `{ id, url }`. `posted` lists `{ index, url }` per reply out, written after each one so a retry skips them |
 
 ### 4.5 PermissionAsk
 
@@ -146,6 +169,19 @@ resolves a merge conflict. `worktree.removed` carries `reason: "pr_merged"` and 
 | toolName | string |
 | input | JSON |
 | state | `pending` \| `allowed` \| `denied` \| `expired` (pending when the daemon restarted) |
+
+### 4.5a PermissionGrant ("Always allow", D38)
+
+| field | type | notes |
+|---|---|---|
+| id | uuid | |
+| repo | string | normalised origin, `github.com/owner/repo`; every clone shares it |
+| toolName, ruleContent | string, string? | the rule as Claude Code suggested it |
+| createdAt | ISO time | |
+| askId, itemId | uuid | the ask it was granted on; no foreign key, a grant outlives the purge (6.8) |
+| call | string | that ask's call in words, e.g. `Bash: pnpm test` |
+| useCount, lastUsedAt | int, ISO time? | asks it answered |
+| revokedAt | ISO time? | set by Remove; the row stays, it no longer matches |
 
 ### 4.6 Repo
 
@@ -164,6 +200,10 @@ config under `sources`, keyed by `originUrl`, not in `.donepm/` (see 14). Per re
 |---|---|---|
 | query | string? | the provider's issue search, pasted from its UI. Absent: issues assigned to me |
 | assignOnStart | boolean | default `false`; see 6.4 |
+| managed | boolean | default `false`: donePM collects and starts work only in managed repos (D46) |
+| autoMerge | boolean? | default `false`: default of the card's "Merge automatically" for others' PRs (6.2, D47) |
+| mergeMethod | `squash` \| `merge` \| `rebase`? | default `squash`: how others' PRs are merged here (6.2, D47) |
+| playbook | string? | default playbook of issues newly collected here (8.3); absent: chosen by `match`. Pull requests keep `review` (D40) |
 
 The provider follows from the host. Only `github.com` is supported; GitLab (issue list params via
 `glab api`) and Jira (JQL) can be added without changing the format. Other hosts are rejected.
@@ -189,8 +229,22 @@ Keep the raw line always. Decode what is known. Never fail on unknown event type
 - For each repo: read `origin` URL, normalise (strip `https://`, `git@`, `.git`, trailing
   slash). Store in `repos`.
 - Rescan on daemon start and on button click in Settings. Cache in SQLite.
-- Match issues to repos by normalised origin URL. Issues without a local repo are shown in Ready
-  with a "no local clone" badge and cannot be started.
+- Match issues to repos by normalised origin URL. Issues of a managed repo (4.6) without a local
+  repo are shown in Ready with a "no local clone" badge and cannot be started, but can be cloned.
+  Issues of unmanaged repos without a local clone are not collected; Settings lists those repos as
+  found on GitHub (6.2) with "Clone and manage".
+- Clone (issue #37): for a `github.com` origin, the daemon (never the agent)
+  runs `gh repo clone <owner>/<repo> <repoRoot>/<owner>/<repo>`. Read-only towards GitHub and the
+  user's click, so no draft. `gh` uses the user's auth and protocol and sets `upstream` for forks.
+  - Target exists: a clone of the same origin is registered without cloning; an empty folder is
+    cloned into; anything else (a clone of another origin, a repo without origin, a folder with
+    files, a file) is refused with 409 and never touched.
+  - Success: the clone is registered directly in `repos`, independent of the scan rules, and every
+    item of the origin is relinked. A rescan keeps a stored clone that sits at
+    `<repoRoot>/<owner>/<repo>` of its own origin even where the scan does not look (an owner
+    named `vendor` or starting with `.`).
+  - Failure: nothing is registered; the stderr tail stays on the items until the next try.
+  - One clone per origin at a time. `.donepm/setup.yml` (7.3) applies per worktree, not here.
 
 ## 6. GitHub adapter
 
@@ -208,13 +262,63 @@ On start and on Settings open:
 - Every 60 seconds (configurable).
 - Command:
   ```
-  gh search issues --assignee=@me --state=open --json number,title,body,createdAt,labels,repository,url
+  gh search issues --assignee=@me --state=open --json id,number,title,body,createdAt,labels,repository,url
   ```
   If `gh search` is not available, fall back to `gh issue list --assignee @me --json ...` per
   known repo.
+- Review requests (D40), same poll, same fields and schema:
+  ```
+  gh search prs --review-requested=@me --state=open --json number,title,body,createdAt,labels,repository,url
+  ```
+  and the pull requests assigned to the user (D47), Dependabot's included, also with `author`:
+  ```
+  gh search prs --assignee=@me --state=open --json number,title,body,createdAt,labels,repository,url,author
+  ```
+  Each becomes a `github-pr` item with playbook `review` and the PR's `author` login; a PR found by
+  both searches is one item. Without `gh search prs` there are no pull requests, not an error. A closed or merged PR is found like a closed issue: `gh issue view
+  --json state` answers `MERGED` for a merged PR, which counts as closed.
+- PR status (D47). At the end of each poll, for every `github-pr` item that is managed, not
+  archived, not closed upstream and not known to be merged or closed (done ones too: a reviewed PR
+  is still open), one call per 50
+  reads where the pull request stands, by repository and number, so PRs that left the searches are
+  still read:
+  ```
+  gh api graphql -f query='query { pr0: repository(owner: "o", name: "r") { pullRequest(number: 88) {
+    number state closedAt mergeable reviewDecision viewerLatestReview { state } baseRefName
+    commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } } ... }'
+  ```
+  The answer becomes the item's `prStatus`; a changed one is saved and pushed, without an event
+  (it is display). gh exits 1 when one PR does not resolve but answers for the others; those are
+  used. A failure leaves the stored status as it is.
+- Merge (D47). Someone else's PR may be merged once nothing blocks it (`mergeBlockers` in `core`):
+  state `OPEN`, the item `ready` or `done`, the user's own review `APPROVED`, checks (if any)
+  `SUCCESS`, and `mergeable` `MERGEABLE`, all as of the last poll. The card's Merge runs
+  `gh pr merge N --repo host/o/r --squash|--merge|--rebase` as the user, without
+  `--delete-branch` (the author's branch is theirs), and commits `reviewedPrMerged`. After the PR
+  status and the CI watch, each poll merges every such PR whose item has auto-merge on (its own
+  `autoMerge`, else the repo's), with the repo's `mergeMethod`. A failed auto-merge records
+  `pr.merge_failed` and turns `autoMerge` off for that item, so it is not retried every poll.
 - Validate output with a schema (zod). On schema failure: log the raw output, do not crash, show
   an error badge in Settings.
-- Upsert items by `externalId`. New issue → `item.collected` event, state `ready`. Closed issue
+- Priority (D45). After all sources answered, one call per 100 polled issues reads GitHub's
+  "Priority" issue field by the issues' node ids (`id` above; pull requests have no issue fields):
+  ```
+  gh api graphql -f query='query { nodes(ids: [...]) { ... on Issue { id issueFieldValues(first: 20) {
+    nodes { ... on IssueFieldSingleSelectValue { name field { ... on IssueFieldSingleSelect { name } } } } } } } }'
+  ```
+  The option of the field named "Priority" (any case) gives the tier: `Urgent` / `Critical` / `P0`
+  → 0, `High` / `P1` → 1, `Medium` / `Normal` / `P2` → 2, `Low` / `P3` → 3. No field, or an option
+  of another name → the labels decide (12.1). gh exits 1 when one id does not resolve but answers
+  for the others; those are used. A GitHub without issue fields (the query names an unknown field)
+  counts as "no field". Any other failure leaves the priority of known items as it is, rather than
+  falling back to the labels for one poll; new items take the labels. A failing lookup is not a
+  failing source. The issue type and Projects v2 fields are not read (D45).
+- Upsert items by `externalId`. New issue → `item.collected` event, state `ready`. A known item
+  takes over title, body, labels, URL and priority; a changed priority, title or label set (not the
+  order) adds one `item.refreshed` event naming only what changed, so the timeline can say
+  "Priority changed on GitHub: P2 → P1". Body and URL change silently. Items the poll does not
+  return (done, archived, or no longer assigned or matching their query) are not refreshed; they
+  are only checked for closing (D45). Closed issue
   that is not `done` (D32):
   - never started (`ready`, no worktree, no agent session) → the daemon moves it to `done` with an
     `item.closed_upstream` event (actor `system`). Nothing can be lost.
@@ -223,8 +327,22 @@ On start and on Settings open:
     (actor `user`). Not while the agent runs: the user stops it first. The worktree stays until
     the user removes it.
   An issue seen open again clears the badge; an item already in `done` stays there.
-- Never delete items automatically.
-- Repos with a `query` (4.6) are polled in addition, one call each:
+- Never delete items here. Only the retention purge deletes, and only archived items (6.8).
+- Archived and purged items (D37). An archived item's issue still open in the poll is skipped; one
+  missing from it is checked like any other and flagged closed upstream. An issue whose archived
+  item was flagged closed shows up again → reopened: collected as a **new** item, the archived one
+  stays as it is. A purged item leaves a tombstone (`externalId`, `source`, `originUrl`, `closed`,
+  `deletedAt`). While the tombstone is open the issue is skipped; the poll confirms each open
+  tombstone missing from the results with `gh issue view` and marks it closed. A closed tombstone
+  whose issue shows up again is removed and the issue is collected fresh. External ids are unique
+  among live items only.
+- Managed repos only (D46). The searches above stay one call each and return issues of every
+  repo; those of unmanaged repos are dropped. Unmanaged repos without a local clone are counted
+  per origin into `lastPoll.discovered` (`{ origin: count }`) for Settings. Without a `gh search`,
+  the per-repo fallback runs for managed repos only. Items of unmanaged repos are not checked for
+  closing and leave the board unless running, `needs_you`, or holding an open ask or draft; nothing
+  is deleted, and managing the repo again brings them back.
+- Managed repos with a `query` (4.6) are polled in addition, one call each:
   ```
   gh issue list --repo <origin> --search "<query>" --state open --json number,title,body,createdAt,labels,url
   ```
@@ -248,27 +366,42 @@ gh pr create --repo <owner/repo> --head <branch> --base <base> --title <t> --bod
 Store the PR URL in the draft result. Add `draft.executed` and `ci.started`. Set item to `checking`.
 
 A `push` draft runs only the push (uncommitted changes are committed first, as for `pr`) and stores
-the new head as `{ sha }`; then `ci.started` again and `checking`.
+the new head as `{ sha }`; then `ci.started` again and `checking`. With `replies`, they are posted
+after the push (6.9).
+
+A `comment` draft only posts its replies (6.9): `draft.executed` with `{ posted }`, item `done`, no
+CI wait since nothing was pushed. A reply that fails stops the draft with step `reply`; approving
+again posts only the ones not out yet.
+
+A `review` draft (D43) posts one review with all its inline comments, pinned to the reviewed commit:
+
+```
+gh api --hostname <host> --method POST repos/<o>/<r>/pulls/<n>/reviews --input <tmp>
+```
+
+`<tmp>` (0600) holds `{ commit_id, event, body, comments: [{ path, line, side: "RIGHT", body }] }`.
+Result `{ id, url }`, `draft.executed`, item `done`. A failure stops the draft with step `review`.
 
 ### 6.4 Assign on start
 
 When the item's repo has `assignOnStart`, `start` also runs
 `gh issue edit <n> --repo <owner/repo> --add-assignee @me` in the background and records
 `item.assigned` or `item.assign_failed` (with the reason). Neither changes the state; a failure does
-not stop the agent. The daemon runs this, never the agent (decision D28).
+not stop the agent. The daemon runs this, never the agent (decision D28). Only for `github-issue`
+items: a PR under review is someone else's.
 
 ### 6.5 PR state
 
 Part of each poll, after the CI watch, and only while `gh` is ready (D33, D36). For every item with
-an executed PR draft that is `done` with a worktree and no recorded merge, `checking`, or has a
-recorded conflict that has not ended (6.7):
+an executed PR draft that is `done` with no recorded merge (with or without a worktree: the merge
+decides when the item is finished, 6.8), `checking`, or has a recorded conflict that has not ended (6.7):
 
 ```
 gh pr view <number> --repo <host/owner/repo> --json state,mergedAt,mergeable,baseRefName
 ```
 
-`--repo` comes from the PR URL in the draft result. `mergeable` feeds 6.7; for the worktree only
-`MERGED` matters. A failure is logged and retried on the next poll.
+`--repo` comes from the PR URL in the draft result. `mergeable` feeds 6.7; `state: OPEN` on a `done`
+item feeds 6.9; for the worktree only `MERGED` matters. A failure is logged and retried on the next poll.
 
 - `removeWorktreeOnMerge` off → `item.pr_merged`, once.
 - On, worktree clean → removed as in 7.4, branch kept, `worktree.removed` (actor `system`, reason
@@ -277,6 +410,7 @@ gh pr view <number> --repo <host/owner/repo> --json state,mergedAt,mergeable,bas
 - On, worktree dirty → `item.pr_merged` and `worktree.remove_skipped` with the reason and the files,
   once. Checked again each poll; removed once it is clean.
 - The agent runs → `item.pr_merged`; the worktree is left alone.
+- No worktree (the user removed it) → `item.pr_merged`.
 
 Turning the setting on later removes worktrees of PRs already recorded as merged on the next poll.
 
@@ -322,12 +456,79 @@ From the same `gh pr view` as 6.5 (decision D36). Only `mergeable: CONFLICTING` 
 
 The card offers:
 
-- **Resolve with agent** (needs a session): the daemon fetches the base (the agent has no network),
-  then resumes the session (`agent.resumed`, reason `pr_conflict`) with the base and the files as
-  message. The agent merges `origin/<base>` (no rebase, so the push does not rewrite the PR), runs
-  the tests, commits, and calls `draft_push`. After the push the item waits for CI (6.6).
+- **Resolve with agent** (needs a session): the daemon fetches the base and the PR branch
+  (`git fetch origin <base> <branch>`, the agent has no network), then resumes the session
+  (`agent.resumed`, reason `pr_conflict`) with the base and the files as message. The agent first
+  merges `origin/<branch>`, which brings in commits only GitHub has (e.g. from "Update branch") so
+  the push stays a fast-forward, then `origin/<base>` (no rebase, so the push does not rewrite the
+  PR), runs the tests, commits, and calls `draft_push`. After the push the item waits for CI (6.6).
 - **I'll do it myself**: `pr.conflict_dismissed` (actor `user`), item back to `from`. The card shows
   a quiet note "PR #n has merge conflicts with main" until the conflict ends.
+
+### 6.8 Retention
+
+Part of each poll, after the CI watch and the PR state, also while `gh` is not ready (D37). The
+clock is the daemon's `Ctx`, so tests move it.
+
+- **Finished**: `done`, and the PR merged if a draft opened one (`item.pr_merged`, or
+  `worktree.removed` with reason `pr_merged`). A done item without a PR (closed upstream,
+  dismissed, marked done) is finished when it became done. `finishedAt` is the later of the
+  merge and `stateSince`. A PR closed without merge never finishes the item. A `github-pr` item
+  (D47) whose PR is still open is not finished; once its `prStatus` says merged or closed, it is
+  finished at the later of `closedAt` and `stateSince`.
+- **Archive**: a finished item with no pending draft or ask, finished for `archiveAfterHours`
+  (14), gets `archived` (4.2): `item.archived`, `archivedAt`. It leaves the board (`item.removed`
+  over the WebSocket) and stays in the Archive (12.5) with its events, drafts and transcript.
+- **Purge**: an archived item archived for `deleteAfterDays` and without a worktree is deleted in
+  one transaction with its events, drafts, asks and transcript, and a tombstone is written (6.2).
+  The daemon log records it. `deleteAfterDays: null` never deletes. An item that still has a
+  worktree is kept until the user (or the merge, 6.5) removes it.
+- A failure on one item is logged; the others go on. Changed settings apply on the next poll.
+
+### 6.9 Review feedback
+
+From the same poll as 6.5 (decision D39): for an item that is `done` whose PR is `OPEN`, the daemon
+reads the PR's reviews and comments with one GraphQL call:
+
+```
+gh api graphql --hostname <host> -F owner=<o> -F name=<r> -F number=<n> -f query=<FEEDBACK_QUERY>
+```
+
+Feedback is, from people other than the PR's author (the user, so donePM's own replies never count)
+and never from bots (`__typename: Bot`):
+
+- a review in state `CHANGES_REQUESTED`, or `COMMENTED` with a body (approvals, dismissed and
+  pending reviews are not feedback);
+- every inline comment of such a review, with its path, line, diff hunk and thread (the id of the
+  thread's first comment);
+- a comment in the PR's conversation.
+
+Entries are known by `kind:id`. New feedback is what no earlier `pr.feedback` recorded; while the
+item is `running`, `checking` or `needs_you` it waits until the item is `done` again. New feedback →
+`pr.feedback { number, url, entries }`, item `needs_you`. A failed call is logged and retried next
+poll. Red CI after done is not feedback; the CI watch only runs while `checking`.
+
+The card offers:
+
+- **Address with agent** (needs a worktree and a session): the daemon fetches the PR branch
+  (`git fetch origin <branch>`, the agent has no network), then resumes the session
+  (`agent.resumed`, reason `pr_feedback`) with every entry, inline ones with `path:line`, thread
+  number and the end of their diff hunk. The agent first merges `origin/<branch>`, which brings in
+  commits only GitHub has (a committed suggestion, "Update branch") so the push stays a
+  fast-forward, then changes what is needed, commits, and calls `draft_push` with
+  `replies`; or, when nothing needs to change, `draft_comment`.
+- **Mark done**: `pr.feedback_dismissed` (actor `user`), item `done`. Those entries do not come back.
+
+A reply with `inReplyTo` answers in that inline thread; without it, it is a comment on the PR. The
+daemon posts it as the user after approval, never the agent:
+
+```
+gh pr comment <n> --repo <host/o/r> --body-file <tmp>
+gh api --hostname <host> --method POST repos/<o>/<r>/pulls/<n>/comments/<thread>/replies -F body=@<tmp> --jq .html_url
+```
+
+`inReplyTo` must be a thread from a `pr.feedback` of this item; anything else is refused when the
+draft is created, so a reply cannot land on an unrelated thread.
 
 ## 7. Worktrees
 
@@ -335,6 +536,19 @@ The card offers:
 
 `worktreeRoot`, default `~/.local/share/donepm/worktrees/`. Path per item:
 `<worktreeRoot>/<repo-slug>/<branch-slug>/`.
+
+Changing the root (#93, D44). New worktrees go to the new root. Items' worktrees under the old one,
+review worktrees (D41) included, are not left behind silently: `PUT /api/settings` with a new root
+answers 409 with the list (`worktreesAtOldRoot`: item, title, path, whether an agent runs in it) and
+saves nothing until the user chooses, by `?worktrees=move` or `?worktrees=leave`. Move runs, per
+item, `git -C <main clone> worktree move <old> <new>` with the same relative path under the new
+root, so git's metadata follows. It never touches a worktree an agent works in, never overwrites an
+existing target, and skips a missing worktree or a failed `git`; each skip comes back with its
+reason. A moved item gets the new `worktreePath` and an event `worktree.moved { from, to }`
+(actor `user`); its state and `agentSessionId` stay, and a later resume runs `claude --resume` in
+the new directory. Leave keeps every path as it is; those items go on working there. Either way the
+old root is kept in `previousWorktreeRoots` (14) so orphans there are still found (7.5), until
+nothing donePM knows is left under it.
 
 ### 7.2 Create
 
@@ -345,6 +559,17 @@ git -C <repo> worktree add -b <branch> -- <path> origin/<defaultBranch>
 
 Branch name: `<prefix><issue-number>-<slug-of-title>`, prefix configurable, default `dp/`.
 Max 60 chars. If the branch exists: append `-2`, `-3`.
+
+A `github-pr` item (D41) is checked out at the PR's head instead. `gh pr view --json
+state,mergedAt,mergeable,baseRefName` gives the base (stored as `baseBranch`); a PR that is not
+open is refused. Then:
+
+```
+git -C <repo> fetch origin <base> +refs/pull/<n>/head:refs/donepm/pull/<n>
+git -C <repo> worktree add -b <prefix>review-<n>-<slug> -- <path> refs/donepm/pull/<n>
+```
+
+No setup (7.3) runs for it: no dependency install, no `setup.yml`.
 
 ### 7.3 Setup per repo
 
@@ -386,7 +611,8 @@ the PR is merged, with `removeWorktreeOnMerge` on and a clean worktree (6.5, D33
 ### 7.5 Reconcile on start
 
 On daemon start: for each repo, `git worktree list --porcelain`. Compare with items. Worktrees
-not in the database → show in Settings as "orphaned" with a remove button. Items whose worktree
+not in the database, under the worktree root or a former one (`previousWorktreeRoots`, 7.1) → show in
+Settings as "orphaned" with a remove button. Items whose worktree
 is missing → mark `failed` with reason.
 
 ## 8. Playbooks
@@ -395,8 +621,8 @@ is missing → mark `failed` with reason.
 
 - Global: `~/.config/donepm/playbooks/*.md`
 - Per repo: `<repo>/.donepm/playbooks/*.md`. Same name overrides global.
-- Ship one built-in default `implement.md`, written to the global folder on first start if
-  missing.
+- Ship two built-in defaults, `implement.md` and `review.md`, each written to the global folder on
+  start if a file of that name is missing.
 
 ### 8.2 Format
 
@@ -428,13 +654,15 @@ Frontmatter fields:
 | name | yes | unique |
 | model | yes | passed to `--model` |
 | effort | no | passed to `--effort` |
-| permission_mode | yes | `acceptEdits` \| `plan` \| `bypassPermissions` |
-| drafts | yes | list of allowed draft types: `[pr]`; `pr` also allows `draft_push` |
+| permission_mode | yes | `default` \| `acceptEdits` \| `plan` \| `bypassPermissions` |
+| read_only | no | `true`: no edit or web tools, project settings not loaded (9.1, D42); needs `permission_mode: default` and no `pr` draft |
+| drafts | yes | list of allowed draft types: `[pr]`, `[review]`; `pr` also allows `draft_push` and `draft_comment` |
 | match.source | no | source filter |
 | match.labels | no | any of these labels |
 
 Body: the first user message. Placeholders: `{{ externalId }}`, `{{ title }}`, `{{ body }}`,
-`{{ labels }}`, `{{ branch }}`, `{{ repoPath }}`.
+`{{ labels }}`, `{{ branch }}`, `{{ repoPath }}`, `{{ base }}` (the PR's base for a review, else the
+default branch).
 
 ### 8.3 Selection (MVP)
 
@@ -442,6 +670,8 @@ Body: the first user message. Placeholders: `{{ externalId }}`, `{{ title }}`, `
 - Exactly one candidate → use it.
 - More than one → use the first by name, show dropdown on the card. Later: classifier interface
   `choosePlaybook(item, candidates)` with providers (rules, jev.ai, Claude). Not in MVP.
+- A repo's `sources[origin].playbook` (4.6) wins for its newly collected issues; existing items
+  keep theirs.
 - User changes via dropdown → `item.playbook_changed` event.
 
 ## 9. Agent runner
@@ -481,6 +711,11 @@ Notes:
   `GH_CONFIG_DIR` and `GLAB_CONFIG_DIR` point at an empty directory under the data dir.
 - The same `--settings` allows `mcp__donepm`: its tools only create drafts, so a permission
   question per call would ask the user twice for the same thing.
+- A `read_only` playbook (D42) adds deny rules for `Edit`, `Write`, `MultiEdit`, `NotebookEdit`,
+  `WebFetch`, `WebSearch`, allows `Bash(git diff *)`, `Bash(git log *)`, `Bash(git show *)`, sets
+  `autoAllowBashIfSandboxed: false`, and passes `--setting-sources user` so the worktree's
+  `.claude/settings*.json` (hooks, permissions, MCP enablement) is not loaded. Still no
+  `--strict-mcp-config`. "Always allow" grants (D38) do not answer its asks.
 
 ### 9.2 First message
 
@@ -530,10 +765,35 @@ any other line; grouping is the transcript view's job (`core/transcript/subagent
 or `"behavior":"deny","message":"<text>"`. `request_id` must match. After answering: item back
 to `running`.
 
+"Deny and stop". A deny normally lets the agent try another way to the same goal. The ask panel
+offers "Deny and say why…": a text field ("The agent reads this.") with **Deny** and **Deny and
+stop**. The latter answers
+
+```json
+{"behavior":"deny","message":"<text>","interrupt":true}
+```
+
+so Claude Code ends the turn right away (Bloom's `interrupt: true`; not measured against the
+installed CLI yet, no fixture). The HTTP answer takes `interrupt?: boolean` on a deny; the message
+stays optional and defaults to "The user denied this.". The `permission.answered` payload is
+`{ behavior, rules, interrupt }`, `interrupt` false unless the user stopped the turn. The turn ends
+like any other: `result` gives `agent.turn_ended` and the item goes to `needs_you`, so the user
+can write the next message. A decline of an `AskUserQuestion` has no stop button.
+
 "Allow for this run" (D30). The request's `permission_suggestions` holds `addRules` entries, for
 example `{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"curl *"}],"behavior":"allow","destination":"localSettings"}`.
-The daemon keeps the allow rules, drops any that would cover a blocked command or all of Bash, and
-offers a second button when any are left. Answering with it adds them for the session:
+The daemon keeps the allow rules for the asked tool only (Claude Code may attach others, e.g. a
+`Read(/tmp/**)` rule to a Bash ask; a `SandboxNetworkAccess` ask keeps its `WebFetch(domain:…)`
+rule), drops any that would cover a blocked command or all of Bash, and offers a second button when
+any are left. A request with `suppress_always_allow_rule` or `requires_user_interaction` set to
+`true` (undocumented; Bloom hides the wider buttons for them) offers no rules at all, so the panel
+shows only Allow and Deny; missing or any other value means false. `AskUserQuestion` asks carry
+`requires_user_interaction: true` (recorded in `ask-question.jsonl`). The selection is
+`sessionRules` in core. Under the buttons the panel says in plain words what the second button
+grants before it is pressed: "Bash commands matching `bin/test *`" (the legacy `cmd:*` shown as
+`cmd *`), "web and network access to `github.com`", "`<Tool>` calls matching `<pattern>`", or "all
+`<Tool>` calls", followed by "for the rest of this run". Answering with it adds them for the
+session:
 
 ```json
 {"behavior":"allow","updatedInput":<input>,"updatedPermissions":[{"type":"addRules","rules":[…],"behavior":"allow","destination":"session"}]}
@@ -541,6 +801,27 @@ offers a second button when any are left. Answering with it adds them for the se
 
 `destination` is always `session`, whatever the suggestion said. The `permission.answered` event
 payload is `{ behavior, rules }`, with `rules` empty for a one-time answer.
+
+"Always allow in <owner/repo>" (D38). A third button, shown whenever "Allow for this run" is, stores
+the same rules as grants of the item's repository (`permission_grants`, 4.5a) and answers this ask
+with a **plain** allow, no `updatedPermissions`. The hint under the buttons adds "; "Always allow"
+in every run in <owner/repo>, until you remove it in Settings". The `permission.answered` payload is
+`{ behavior: "allow", rules: [], interrupt: false, always: [{ grantId, repo, toolName, ruleContent? }] }`,
+and each new grant gets a `permission.granted` event (actor `user`, refId the grant, payload the
+grant plus `askId`). A rule the repo already has is not stored twice. The daemon refuses the scope
+for an ask without rules or with a blocked one (409).
+
+On every new ask the daemon reads the repo's active grants and answers by itself when
+`matchGrants` (core) says so: Claude Code suggested at least one allow rule for the asked tool, none
+of them is blocked, each equals an active grant exactly (tool name and rule content, as suggested),
+neither flag is set, and the tool is not `AskUserQuestion`. A stored grant on the block list never
+matches. The answer is a plain allow; the item stays `running`; the ask is stored as `allowed` with
+the outcome reason "always allowed in <owner/repo>: `Bash(pnpm test *)`"; the grants' `useCount`
+and `lastUsedAt` go up; a `permission.auto_allowed` event (actor `system`, payload `{ toolName,
+repo, grants: [{ grantId, toolName, ruleContent? }] }`) records it. Because the CLI never got a
+session rule, it asks again next time, so removing a grant applies at once, also in a run already
+going: the next matching ask goes to the user. Remove records `permission.grant_revoked` on the item
+the grant was made on, if that item still exists.
 
 Showing an ask. The ask panel shows the tool's whole input, never cut: Bash the full command (plus
 `description`, plus `cwd` when it is not the worktree), Write/Edit/MultiEdit the path and the
@@ -592,8 +873,17 @@ questions with the user's message. The `permission.answered` payload carries `an
 ### 9.5 Process lifecycle
 
 - One child process per running item.
-- Daemon shutdown: SIGTERM to all children, wait 5 s, SIGKILL. Items stay `running` in the
-  database with their `agentSessionId`.
+- Daemon shutdown: first every pending ask of a child is answered with a deny ("donePM is shutting
+  down; the ask was not answered."), so the agent does not wait on a question nobody can answer.
+  The ask is stored `denied` with that reason and a `permission.answered` event (actor `system`,
+  payload `{ behavior: "deny", message, reason }`) is recorded; an item that waited on it is
+  interrupted (`agent.interrupted`). Then SIGTERM to all children, wait 5 s, SIGKILL. Items stay
+  `running` in the database with their `agentSessionId`.
+- Stop button: the same deny first (message "The user stopped the agent; the ask was not
+  answered."), then SIGTERM. A question that arrives while the process is closing is denied too.
+  No ask is left `pending` for a process that is gone.
+- Asks still `pending` at daemon start (crash, kill) become `expired` with the reason "donePM was
+  not running when this was asked". The ask row shows the reason after the outcome.
 - Daemon start: items in `running` → set to `needs_you` with badge "daemon restarted, resume?".
   Button "Resume" starts the process with `--resume` and sends a short message
   ("Continue where you left off.").
@@ -619,8 +909,10 @@ Tools in MVP:
 | tool | input | effect |
 |---|---|---|
 | `draft_pr` | `{ title, body }` | creates Draft `pr`, state `pending`; item → `needs_you`; returns "Draft created, the user will review it." |
-| `draft_push` | `{ summary }` | only after the item's PR exists; the daemon adds the PR, branch and the commits the PR lacks (`git log origin/<branch>..HEAD`); creates Draft `push`, item → `needs_you`. Refused without a PR, or with no commits and nothing uncommitted |
-| `whoami` | – | returns item id, branch, worktree path, repo |
+| `draft_push` | `{ summary, replies? }` | only after the item's PR exists; the daemon adds the PR, branch and the commits the PR lacks (`git log origin/<branch>..HEAD`); creates Draft `push`, item → `needs_you`. Refused without a PR, or with no commits and nothing uncommitted. `replies`: `[{ body, inReplyTo? }]`, posted after the push (6.9) |
+| `draft_comment` | `{ replies }` | replies to review feedback without a push; only after the item's PR exists; creates Draft `comment`, item → `needs_you`. Refused without a PR, without replies, or with an `inReplyTo` that is no known thread (6.9) |
+| `draft_review` | `{ verdict, body, comments? }` | only for a `github-pr` item; `verdict` `APPROVE` \| `REQUEST_CHANGES` \| `COMMENT`, a comment `{ path, line, body }`. The daemon adds the PR and the reviewed commit; creates Draft `review`, item → `needs_you`. Refused without a body (except `APPROVE`) or with a line that is not on the new side of `git diff origin/<base>...HEAD` (D43) |
+| `whoami` | – | returns item id, branch, worktree path, repo, and `baseBranch` for a review |
 
 A tool call not allowed by the playbook returns an error result (`isError: true`) with text, not a
 JSON-RPC error.
@@ -631,12 +923,16 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 
 | method | path | purpose |
 |---|---|---|
-| GET | `/api/items` | all items with state, playbook, repo |
-| GET | `/api/items/:id` | item + events + drafts + asks |
-| POST | `/api/items/:id/start` | create worktree, run setup, start agent |
-| POST | `/api/items/:id/playbook` | `{ name }` |
+| GET | `/api/items` | items on the board (archived ones excluded) with state, playbook, repo, `finishedAt` |
+| GET | `/api/archive` | archived items, newest archived first (12.5) |
+| GET | `/api/items/:id` | item + events + drafts + asks; archived items too |
+| POST | `/api/items/:id/start` | create worktree, run setup, start agent; 409 when the repo is not managed (D46) |
+| PUT | `/api/items/:id/playbook` | `{ playbook }`: the card's playbook choice, `item.playbook_changed`; only on a `ready` item that never started (409 otherwise), 400 for a playbook the item's repo does not have |
+| POST | `/api/items/:id/say` | `{ text }`: a note from the user to the running agent, written to its stdin as the next user message; it joins the running turn. 409 when the agent is not running, 400 for an empty or too long note |
 | GET | `/api/items/:id/transcript?after=<id>` | paged transcript |
-| POST | `/api/asks/:id/answer` | `{ behavior: allow\|deny, scope?: run, answers?, message? }` |
+| POST | `/api/asks/:id/answer` | `{ behavior: allow\|deny, scope?: run\|always, answers?, message? }` |
+| GET | `/api/grants` | active "Always allow" grants of every repo (4.5a) |
+| POST | `/api/grants/:id/revoke` | sets `revokedAt`; 404 for a missing or removed grant |
 | POST | `/api/drafts/:id/edit` | `{ payload }` |
 | POST | `/api/drafts/:id/approve` | executes |
 | POST | `/api/drafts/:id/reject` | `{ reason }`; reason is sent to the agent as next message. Without a live process (e.g. after a restart) the session is resumed with `--resume` and the reason as its first message |
@@ -645,45 +941,130 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/items/:id/ci/rerun` | red CI only; reruns the failed jobs (6.6) |
 | POST | `/api/items/:id/ci/done` | `checking` or red CI → `done` |
 | POST | `/api/items/:id/ci/fix` | red CI with a session; resumes the agent with the failures |
-| POST | `/api/items/:id/conflict/resolve` | waiting merge conflict with a session; fetches the base, resumes the agent (6.7). 202 |
+| POST | `/api/items/:id/conflict/resolve` | waiting merge conflict with a session; fetches the base and the PR branch, resumes the agent (6.7). 202 |
 | POST | `/api/items/:id/conflict/dismiss` | waiting merge conflict → back where it was (6.7) |
+| POST | `/api/items/:id/feedback/address` | waiting review feedback with a worktree and session; fetches the PR branch, resumes the agent with it (6.9). 202 |
+| POST | `/api/items/:id/feedback/dismiss` | waiting review feedback → `done` (6.9) |
+| POST | `/api/items/:id/pr/comment` | `{body}`: `gh pr comment` on a `github-pr` item's PR as the user, `pr.commented`; 502 with gh's message when it fails (D47) |
+| POST | `/api/items/:id/pr/merge` | `{method}`: `gh pr merge` on a `github-pr` item's PR, `pr.merged`; 409 with the blockers, 502 with gh's message (6.2, D47) |
+| PUT | `/api/items/:id/auto-merge` | `{on}`: the item's "Merge automatically", `pr.auto_merge_set` (D47) |
 | POST | `/api/items/:id/dismiss` | closed upstream, not running → `done` (D32); 409 otherwise |
-| GET | `/api/worktrees/orphaned` | worktrees under the root that no item uses |
+| GET | `/api/worktrees/orphaned` | worktrees under the root that no item uses, with `branch`, `sizeBytes` and `lastCommitAt` when known |
 | POST | `/api/worktrees/orphaned/remove` | `{ path }`; only paths from the orphan list |
-| GET | `/api/repos` | |
+| GET | `/api/repos` | each with `managed` (D46) and `worktrees`, the number of items with a worktree there |
 | POST | `/api/repos/rescan` | |
-| GET/PUT | `/api/settings` | PUT is partial; `sources` is replaced as a whole |
+| POST | `/api/repos/clone` | `{ origin }`; clones into `<repoRoot>/<owner>/<repo>` (5). 202 `{ origin, path, result: "started" }`, the outcome arrives as `repo.*` pushes; 200 with `result: "cloned"` when a clone of the origin was at the target already; 400 for an origin donePM cannot clone; 409 while it clones, when it has a clone, or the target is occupied. A clone makes the origin managed (D46) |
+| PUT | `/api/repos/:id` | `{ managed: boolean }`; manages or stops managing the repo's origin (D46). Managing polls at once |
+| GET/PUT | `/api/settings` | PUT is partial; `sources` is replaced as a whole. A new `worktreeRoot` with item worktrees under the old one needs `?worktrees=move\|leave`, else 409 `{ worktreesAtOldRoot }` and nothing saved; with move the answer has `worktrees: { moved, skipped }` (7.1) |
 | POST | `/api/sources/test` | `{ origin, query }`; runs the query once: `{ count, issues }` (first 10) |
-| GET | `/api/status` | CLI detection, daemon version, running agents |
+| GET | `/api/status` | CLI detection, daemon version, pid, `startedAt`, running agents, last poll and scan, `pollErrors` (the last 5 failed polls, newest first) |
+| GET | `/api/playbooks` | `{ globalDir, playbooks, problems }`: global playbooks, then each repo's own with `scope` and `overridesGlobal`; broken files as problems (12.4) |
+| GET | `/api/daemon` | version, pid, port, `startedAt`, `service` (`launchd` \| `manual`), config, database path and size, log file (launchd only), playbooks folder |
+| POST | `/api/daemon/restart` | 202, then exits with 75 so launchd starts it again (13); 409 when started by hand |
+| POST | `/api/daemon/open` | `{ what: logs\|playbooks }`: opens the log file or the global playbooks folder in Finder; 409 when there is none |
 
-WebSocket `/ws`: server pushes `{ type, payload }` for `item.updated`, `event.appended`,
-`transcript.appended`, `stream.delta`, `status.changed`. UI reloads the affected item on
-`item.updated`.
+WebSocket `/ws`: server pushes `{ type, payload }` for `item.updated`, `item.removed` (`{ id }`: the
+item left the board, e.g. archived), `event.appended`,
+`transcript.appended`, `stream.delta`, `status.changed`, `repo.cloning` and `repo.cloned`
+(`{ origin, path }`), `repo.clone_failed` (`{ origin, path, error }` with the stderr tail). UI
+reloads the affected item on `item.updated`; every item of the origin gets one when a clone starts,
+finishes or fails. An item without a clone that donePM can clone carries
+`clone: { origin, target, cloning?, error? }`. A `checking` item carries `ci: { checks }`, the PR's
+checks from the last CI watch poll (`name`, `bucket` as `gh pr checks` reports it, `startedAt` while
+pending); the daemon keeps them in memory only, so they are absent until the first poll after a start.
 
 ## 12. UI
 
-Vue 3. Three views. Mockups of all four screens are in `docs/screens/` (PNG plus HTML sources, see
-its README). Palette: ground `#ECECE8`, card `#FFFFFF`, ink `#141413`,
-secondary text `#3F3F3A` / `#66665F`, borders `#C9C9C3` / `#E3E3DE`, primary blue `#1D4ED8`
-(tint `#DBEAFE`), needs-you amber `#A14A05` (tint `#FFF3DA`), danger `#991B1B`, diff add `#DCFCE7`,
-diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
+Vue 3. Four views. Mockups of the main screens in light and dark are in `docs/screens/` (PNG plus
+HTML sources, see its README). All colours are tokens in `packages/web/src/theme.css`; components
+use only the tokens. Light: ground `#FAFAFA`, card `#FFFFFF`, muted `#F4F4F5`, ink `#09090B` /
+`#3F3F46` / `#6B6B76`, borders `#E4E4E7` / `#D4D4D8`, primary indigo `#4F46E5` (tint `#EEF2FF`),
+needs-you amber `#B45309` (tint `#FFFBEB`), ok green `#15803D` (only CI and merges), danger
+`#DC2626` (bug labels, failures, diff removals), diff add `#DCFCE7`, diff remove `#FEE2E2`. Dark:
+ground `#09090B`, card `#18181B`, ink `#FAFAFA`, primary `#6366F1`, amber `#FBBF24`, green
+`#4ADE80`, danger `#F87171`; tints are the same hues at 12–18% alpha. Code blocks stay dark in both
+themes. Fonts: IBM Plex Sans, JetBrains Mono.
+
+Theme: one button in the header, right of the status, cycles **system → light → dark → system**.
+Its icon shows the current choice (monitor, sun, moon); its `aria-label` names the current choice
+and the next one ("Theme: system. Switch to light"). Default is system: `prefers-color-scheme`
+decides, and an OS change is followed live. Light and dark ignore the OS. The choice is per browser
+(`localStorage` key `donepm.theme`; an unknown value means system), not daemon state. An inline
+script in `index.html` sets `dark` on `<html>` before first paint, so a reload does not flash.
+`color-scheme` follows the theme, so native controls and scrollbars match. The favicon follows the
+OS only; a page cannot choose its favicon by class.
+
+Waiting for CI (`checking`, D35): a small round dot in needs-you amber stands before "Waiting for
+CI" on the card, in the CI panel heading and in the item's state badge. It pulses gently (opacity and
+scale only, no layout shift) and stays static under `prefers-reduced-motion: reduce`.
+
+Header, every view: brand disc and "donePM" on the left, then nav links with icons (Board, Agents
+with a badge counting running agents, Archive, Settings). Right side: an amber pill "3 need you"
+while at least one item is in the Needs You column (`columnOf`, so `failed` counts; archived items
+do not). It is hidden at zero, links to the board, updates live from `item.updated`, and has an
+`aria-label` such as "3 items need you". Then the status dot with the poll text ("polled 12 s ago";
+red problem icon when the daemon has a problem), then the theme switch. Amber means "you have
+something to do"; red stays for daemon problems. Icons are inline SVG components in
+`packages/web/src/icons/`, no icon library.
+
+Layout: the document never scrolls. The app fills the window; each view scrolls inside it, so there
+is exactly one vertical scrollbar per view (the Agents view has one per pane on a desktop and one
+for the whole view on a phone). Every scroll container is positioned, so visually hidden labels
+(`.sr`) stay inside it instead of stretching the document. Views other than the board load lazily.
 
 ### 12.1 Board
 
-- Four columns: Ready, In Progress, Needs You, Done. Cards: title, repo, external id, labels,
-  playbook badge, running indicator.
-- Ready card: dropdown for playbook, button "Start". Cards without local repo: greyed out.
+- Four columns: Ready, In Progress, Needs You, Done. Column headers are uppercase with a count;
+  Needs You is amber; In Progress reads "3 · 2 agents" while agents run. Below 1050px the four
+  columns keep their width and the board scrolls sideways; on a phone the columns stack per lane.
+- Lanes: one per repository, header with a chevron, the repo name in mono and "5 items". A
+  collapsed lane shows a summary instead ("2 ready · 1 needs you · 1 done") and a badge with the
+  number of open Dependabot PRs.
+- Card: the number (`#45`) top left, at most one badge top right (`cardBadge`): what the user is
+  asked for (PR draft, push draft, replies draft, review draft, permission, CI failed, conflict,
+  review, interrupted, failed), else merged / closed upstream / done, else "PR · <author>" on a
+  `github-pr` item, else the first label (bug red, feature indigo). Then the title and the other
+  labels. Cost (`$0.41`) shows on cards; tokens only on the item page and in the Agents view.
+- Card variants: running (indigo border, "running · 6:12" with a dot, branch and current tool in
+  mono, Transcript / Stop, cost); waiting for CI (pulsing dot, one badge per check, green with a
+  tick when passed, "name · 1:20" while pending, PR link); PR draft (amber card, "waiting 14 min",
+  Review draft); conflict ("PR #45 conflicts with main in 2 files. Who resolves it?", Agent / I'll
+  do it, PR link); permission (tool, input as a code block, Allow / Allow for this run / Deny…);
+  merged (green badge, PR link, "worktree removed · $0.65"); no clone and closed upstream are ghost
+  cards with a dashed border.
+- Ready card: a select "implement · opus" (global playbooks plus the repo's own, a repo playbook
+  overriding a global one of the same name) and "Start" with a play icon. The select is enabled
+  only on a ready item that never started; a change is saved at once (`PUT
+  /api/items/:id/playbook`). Cards without local repo: greyed out, with
+  "No local clone under <repoRoot>" and a Clone button (5) whose tooltip names the target. While
+  it clones the button reads "Cloning…" and is disabled; a refused or failed clone shows its
+  message under it. Once cloned the card links the clone and Start appears, no rescan needed.
 - Needs You card: shows what is needed: permission question (tool name, input, Allow / Deny) or
   draft (title, body editable, diff of branch vs base, Approve / Reject with reason) or failure
   (stderr tail, Retry / Remove worktree) or red CI (failed checks with log tails, Fix with agent /
   Rerun failed / Mark done) or a push draft (commits, Approve and push / Reject) or a merge
   conflict ("PR #45 has merge conflicts with main", the files, Resolve with agent / I'll do it
-  myself).
-- In Progress card of a `checking` item: "waiting for CI", Mark done.
+  myself) or review feedback (flag "Review", "PR #45 has review feedback from @ana", Address with
+  agent / Read / Mark done) or a reply draft (flag "Reply draft") or a review draft (flag "Review
+  draft", "Posting", "Review failed").
+- A `github-pr` card carries the badge "PR · <author>" next to its id (D40, D47), and chips for its
+  `prStatus`: "Conflicts", the checks ("CI green", "CI failed", "CI running") and the user's own
+  review ("You approved", "You asked for changes", "Not reviewed by you"). On a conflict, "Ask
+  author" opens a comment prefilled with `@dependabot rebase` for Dependabot, else a request to
+  resolve the conflicts with the base; the user edits it, and "Post comment" is the approval
+  (D47). donePM never pushes to the author's branch. Below the chips: the merge method (the repo's
+  `mergeMethod` preselected), Merge (disabled while something blocks it, the blockers in its
+  tooltip) and the checkbox "Merge automatically" (the view's `merge: { blockers, auto, method }`).
+- A card whose priority is not the default P2 shows the tier as a badge next to its id: `P0` and
+  `P1` in danger colours, `P3` quiet (D45). A priority changed on GitHub moves a Ready card within
+  one poll, and its timeline shows the `item.refreshed` event.
+- In Progress card of a `checking` item: pulsing CI pending dot, "waiting for CI", Mark done.
 - Done card: PR link, Remove worktree. With `removeWorktreeOnMerge` on, a quiet note "Worktree is
   removed when PR #45 is merged" (PR linked) until it is; "Not removed: uncommitted changes" when
   the poll kept it (6.5). After the merge: "PR merged". A conflict the user took on: quiet note
   "PR #45 has merge conflicts with main" until GitHub reports it mergeable (6.7).
+- Finished card (6.8; the view carries `finishedAt`): muted, lower contrast, no action buttons;
+  only opening it. It leaves the board when archived. The Done column header links to the Archive.
 - Card of an item closed upstream: note "Closed on GitHub"; on a started, not running item a
   Dismiss button next to it (6.2).
 - Sort: one fixed order per column, the same inside every repo lane, so cards do not jump. Ties
@@ -696,7 +1077,9 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
   | Needs You | longest waiting on top | `stateSince` |
   | Done | newest finished on top | `stateSince` |
 
-  Priority tier from the labels (`priorityTier` in `core`, case-insensitive): `P0` / `priority:
+  Priority tier (`issuePriority` in `core`, D45): GitHub's "Priority" issue field when it is set
+  to a known option (6.2), else from the labels. A field set on GitHub wins over a priority label.
+  From the labels (`priorityTier` in `core`, case-insensitive): `P0` / `priority:
   critical` → 0, `P1` / `priority: high` → 1, `P2` / `priority: medium` / no priority label → 2,
   `P3` / `priority: low` → 3. `priority:high`, `priority/high` and `prio: high` match too; with
   several, the most urgent wins. Manual reordering is not supported; it may come back later as an
@@ -704,18 +1087,44 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
 
 ### 12.2 Item detail (drawer or route)
 
-- Timeline of events, newest at top. Each: time, actor, text, link to draft/ask.
+- Without a local clone: "No local clone. Clone lands in <target>" under the title, with the same
+  Clone button as the card (12.1).
+- Head: crumb "← Board / owner/repo #45" with the state badge, the title, and a mono line with the
+  playbook badge, branch → base, commits, +/− lines, worked time and cost, tokens, and the link to
+  the issue or PR.
+- Tabs: Draft (Overview when no draft waits), Changes with the number of changed files, Transcript
+  (opens the item in the Agents view), Timeline. The tab is in the query (`?tab=changes`).
+- Right column, top to bottom: Worktree panel (mono path, Finder / Terminal, Remove; session id and
+  "resumable"; only when a worktree exists), then Timeline of events, newest at top (not repeated
+  while the Timeline tab is open). Each entry: a dot, the actor in bold ("You", "Agent", "System")
+  and what happened, then "14:02 · 11 min · $0.86 · 48.2k in / 6.1k out" (duration, cost and
+  tokens on a finished turn).
+- PR draft panel: amber border, "by agent · 14:02 · you can edit before publishing", Write / Preview
+  tabs, Approve and publish, and a note of what approving runs ("commit leftovers · git push · gh pr
+  create", D25).
 - Transcript: full agent conversation, tool calls collapsed, live text while running. The agent's
   text, the task (opened) and a subagent's report render as Markdown in a compact style; the
   user's messages, thinking, tool input and output and setup logs stay plain. Streaming text
   re-renders on every delta; an unclosed code fence shows as code up to the end.
-- Diff: `git diff <base>...<branch>` plus uncommitted changes, per file.
-- Drafts list.
+- Diff: `git diff <base>...<branch>` plus uncommitted changes, per file. "Expand all" and
+  "Collapse all" next to Refresh open or close every file; each is disabled when it would change
+  nothing and both are hidden without files. A new diff resets the state (auto-open up to 400
+  changed lines).
+- Drafts list. A push draft with replies, and a reply draft, list each reply with what it answers
+  ("Reply to @ana on src/a.ts:12" or "Comment on the pull request") and which are posted already.
+- A review draft (D43): verdict, summary and each inline comment (`path:line`, body) as Markdown,
+  the reviewed commit, Approve and post / Reject with reason. Not editable. The facts line reads
+  "reviewing <branch> → <base>".
+- Review feedback waiting on the user: each review and comment with author, the file and line and
+  the end of the diff hunk for inline ones, a link to GitHub, and Address with agent / Mark done.
 - The issue body and the PR draft body render as GitHub-flavoured Markdown (headings, lists, task
   lists read-only, tables, fenced code, quotes, strikethrough, autolinks). The PR draft has Write
   and Preview tabs; Preview shows the unsaved text and is where a new draft opens.
-- Markdown is untrusted: raw HTML is off in the parser (`markdown-it`) and the output goes through
-  DOMPurify before `v-html`. Links open in a new tab with `rel="noopener noreferrer"`; `javascript:`
+- Markdown is untrusted. Embedded HTML renders like on GitHub (Dependabot's `<details>` release
+  notes, `<kbd>`, `<sub>`), and the output goes through DOMPurify before `v-html`: no scripts,
+  event handlers, SVG, `<style>` or `style=`, forms, iframes, media or `srcset`; `id` and `name`
+  get a `user-content-` prefix. Links and images in raw HTML follow the same rules as Markdown
+  ones. Links open in a new tab with `rel="noopener noreferrer"`; `javascript:`
   and `data:` URLs never become links. Relative links resolve against
   `https://github.com/<owner>/<repo>/blob/HEAD/`, relative images against `…/raw/HEAD/`; without a
   GitHub repo they stay text. `#123`, `owner/repo#123` and `@user` link to GitHub.
@@ -725,8 +1134,22 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
 
 ### 12.3 Agents (multiplexer)
 
-- Left: list of running and recently finished agents (item title, state, elapsed, cost from
-  `result.total_cost_usd`).
+- Left: agents in groups Running, Waiting for CI, Waiting for you, Finished today (finished before
+  today are left out, at most 10). Each entry: "repo #45" in mono, the title, and a state line
+  with a dot ("running · 6:12 · $0.41", "2 of 4 checks · 1:20", "PR draft · 14 min", "permission ·
+  Bash", "merged · $0.65"). Header of the selected one: id and title, a mono line with branch,
+  playbook, tokens and session; buttons Card, Changes and Stop. Below the transcript, while the
+  agent runs, a composer "Send a note to the agent · joins the running turn" (`POST
+  /api/items/:id/say`). Tool calls are bordered pills, a subagent's pill is dashed, a running call
+  has an indigo border, and live text ends in a caret.
+- Cost comes from `result.total_cost_usd`, tokens from `result.usage`. Both count from the start of the `claude`
+  process: each process contributes its last value and a new process starts a new sum.
+- Elapsed (here and on the card) is the time the agent worked: the sum of its intervals from
+  `agent.started`, `agent.resumed`, `agent.turn_started` or `permission.answered` to
+  `agent.turn_ended`, `permission.asked`, `agent.interrupted` or `agent.failed`. Waiting on the
+  user does not count. A resume continues the sum; a fresh start (new session) begins at 0:00. The
+  view carries `agent.elapsedMs` (closed intervals) and `agent.activeSince` (only while the
+  process runs), and the UI adds the running interval live.
 - Right: transcript of the selected one, live.
 - A subagent is one collapsible line under the main agent's flow: type, description, live
   activity and elapsed time while it runs (from `task_progress`), done/failed with tool count and
@@ -735,15 +1158,74 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
 
 ### 12.4 Settings
 
-- Repo root, worktree root, branch prefix, port, poll interval, max agents, and "Remove the
-  worktree once its PR is merged" (`removeWorktreeOnMerge`, 6.5).
-- CLI status for `gh` and `claude`, with hints and "Check again".
-- Repos list with rescan. Orphaned worktrees.
-- Per repo: what it collects (query or "assigned to you"), and an editor with the query field, a
-  Test button (count and first titles), "Open in GitHub" (the repo's issue list with this query, to
-  refine it there and paste it back) and the assign-on-start checkbox. A failed query shows on its
-  row.
-- Web access: the hosts the agent may read with WebFetch without asking (9.4), one per line.
+Routes `/settings/<section>`, `/settings` opens General. A section nav on the left, grouped
+Workspace (General, Repositories with the number of clones), Agents (Agents & access, Playbooks) and
+System (Tools with a status dot, Daemon); below 820 px it sits above the content. Each section is a
+page with a title, one lead line and panels; each panel saves on its own.
+
+- **General.** "Folders and branches": repo root, worktree root, branch prefix. Saving a new
+  worktree root while item worktrees are under the old one (7.1) opens a dialog: "N worktrees are in
+  the old location. Move them to the new one?", the items listed with their paths, those with a
+  running agent marked and noted as staying where they are. Buttons: Move, "Leave them where they
+  are", Cancel (nothing saved). After a move the form says how many moved and names each one not
+  moved with its reason. "Finished items" (6.8), whole numbers of 0 or more, applied on the next poll:
+  - `archiveAfterHours`: finished items (done and PR merged, or done without a PR) leave the board
+    after this many hours and stay in the Archive. 0 hides them immediately.
+  - `deleteAfterDays`: archived items with their timeline and transcript are deleted after this
+    many days, unless they still have a worktree. Empty: never delete.
+- **Repositories.** The lead names the repo root and when it was last scanned. A table of the
+  managed clones (D46) with a filter, "Show ignored (n)" for the unmanaged ones (muted, badge
+  "ignored"; shown without asking while nothing is managed, so a fresh install can pick) and
+  Rescan. Columns: repository with its path, base branch, source query (or "assigned to you") with
+  the last poll's result or error, options as badges (assigns on start, the default playbook, merges
+  automatically, `setup.yml`), the number of worktrees, Edit. Edit opens a row below with the query
+  field, Test (count) and "Open in GitHub" (the repo's issue list with this query, to refine it
+  there and paste it back), the default playbook (8.3), and switches for assign on start (6.4),
+  "Ignore this repository" (= not managed), and for others' PRs "Merge automatically" with the merge
+  method (D47); Save and Cancel. "Without a clone" lists managed repos that have no local clone
+  ("Stop managing") and repos the poll found on GitHub without a clone, with their item count and
+  "Clone and manage". "Worktrees without an item" (hidden when empty) lists orphaned worktrees,
+  former roots included, with size, branch, last commit and Remove.
+- **Agents & access.** "Running agents": max agents, poll interval, `removeWorktreeOnMerge` (6.5:
+  removes the worktree on the next poll after the merge, never with uncommitted changes), and the
+  notifications switch (below). "Permissions" (D38): the active grants with the rule, its repo
+  (`owner/repo`), when it was granted, how often it was used, and Revoke, which stops it matching at
+  once, also for running agents; below, "Always denied": the blocked CLIs and `git push`, fixed.
+  "Web access": the hosts the agent may read with WebFetch without asking (9.4), as removable chips
+  with an input to add one; a host covers its subdomains. Saved on each change.
+- **Playbooks.** One table of the playbooks (8.1) with name and file, model, effort, permission
+  mode, drafts (and "read only"), and origin: global, "in owner/repo", or "overridden in
+  owner/repo". "Open folder" opens the global folder. Files that fail to load are listed with
+  their error. Editing happens in the files.
+- **Tools.** `gh` and `claude` with path, version, login and hints, and "Check again"; a muted row
+  for Jira (after the MVP). "Polling": what is collected, how often, the last poll's result, and the
+  last failed polls since the daemon started.
+- **Daemon.** Version, service (launchd or by hand), address, pid and uptime, database path and
+  size, config file, log. "Open logs" and "Restart" only under launchd. The port, applied after a
+  restart.
+
+Notifications (per browser, kept in `localStorage`, not in the daemon's config, because the
+browser's own permission is per browser too): a switch "Browser notification and tab badge when an
+agent needs you" (on by default, applies at once) and, while the browser's permission is still
+undecided, an "Allow browser notifications" button (browsers need a user gesture; the page never
+asks on load).
+
+Pending asks outside the board (#74). Whatever view is open, the tab title is `(n) donePM` while
+`n` items wait on a permission ask (the `ask` attention of 12.1) and the favicon gets a red dot;
+both clear when the asks are answered. Independently, when the switch is on and the permission is
+granted, each ask that newly appears pending raises one `Notification`: title the item's title, body
+`Tool: first line of what it wants`, tagged with the ask id. Clicking it focuses the tab and opens
+the item. Asks the daemon answers itself (D31 hosts, D38 grants) are never pending, so they never
+notify. The ids already announced are kept in `localStorage` (newest 200), so a reload or a second
+tab does not announce an ask again; asks that wait when the user grants permission are marked as
+announced, not announced in a burst. Works on `127.0.0.1` (a secure context).
+
+### 12.5 Archive
+
+- Route `/archive`, in the top nav and linked from the Done column header.
+- Archived items, newest archived first: external id, title, PR link, when archived. A search
+  field narrows by title or external id.
+- Opening one shows the normal item detail (12.2) with its timeline and transcript.
 
 ## 13. CLI
 
@@ -768,6 +1250,8 @@ and `PATH`, because launchd starts jobs with a bare `PATH` and the daemon needs 
   "pollIntervalSeconds": 60,
   "maxConcurrentAgents": 1,
   "removeWorktreeOnMerge": false,
+  "archiveAfterHours": 24,
+  "deleteAfterDays": 7,
   "sources": {},
   "allowedWebFetchDomains": ["github.com", "raw.githubusercontent.com", "docs.github.com", "nodejs.org", "developer.mozilla.org", "npmjs.com"]
 }
@@ -777,9 +1261,15 @@ and `PATH`, because launchd starts jobs with a bare `PATH` and the daemon needs 
 
 ```json
 "sources": {
-  "github.com/spatie/bloom": { "query": "is:issue state:open no:assignee", "assignOnStart": true }
+  "github.com/spatie/bloom": { "managed": true, "query": "is:issue state:open no:assignee", "assignOnStart": true }
 }
 ```
+
+`archiveAfterHours` and `deleteAfterDays` (6.8): whole numbers of 0 or more; `deleteAfterDays:
+null` never deletes.
+
+`previousWorktreeRoots` (7.1): kept by the daemon, not set through the settings API; former
+worktree roots that may still hold worktrees. Default `[]`.
 
 Database: `~/.local/share/donepm/donepm.db`.
 

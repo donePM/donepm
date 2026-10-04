@@ -1,6 +1,7 @@
 import type { Ctx } from "../ids.js";
 import type { Event, EventActor, EventType } from "../event/types.js";
 import type { PrConflict } from "../pr/conflict.js";
+import type { FeedbackEntry, PrFeedback } from "../pr/feedback.js";
 import type { ItemState, WorkItem } from "./types.js";
 
 export interface Transition {
@@ -100,6 +101,20 @@ export function answered(
     ctx,
     askId,
     payload,
+  );
+}
+
+/**
+ * The daemon, not the user, denied a pending ask because the process is being stopped (Stop or
+ * shutdown, spec 9.5). The item keeps its state; only the event is new.
+ */
+export function askDeniedBySystem(item: WorkItem, ctx: Ctx, askId: string, message: string): Transition {
+  return apply(
+    { name: "askDeniedBySystem", from: ["running", "needs_you"], to: item.state, actor: "system", event: "permission.answered" },
+    item,
+    ctx,
+    askId,
+    { behavior: "deny", message, reason: message },
   );
 }
 
@@ -370,6 +385,28 @@ export function worktreeRemovedOnMerge(item: WorkItem, ctx: Ctx, payload: Record
   );
 }
 
+/**
+ * The user changed the worktree root and chose to move the item's worktree along (issue #93). The
+ * state and the session stay: `claude --resume <id>` finds a session by its id from any directory
+ * (D44). Never under a running agent: its process works in the old directory.
+ */
+export function worktreeMoved(item: WorkItem, ctx: Ctx, move: { from: string; to: string }): Transition {
+  const t = apply(
+    {
+      name: "worktreeMoved",
+      from: ["ready", "needs_you", "checking", "done", "failed"],
+      to: item.state,
+      actor: "user",
+      event: "worktree.moved",
+    },
+    item,
+    ctx,
+    undefined,
+    { from: move.from, to: move.to },
+  );
+  return { ...t, item: { ...t.item, worktreePath: move.to } };
+}
+
 function withoutWorktree(t: Transition): Transition {
   const { worktreePath: _path, agentSessionId: _session, ...rest } = t.item;
   return { ...t, item: rest };
@@ -461,6 +498,89 @@ export function prConflictFix(item: WorkItem, ctx: Ctx): Transition {
 }
 
 /**
+ * Someone reviewed the done item's open PR (decision D39): the item comes back to the user with the
+ * new feedback. `entries` are only what no earlier `pr.feedback` had.
+ */
+export function prFeedback(item: WorkItem, ctx: Ctx, payload: CiPr & { entries: FeedbackEntry[] }): Transition {
+  return apply(
+    { name: "prFeedback", from: ["done"], to: "needs_you", actor: "system", event: "pr.feedback" },
+    item,
+    ctx,
+    undefined,
+    { ...payload },
+  );
+}
+
+/** The user let the agent address the feedback: `--resume` with the feedback as the message. */
+export function prFeedbackFix(item: WorkItem, ctx: Ctx): Transition {
+  if (!item.agentSessionId) throw new InvalidTransitionError("prFeedbackFix", item.state);
+  return apply(
+    { name: "prFeedbackFix", from: ["needs_you"], to: "running", actor: "user", event: "agent.resumed" },
+    item,
+    ctx,
+    undefined,
+    { reason: "pr_feedback" },
+  );
+}
+
+/** "Mark done": the user handles the feedback, or it needs nothing. The item is done again. */
+export function prFeedbackDismissed(item: WorkItem, ctx: Ctx, feedback: PrFeedback): Transition {
+  if (!feedback.waiting) throw new InvalidTransitionError("prFeedbackDismissed", item.state);
+  return apply(
+    { name: "prFeedbackDismissed", from: ["needs_you"], to: "done", actor: "user", event: "pr.feedback_dismissed" },
+    item,
+    ctx,
+    undefined,
+    { ...feedback.pr },
+  );
+}
+
+/**
+ * The daemon posted the replies of an approved comment draft (D39). No commit changed, so there is
+ * no CI to wait for: the item is done again.
+ */
+export function repliesPosted(item: WorkItem, ctx: Ctx, draftId: string, payload: Record<string, unknown> = {}): Transition {
+  return apply(
+    { name: "repliesPosted", from: ["needs_you"], to: "done", actor: "system", event: "draft.executed" },
+    item,
+    ctx,
+    draftId,
+    payload,
+  );
+}
+
+/**
+ * The daemon posted the approved review of someone else's pull request (D43). The item's work is
+ * that review, so it is done.
+ */
+export function reviewPosted(item: WorkItem, ctx: Ctx, draftId: string, payload: Record<string, unknown> = {}): Transition {
+  return apply(
+    { name: "reviewPosted", from: ["needs_you"], to: "done", actor: "system", event: "draft.executed" },
+    item,
+    ctx,
+    draftId,
+    payload,
+  );
+}
+
+/**
+ * donePM merged someone else's pull request (D47): the user's Merge click, or the daemon on the
+ * user's auto-merge choice. The item is done, and so is its pull request.
+ */
+export function reviewedPrMerged(item: WorkItem, ctx: Ctx, merge: { method: string; auto: boolean }): Transition {
+  if (item.source !== "github-pr") throw new InvalidTransitionError("reviewedPrMerged", item.state);
+  const t = apply(
+    { name: "reviewedPrMerged", from: ["ready", "done"], to: "done", actor: merge.auto ? "system" : "user", event: "pr.merged" },
+    item,
+    ctx,
+    undefined,
+    { ...merge },
+  );
+  const at = t.events[0]!.at;
+  return { ...t, item: { ...t.item, ...(item.prStatus ? { prStatus: { ...item.prStatus, state: "MERGED", closedAt: at } } : {}) } };
+}
+
+/**
  * The daemon assigned the issue to the user on start (opt-in per repository, decision D28). Not a
  * state change; the item stays where the agent took it meanwhile.
  */
@@ -499,6 +619,67 @@ export function autoAllowed(item: WorkItem, ctx: Ctx, askId: string, payload: Re
   );
 }
 
+/**
+ * The retention job took a finished item off the board (decision D37). The state stays `done`;
+ * nothing is deleted. `finishedAt` (from `finishedAt` in `finished.ts`) goes into the event.
+ */
+export function archived(item: WorkItem, ctx: Ctx, finishedAt: string): Transition {
+  if (item.archivedAt !== undefined) throw new InvalidTransitionError("archived", item.state);
+  const t = apply(
+    { name: "archived", from: ["done"], to: "done", actor: "system", event: "item.archived" },
+    item,
+    ctx,
+    undefined,
+    { finishedAt },
+  );
+  return { ...t, item: { ...t.item, archivedAt: t.events[0]!.at } };
+}
+
+/** A grant as its events carry it (decision D38). */
+export interface GrantRef {
+  id: string;
+  repo: string;
+  toolName: string;
+  ruleContent?: string;
+}
+
+const grantPayload = (g: GrantRef) => ({
+  grantId: g.id, repo: g.repo, toolName: g.toolName, ...(g.ruleContent !== undefined ? { ruleContent: g.ruleContent } : {}),
+});
+
+/**
+ * "Always allow in <repo>" (decision D38): the user's allow, as `answered`, plus one
+ * `permission.granted` per new grant. A rule the repository already had needs no new grant.
+ */
+export function alwaysAllowed(
+  item: WorkItem,
+  ctx: Ctx,
+  askId: string,
+  grants: readonly GrantRef[],
+  othersPending = false,
+): Transition {
+  const t = answered(item, ctx, askId, { behavior: "allow", rules: [], always: grants.map(grantPayload) }, othersPending);
+  const at = t.events[0]!.at;
+  const granted: Event[] = grants.map((g) => ({
+    id: ctx.newId(), itemId: item.id, at, actor: "user", type: "permission.granted", payload: { ...grantPayload(g), askId }, refId: g.id,
+  }));
+  return { ...t, events: [...t.events, ...granted] };
+}
+
+/**
+ * The user removed a grant in Settings. Recorded on the item it was granted on; the item keeps its
+ * state, whatever it is now.
+ */
+export function grantRevoked(item: WorkItem, ctx: Ctx, grant: GrantRef): Transition {
+  return apply(
+    { name: "grantRevoked", from: ALL_STATES, to: item.state, actor: "user", event: "permission.grant_revoked" },
+    item,
+    ctx,
+    grant.id,
+    grantPayload(grant),
+  );
+}
+
 /** Work an agent may have left: a worktree or a session. Such an item is never closed for the user. */
 export function wasStarted(item: WorkItem): boolean {
   return item.worktreePath !== undefined || item.agentSessionId !== undefined;
@@ -529,4 +710,20 @@ export function dismissed(item: WorkItem, ctx: Ctx): Transition {
     item,
     ctx,
   );
+}
+
+/**
+ * The user picked another playbook on a Ready card (spec 12.1). Only before the first start: a
+ * running or started item keeps the playbook its session began with.
+ */
+export function playbookChanged(item: WorkItem, ctx: Ctx, playbook: string): Transition {
+  if (item.startedAt !== undefined) throw new InvalidTransitionError("playbookChanged", item.state);
+  const t = apply(
+    { name: "playbookChanged", from: ["ready"], to: "ready", actor: "user", event: "item.playbook_changed" },
+    item,
+    ctx,
+    undefined,
+    { from: item.playbook, to: playbook },
+  );
+  return { ...t, item: { ...t.item, playbook } };
 }

@@ -2,10 +2,13 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  draftApproved, draftExecuted, draftExecutionFailed,
-  type CiPr, type Draft, type PrDraftPayload, type PrDraftResult, type PushDraftResult, type WorkItem,
+  draftApproved, draftExecuted, draftExecutionFailed, repliesPosted, reviewPosted,
+  type CiPr, type Draft, type DraftReply, type PostedReply, type PrDraftPayload, type PrDraftResult, type WorkItem,
 } from "@donepm/core";
+import { postReply } from "../gh/pr-replies.js";
+import { postReview } from "../gh/pr-review.js";
 import type { Exec, ExecResult } from "../process/exec.js";
+import type { DraftResult } from "./store.js";
 import { setupCopies } from "../worktrees/setup.js";
 import { DraftError, type DraftDeps } from "./actions.js";
 
@@ -14,7 +17,7 @@ export const WIP_MESSAGE = "WIP from donePM";
 
 const PUSH_TIMEOUT_MS = 120_000;
 
-export type ExecutionStep = "commit" | "push" | "pr";
+export type ExecutionStep = "commit" | "push" | "pr" | "reply" | "review";
 
 export class ExecutionError extends Error {
   constructor(
@@ -35,8 +38,11 @@ export interface ApproveDeps extends DraftDeps {
 /**
  * The user approved a draft (spec 6.3): the daemon, never the agent, commits leftovers and pushes
  * the branch; for a PR draft it then opens the pull request with the user's edits. Either way the
- * item then waits for the PR's CI (D35). A failed draft can be approved again (Retry). Throws DraftError before anything ran; ExecutionError once a step failed, with
- * the draft `failed` and the item still waiting for the user.
+ * item then waits for the PR's CI (D35). Replies to review feedback are posted after the push; a
+ * comment draft only posts them, and the item is done again (D39). A review draft posts the review of
+ * someone else's pull request, and the item is done (D43). A failed draft can be approved again
+ * (Retry). Throws DraftError before anything ran; ExecutionError once a step failed, with the draft
+ * `failed` and the item still waiting for the user.
  */
 export async function approveDraft(deps: ApproveDeps, draftId: string): Promise<Draft> {
   const draft = deps.drafts.get(draftId);
@@ -52,18 +58,31 @@ export async function approveDraft(deps: ApproveDeps, draftId: string): Promise<
   let current = deps.writer.commit(draftApproved(item, deps.ctx, draft.id));
 
   const where = { worktree: item.worktreePath, branch: item.branch };
-  let result: PrDraftResult | PushDraftResult;
+  let result: DraftResult;
   let pr: CiPr;
   try {
     if (draft.type === "pr") {
       result = await publish(deps.exec, { ...where, repo: repo.originUrl, payload: draft.userEdits ?? draft.payload });
       pr = result;
-    } else {
-      result = await pushCommits(deps.exec, where);
+    } else if (draft.type === "push") {
       pr = { number: draft.payload.number, url: draft.payload.url };
+      const pushed = await pushCommits(deps.exec, where);
+      const replies = draft.payload.replies ?? [];
+      result = replies.length
+        ? { ...pushed, posted: await postReplies(deps, draft.id, pr, replies, draft.result?.posted ?? [], (posted) => ({ ...pushed, posted })) }
+        : pushed;
+    } else if (draft.type === "review") {
+      pr = { number: draft.payload.number, url: draft.payload.url };
+      const posted = await postReview(deps.exec, draft.payload);
+      if (!posted.ok) throw new ExecutionError("review", `posting the review failed: ${posted.error}`);
+      result = posted.result;
+    } else {
+      pr = { number: draft.payload.number, url: draft.payload.url };
+      result = { posted: await postReplies(deps, draft.id, pr, draft.payload.replies, draft.result?.posted ?? [], (posted) => ({ posted })) };
     }
   } catch (e) {
-    const err = e instanceof ExecutionError ? e : new ExecutionError(draft.type, (e as Error).message);
+    const step = draft.type === "comment" ? "reply" : draft.type;
+    const err = e instanceof ExecutionError ? e : new ExecutionError(step, (e as Error).message);
     deps.drafts.setState(draft.id, "failed", deps.ctx.now());
     current = itemNow(deps, current);
     deps.writer.commit(draftExecutionFailed(current, deps.ctx, draft.id, { step: err.step, error: err.message }));
@@ -72,9 +91,38 @@ export async function approveDraft(deps: ApproveDeps, draftId: string): Promise<
 
   deps.drafts.setResult(draft.id, result, deps.ctx.now());
   current = itemNow(deps, current);
-  deps.writer.commit(draftExecuted(current, deps.ctx, draft.id, { number: pr.number, url: pr.url }, { ...result }));
+  deps.writer.commit(
+    draft.type === "comment"
+      ? repliesPosted(current, deps.ctx, draft.id, { ...result })
+      : draft.type === "review"
+        ? reviewPosted(current, deps.ctx, draft.id, { ...result })
+        : draftExecuted(current, deps.ctx, draft.id, { number: pr.number, url: pr.url }, { ...result }),
+  );
   await deps.stopAgent(item.id).catch(() => {});
   return { ...draft, state: "executed", result } as Draft;
+}
+
+/**
+ * Post the replies in order, skipping those an earlier attempt posted. Each one is stored as
+ * posted at once, so a failure halfway and a retry never post a reply twice.
+ */
+async function postReplies(
+  deps: ApproveDeps,
+  draftId: string,
+  pr: CiPr,
+  replies: readonly DraftReply[],
+  already: readonly PostedReply[],
+  progress: (posted: PostedReply[]) => DraftResult,
+): Promise<PostedReply[]> {
+  const posted = [...already];
+  for (const [index, reply] of replies.entries()) {
+    if (posted.some((p) => p.index === index)) continue;
+    const r = await postReply(deps.exec, pr, reply);
+    if (!r.ok) throw new ExecutionError("reply", `posting reply ${index + 1} of ${replies.length} failed: ${r.error}`);
+    posted.push({ index, url: r.url });
+    deps.drafts.setProgress(draftId, progress(posted), deps.ctx.now());
+  }
+  return posted;
 }
 
 /**
@@ -124,7 +172,7 @@ async function commitAndPush(exec: Exec, input: Where): Promise<void> {
 }
 
 /** A push draft: the new commits go to the branch the PR already tracks. */
-async function pushCommits(exec: Exec, input: Where): Promise<PushDraftResult> {
+async function pushCommits(exec: Exec, input: Where): Promise<{ sha: string }> {
   await commitAndPush(exec, input);
   const head = await gitIn(exec, input.worktree)("rev-parse", "HEAD");
   check(head, "push", "git rev-parse");

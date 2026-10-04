@@ -32,6 +32,10 @@ Labels: {{ labels }}
 8. If the PR gets merge conflicts with its base and the user asks you to resolve them, donePM has
    fetched the base already. Merge it (`git merge origin/<base>`, no rebase), resolve the
    conflicts, run the tests, commit, and call `draft_push`.
+9. If reviewers leave feedback on the PR and the user asks you to address it, you get their
+   comments with thread numbers. Change what needs changing, run the tests, commit, and call
+   `draft_push` with `replies` that answer the reviewers. If no code needs to change, call
+   `draft_comment` with the replies instead.
 
 ## Rules
 

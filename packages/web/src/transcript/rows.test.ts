@@ -2,7 +2,11 @@ import type { TranscriptKind } from "@donepm/core";
 import { describe, expect, it } from "vitest";
 import type { TranscriptMessage } from "../api/types";
 import type { PermissionAsk } from "../api/types";
-import { agentNote, applyDelta, askOutcomeText, hasPendingAsk, resultNote, toolDiff, toRows, type Row } from "./rows";
+import subagentRun from "../../../daemon/fixtures/stream/subagent.jsonl?raw";
+import {
+  agentNote, applyDelta, askOutcomeText, commandPreview, diffPreview, groupReads, hasPendingAsk, lastTool, outputTail, resultNote, stepTime,
+  toolDiff, toRows, type DiffLine, type Row, type ToolRow,
+} from "./rows";
 
 let n = 0;
 const msg = (kind: TranscriptKind, raw: unknown): TranscriptMessage => ({
@@ -101,7 +105,7 @@ describe("toRows", () => {
 
     it("carries the full input and the CLI's reason", () => {
       const [row] = toRows([asked("r1", "Bash", { decision_reason: "This command requires approval" })]);
-      expect(row).toMatchObject({ type: "ask", summary: "ls", input: { command: "ls\npwd" }, reason: "This command requires approval" });
+      expect(row).toMatchObject({ type: "ask", summary: "ls; pwd", input: { command: "ls\npwd" }, reason: "This command requires approval" });
     });
 
     it("hands out the stored ask only while it waits", () => {
@@ -132,6 +136,12 @@ describe("toRows", () => {
     it("words questions as answered or declined, and leaves unknown outcomes blank", () => {
       const rows = toRows([asked("q1", "AskUserQuestion"), answer("q1", { behavior: "deny" }), asked("q2")]) as AskRow[];
       expect(rows.map(askOutcomeText)).toEqual(["declined", ""]);
+    });
+
+    it("adds the reason an ask ended without the user's answer", () => {
+      const stored: PermissionAsk = { id: "a1", itemId: "i1", requestId: "q1", toolName: "Bash", input: {}, state: "expired", rules: [], outcomeReason: "donePM was not running when this was asked" };
+      const rows = toRows([asked("q1")], [stored]) as AskRow[];
+      expect(askOutcomeText(rows[0]!)).toBe("expired: donePM was not running when this was asked");
     });
 
     it("finds a pending ask inside a subagent", () => {
@@ -276,11 +286,128 @@ describe("toolDiff", () => {
 });
 
 describe("resultNote", () => {
+  const note = (name: string, text: string, isError = false, extra: Partial<ToolRow> = {}) =>
+    resultNote({ name, result: { text, isError }, ...extra });
+
   it("counts lines, shows short single lines and flags errors", () => {
-    expect(resultNote({ text: "a\nb\nc\n", isError: false })).toBe("3 lines");
-    expect(resultNote({ text: "200", isError: false })).toBe("200");
-    expect(resultNote({ text: "", isError: false })).toBe("done");
-    expect(resultNote({ text: "nope", isError: true })).toBe("error");
+    expect(note("Bash", "a\nb\nc\n")).toBe("3 lines");
+    expect(note("Bash", "200")).toBe("200");
+    expect(note("Bash", "")).toBe("done");
+    expect(note("Bash", "nope", true)).toBe("error");
+    expect(note("Bash", "Exit code 2\nboom", true)).toBe("exit 2");
+    expect(resultNote({ name: "Bash" })).toBe("");
+  });
+
+  it("shows lines added and removed for edits, nothing for todos", () => {
+    expect(note("Edit", "The file a.ts has been updated.", false, { diffStat: { added: 3, removed: 1 } })).toBe("+3 −1");
+    expect(note("Edit", "File has not been read yet", true, { diffStat: { added: 3, removed: 1 } })).toBe("error");
+    expect(note("TodoWrite", "Todos have been modified successfully.")).toBe("");
+  });
+});
+
+describe("step details", () => {
+  it("previews a diff from just before its first change", () => {
+    const lines: DiffLine[] = ["a", "b", "c"].map((text) => ({ op: " ", text }));
+    const diff: DiffLine[] = [...lines, { op: "-", text: "d" }, { op: "+", text: "e" }, ...lines];
+    expect(diffPreview(diff, 3)).toEqual([{ op: " ", text: "c" }, { op: "-", text: "d" }, { op: "+", text: "e" }]);
+    expect(diffPreview([{ op: "+", text: "x" }])).toEqual([{ op: "+", text: "x" }]);
+  });
+
+  it("cuts commands and keeps the end of failed output", () => {
+    expect(commandPreview("a\nb\nc\nd", 3)).toEqual({ text: "a\nb\nc", more: true });
+    expect(commandPreview("a", 3)).toEqual({ text: "a", more: false });
+    expect(outputTail("1\n2\n3\n4\n", 2)).toBe("3\n4");
+  });
+
+  it("says when a step ran and for how long", () => {
+    const row = toRows([toolUse("t1", "Bash", { command: "x" }), { ...toolResult("t1", "ok"), at: "2026-10-03T12:00:42.000Z" }])[0] as ToolRow;
+    expect(stepTime(row)).toMatch(/ · took 0:42$/);
+    expect(stepTime({ ...row, result: undefined })).not.toContain("took");
+  });
+
+  it("shows the command under a described Bash call and lists todos", () => {
+    const todos = [{ content: "Read", activeForm: "Reading", status: "completed" }, { content: "Fix", activeForm: "Fixing", status: "in_progress" }];
+    const rows = toRows([
+      toolUse("t1", "Bash", { command: "cd /w && pnpm test", description: "Run tests" }),
+      toolUse("t2", "Bash", { command: "ls" }),
+      toolUse("t3", "TodoWrite", { todos }),
+      toolUse("t4", "Edit", { file_path: "/w/a.ts", old_string: "a\n", new_string: "b\nc\n" }),
+    ], [], { cwd: "/w" });
+    expect(rows).toMatchObject([
+      { summary: "Run tests", command: "cd /w && pnpm test" },
+      { summary: "ls" },
+      { summary: "Fixing", todos: [{ content: "Read", status: "completed" }, { content: "Fix", status: "in_progress" }] },
+      { summary: "a.ts", diffStat: { added: 2, removed: 1 } },
+    ]);
+    expect((rows[1] as ToolRow).command).toBeUndefined();
+  });
+});
+
+describe("groupReads", () => {
+  it("collapses consecutive Read, Grep and Glob calls into one line", () => {
+    const rows = toRows([
+      toolUse("t1", "Read", { file_path: "/w/src/a.ts" }),
+      toolUse("t2", "Read", { file_path: "/w/src/b.ts" }),
+      toolUse("t3", "Read", { file_path: "/w/src/a.ts", offset: 100, limit: 20 }),
+      toolUse("t4", "Grep", { pattern: "TODO" }),
+      assistant("assistant_text", { type: "text", text: "Found it." }),
+      toolUse("t5", "Read", { file_path: "/w/c.ts" }),
+      toolUse("t6", "Bash", { command: "ls" }),
+      toolUse("t7", "Glob", { pattern: "*.ts" }),
+      toolUse("t8", "Glob", { pattern: "*.vue" }),
+      toolResult("t8", "No files found", true),
+    ], [], { cwd: "/w" });
+    expect(rows.map((r) => r.type)).toEqual(["group", "text", "tool", "tool", "group"]);
+    expect(rows[0]).toMatchObject({ id: "group:t1", label: "Read 2 files, 1 search", summary: "a.ts, b.ts, a.ts:100-119, TODO" });
+    expect((rows[0] as Extract<Row, { type: "group" }>).children.map((c) => c.id)).toEqual(["t1", "t2", "t3", "t4"]);
+    expect(rows[4]).toMatchObject({ label: "2 searches", summary: "*.ts, *.vue" });
+    expect(lastTool(rows)?.id).toBe("t8");
+    expect(lastTool(rows.slice(0, 2))?.id).toBe("t4");
+    expect(lastTool([])).toBeUndefined();
+  });
+
+  it("groups inside subagents too and leaves single calls alone", () => {
+    const tool = (id: string, name: string): ToolRow => ({ type: "tool", id, at: "", name, summary: id, input: {} });
+    const agent: Row = {
+      type: "agent", id: "a", at: "", description: "", background: false, status: "running", children: [tool("r1", "Read"), tool("r2", "Grep")],
+    };
+    const rows = groupReads([tool("r0", "Read"), agent]);
+    expect(rows.map((r) => r.type)).toEqual(["tool", "agent"]);
+    expect((rows[1] as Extract<Row, { type: "agent" }>).children).toMatchObject([{ type: "group", label: "Read 1 file, 1 search" }]);
+  });
+});
+
+/** The daemon's message kinds for a recorded stream-json line (see `decode.ts`). */
+function recorded(jsonl: string): TranscriptMessage[] {
+  return jsonl.split("\n").filter(Boolean).flatMap((line, i): TranscriptMessage[] => {
+    const raw = JSON.parse(line);
+    const block = Array.isArray(raw.message?.content) ? raw.message.content[0] : undefined;
+    const kind: TranscriptKind =
+      raw.type === "result" ? "result"
+      : raw.type === "assistant" ? (block?.type === "thinking" ? "assistant_thinking" : block?.type === "tool_use" ? "tool_use" : "assistant_text")
+      : raw.type === "user" ? (block?.type === "tool_result" ? "tool_result" : "user")
+      : "raw";
+    return [{ id: `r${i}`, itemId: "i1", sessionId: "s1", at: "2026-10-03T12:00:00.000Z", kind, raw }];
+  });
+}
+
+describe("a recorded run", () => {
+  it("reads top to bottom without opening rows", () => {
+    const rows = toRows(recorded(subagentRun), [], { cwd: "/tmp/donepm-fixture" });
+    const agent = rows.find((r) => r.type === "agent") as Extract<Row, { type: "agent" }>;
+    const steps = agent.children.filter((r): r is ToolRow => r.type === "tool");
+    const line = (r: ToolRow) => `${r.name} ${r.summary} · ${resultNote(r)}`;
+    // Every step says what it did and how it ended in one line.
+    for (const s of steps) {
+      expect(s.summary).not.toBe("");
+      expect(s.summary).not.toContain("\n");
+    }
+    expect(line(steps[0]!)).toMatch(/^Bash cat \.github\/workflows\/\*\.yml; ls \.github\/workflows; grep .* · exit 1$/);
+    expect(steps.map((s) => s.summary)).toContain("github.com/actions/checkout/releases");
+    const commit = steps.find((s) => s.summary.startsWith("git status --short; git add"))!;
+    expect(commit.command).toContain("ci: move GitHub Actions to Node 24 majors");
+    const verify = rows.find((r): r is ToolRow => r.type === "tool" && r.name === "Bash")!;
+    expect(verify).toMatchObject({ summary: "Verify commit and action versions", command: expect.stringMatching(/^git log --oneline -2/) });
   });
 });
 

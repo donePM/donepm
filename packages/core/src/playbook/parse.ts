@@ -43,6 +43,7 @@ export function parsePlaybook(source: string): Playbook {
     body,
   };
   if (data.effort !== undefined) playbook.effort = data.effort;
+  if (data.read_only) playbook.readOnly = true;
   if (data.match !== undefined) playbook.match = data.match;
   return playbook;
 }

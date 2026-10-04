@@ -2,11 +2,19 @@
 import { computed, ref } from "vue";
 import { api } from "../api/client";
 import { errorText, isPublishFailure } from "../api/errors";
-import type { PushDraft } from "../api/types";
+import type { CommentDraft, FeedbackEntry, PushDraft } from "../api/types";
+import type { RepoRef } from "../markdown/render";
+import ReplyList from "./ReplyList.vue";
 
-/** The agent's proposal to push new commits to the open PR (D35). Nothing to edit: push or reject. */
+/**
+ * The agent's proposal to push new commits to the open PR (D35), with replies to review feedback,
+ * or only the replies (a comment draft, D39). Nothing to edit: approve or reject.
+ */
 const props = defineProps<{
-  draft: PushDraft;
+  draft: PushDraft | CommentDraft;
+  /** The review feedback the replies answer. */
+  feedback: FeedbackEntry[];
+  repo?: RepoRef;
   createdAt?: string;
   /** A live agent hears the reason now; a stored session is resumed with it. */
   canReject: boolean;
@@ -15,7 +23,17 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ changed: [] }>();
 
+const push = computed(() => (props.draft.type === "push" ? props.draft.payload : undefined));
 const p = computed(() => props.draft.payload);
+const replies = computed(() => props.draft.payload.replies ?? []);
+/** Replies an earlier, failed attempt already posted; a retry skips them. */
+const posted = computed(() => props.draft.result?.posted?.map((x) => x.index) ?? []);
+const verb = computed(() => (push.value ? "push" : "post"));
+const runs = computed(() => {
+  const parts = push.value ? [`git push ${push.value.branch}`] : [];
+  if (replies.value.length) parts.push(`gh: ${replies.value.length === 1 ? "1 reply" : `${replies.value.length} replies`}`);
+  return parts.join(", then ");
+});
 const rejecting = ref(false);
 const reason = ref("");
 const busy = ref(false);
@@ -55,27 +73,35 @@ const reject = () => run(async () => {
 <template>
   <section class="draft" aria-labelledby="push-h">
     <div class="head">
-      <h2 id="push-h">Push to <a :href="p.url" target="_blank" rel="noreferrer">PR #{{ p.number }}</a></h2>
+      <h2 id="push-h">
+        {{ push ? "Push to" : "Reply on" }} <a :href="p.url" target="_blank" rel="noreferrer">PR #{{ p.number }}</a>
+      </h2>
       <span class="meta">Created by agent<template v-if="createdAt"> · {{ createdAt }}</template></span>
     </div>
-    <p class="summary">{{ p.summary }}</p>
-    <ul class="commits mono">
-      <li v-for="c in p.commits" :key="c.sha"><span class="sha">{{ c.sha.slice(0, 7) }}</span> {{ c.subject }}</li>
-      <li v-if="p.uncommitted" class="dim">Uncommitted changes, committed as “WIP from donePM”</li>
-    </ul>
+    <template v-if="push">
+      <p class="summary">{{ push.summary }}</p>
+      <ul class="commits mono">
+        <li v-for="c in push.commits" :key="c.sha"><span class="sha">{{ c.sha.slice(0, 7) }}</span> {{ c.subject }}</li>
+        <li v-if="push.uncommitted" class="dim">Uncommitted changes, committed as “WIP from donePM”</li>
+      </ul>
+    </template>
+    <template v-if="replies.length">
+      <h3>{{ push ? "Then post these replies, as you" : "Post these replies, as you" }}</h3>
+      <ReplyList :replies="replies" :feedback="feedback" :posted="posted" :repo="repo" />
+    </template>
     <form v-if="rejecting" class="reject" @submit.prevent="reject">
       <label class="field">
         <span>Reason, sent to the agent as its next message</span>
         <textarea v-model="reason" class="textarea" rows="3" placeholder="What should change (optional)"></textarea>
       </label>
       <div class="actions">
-        <button class="btn btn-danger" type="submit" :disabled="busy">Reject and send</button>
+        <button class="btn danger" type="submit" :disabled="busy">Reject and send</button>
         <button class="btn" type="button" :disabled="busy" @click="rejecting = false">Cancel</button>
       </div>
     </form>
     <div v-else class="actions">
-      <button class="btn btn-primary" type="button" :disabled="busy || pushing" @click="approve">
-        {{ pushing ? "Pushing…" : publishError ? "Retry: approve and push" : "Approve and push" }}
+      <button class="btn primary" type="button" :disabled="busy || pushing" @click="approve">
+        {{ pushing ? (push ? "Pushing…" : "Posting…") : publishError ? `Retry: approve and ${verb}` : `Approve and ${verb}` }}
       </button>
       <button
         class="btn"
@@ -86,17 +112,17 @@ const reject = () => run(async () => {
       >
         Reject with reason…
       </button>
-      <span class="runs">Runs: git push {{ p.branch }}</span>
+      <span class="runs">Runs: {{ runs }}</span>
     </div>
     <p v-if="error" class="alert" role="alert">{{ error }}</p>
-    <p v-else-if="publishError && !pushing" class="alert" role="alert">Pushing failed: {{ publishError }}</p>
+    <p v-else-if="publishError && !pushing" class="alert" role="alert">{{ push ? "Pushing" : "Posting" }} failed: {{ publishError }}</p>
   </section>
 </template>
 
 <style scoped>
 .draft {
   background: var(--card);
-  border: 1px solid var(--amber-border);
+  border: 1px solid var(--attn-border);
   border-radius: 8px;
   padding: 20px;
   display: flex;
@@ -105,11 +131,12 @@ const reject = () => run(async () => {
 }
 .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 h2 { margin: 0; font-size: 15px; font-weight: 600; }
-.meta { font-size: 12px; color: var(--ink-3); }
+h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--fg-2); }
+.meta { font-size: 12px; color: var(--fg-3); }
 .summary { margin: 0; overflow-wrap: anywhere; }
 .commits { margin: 0; padding-left: 18px; font-size: 13px; overflow-wrap: anywhere; }
-.sha, .dim { color: var(--ink-3); }
+.sha, .dim { color: var(--fg-3); }
 .reject { display: flex; flex-direction: column; gap: 10px; }
-.actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--border-soft); }
-.runs { margin-left: auto; font-size: 12px; color: var(--ink-3); }
+.actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--border); }
+.runs { margin-left: auto; font-size: 12px; color: var(--fg-3); }
 </style>

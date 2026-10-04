@@ -11,10 +11,13 @@ describe("config", () => {
       port: 6174,
       repoRoot: "~/Code",
       worktreeRoot: "~/.local/share/donepm/worktrees",
+      previousWorktreeRoots: [],
       branchPrefix: "dp/",
       pollIntervalSeconds: 60,
       maxConcurrentAgents: 1,
       removeWorktreeOnMerge: false,
+      archiveAfterHours: 24,
+      deleteAfterDays: 7,
       sources: {},
       allowedWebFetchDomains: ["github.com", "raw.githubusercontent.com", "docs.github.com", "nodejs.org", "developer.mozilla.org", "npmjs.com"],
     });
@@ -52,6 +55,16 @@ describe("config", () => {
 
   it("keeps the remove-on-merge opt-in", () => {
     expect(parseConfig('{"removeWorktreeOnMerge":true}').removeWorktreeOnMerge).toBe(true);
+  });
+
+  it("takes retention as whole numbers from 0, deleteAfterDays null for never (D37)", () => {
+    expect(parseConfig('{"archiveAfterHours":0,"deleteAfterDays":null}')).toMatchObject({ archiveAfterHours: 0, deleteAfterDays: null });
+    expect(parseConfig('{"archiveAfterHours":48,"deleteAfterDays":30}')).toMatchObject({ archiveAfterHours: 48, deleteAfterDays: 30 });
+    expect(() => parseConfig('{"archiveAfterHours":-1}')).toThrow(/archiveAfterHours/);
+    expect(() => parseConfig('{"archiveAfterHours":1.5}')).toThrow(/archiveAfterHours/);
+    expect(() => parseConfig('{"archiveAfterHours":null}')).toThrow(/archiveAfterHours/);
+    expect(() => parseConfig('{"deleteAfterDays":-1}')).toThrow(/deleteAfterDays/);
+    expect(() => parseConfig('{"deleteAfterDays":"7"}')).toThrow(/deleteAfterDays/);
   });
 });
 

@@ -1,4 +1,5 @@
-import type { PrDraftResult, PrMerge, Repo, WorkItem } from "@donepm/core";
+import type { MergeMethod, PrDraftResult, PrMerge, Repo, WorkItem } from "@donepm/core";
+import type { CloneState } from "../repos/clone.js";
 import type { AgentHistory } from "./agent-info.js";
 import type { Attention } from "./attention.js";
 
@@ -26,6 +27,34 @@ export interface ItemView extends WorkItem {
   attention?: Attention;
   /** The pull request an executed draft opened (Done), and whether it was merged (D33). */
   pr?: PrView;
+  /** When the item finished: done, and its PR merged if it has one (D37). Its card is muted. */
+  finishedAt?: string;
+  /** No local clone, and donePM can make one: where it lands, and how the last try went (issue #37). */
+  clone?: CloneState;
+  /** Someone else's pull request: what still blocks the Merge button, and how it merges (D47). */
+  merge?: MergeView;
+  /** While it waits for CI: the checks of the last poll, for the card's badges (spec 12.1). */
+  ci?: CiView;
+}
+
+/** One check as the last `gh pr checks` reported it; `bucket` is gh's: pass, fail, pending, skipping, cancel. */
+export interface CiCheckView {
+  name: string;
+  bucket: string;
+  startedAt?: string;
+}
+
+export interface CiView {
+  checks: CiCheckView[];
+}
+
+export interface MergeView {
+  /** Empty when the user approved, checks passed and GitHub says mergeable. */
+  blockers: string[];
+  /** The daemon merges it on its own once nothing blocks: the item's choice, else the repository's. */
+  auto: boolean;
+  /** The repository's merge method, the card's default. */
+  method: MergeMethod;
 }
 
 export type PrView = PrDraftResult &

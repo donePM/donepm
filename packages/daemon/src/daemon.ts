@@ -1,4 +1,4 @@
-import { executedPr, prConflictOf, prMergeOf, type Ctx, type PrConflict, type WorkItem } from "@donepm/core";
+import { autoMergeOn, executedPr, finishedAt, mergeBlockers, prConflictOf, prMergeOf, type CiCheck, type Ctx, type PrConflict, type WorkItem } from "@donepm/core";
 import type { FastifyInstance } from "fastify";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,6 +9,8 @@ import { spawnProcess, type ProcessFactory } from "./agent/process.js";
 import { AgentRunner } from "./agent/runner.js";
 import { recoverAfterRestart } from "./agent/restart.js";
 import { resumeItem, startItem, type StartDeps } from "./agent/start.js";
+import { GrantStore } from "./asks/grants.js";
+import { revokeGrant } from "./asks/revoke.js";
 import { AskStore } from "./asks/store.js";
 import { writeMcpConfig } from "./bridge/mcp-config.js";
 import { listenBridge } from "./bridge/server.js";
@@ -26,25 +28,37 @@ import { collectIssues } from "./gh/collect-issues.js";
 import { detectGh } from "./gh/detect.js";
 import { fetchQueryIssues } from "./gh/issues.js";
 import { Poller } from "./gh/poller.js";
-import { buildServer } from "./http/server.js";
+import { buildServer, type WorktreeChoice } from "./http/server.js";
 import { makeGuard } from "./http/guard.js";
 import { itemWriter } from "./items/commit.js";
 import { dismissItem } from "./items/dismiss.js";
+import { changePlaybook } from "./items/playbook.js";
+import { sayToAgent } from "./agent/say.js";
 import { ItemStore, type StoredItem } from "./items/store.js";
 import { relinkItems } from "./items/sync.js";
-import { agentHistory } from "./items/agent-info.js";
+import { agentHistory, liveHistory } from "./items/agent-info.js";
 import { attentionOf } from "./items/attention.js";
-import { toItemView, type CurrentTool } from "./items/view.js";
+import { toItemView, type CiCheckView, type CurrentTool, type ItemView, type MergeView } from "./items/view.js";
 import type { Exec } from "./process/exec.js";
-import { ensureDefaultPlaybook } from "./playbooks/load.js";
+import { ensureDefaultPlaybooks, loadPlaybooks } from "./playbooks/load.js";
+import { listPlaybooks } from "./playbooks/list.js";
+import { databaseBytes } from "./system/info.js";
+import { withOrphanDetails } from "./worktrees/orphan-details.js";
+import { RepoCloner } from "./repos/clone.js";
 import { discoverRepos } from "./repos/discover.js";
-import { hiddenByIgnore, ignoreChanges, isIgnored } from "./repos/ignore.js";
+import { hiddenUnmanaged, isManaged, managedChanges, migrateManaged, withManaged } from "./repos/managed.js";
 import { RepoStore } from "./repos/store.js";
+import { applyRetention } from "./retention/retention.js";
 import { StatusStore } from "./status/status.js";
 import { TranscriptStore } from "./transcript/store.js";
 import { failMissingWorktrees, findOrphans } from "./worktrees/reconcile.js";
+import { formerRootsAfter, occupiedRoots } from "./worktrees/former-roots.js";
+import { moveWorktrees, worktreesUnder } from "./worktrees/move.js";
+import { sameDir } from "./worktrees/paths.js";
 import { watchPrs } from "./prs/watch.js";
-import { dismissConflict, resolveConflict } from "./prs/actions.js";
+import { addressFeedback, dismissConflict, dismissFeedback, resolveConflict } from "./prs/actions.js";
+import { commentOnPr } from "./prs/comment.js";
+import { autoMergeReady, mergeDefaults, mergePr, setAutoMerge } from "./prs/merge.js";
 import { fixCi, markCiDone, rerunCi } from "./ci/actions.js";
 import { watchCi } from "./ci/watch.js";
 import { removeItemWorktree, removeOrphan } from "./worktrees/remove.js";
@@ -65,13 +79,15 @@ export interface DaemonOptions {
   spawn?: ProcessFactory;
   /** Environment the agent inherits (minus tokens); defaults to `process.env`. */
   env?: NodeJS.ProcessEnv;
+  /** Set when launchd runs the daemon: its log file and how to restart (exit, launchd starts it again). */
+  service?: { logFile: string; restart: () => void };
 }
 
 /** The stdio shim the agent's CLI starts for donePM's MCP server. */
 const BRIDGE_SCRIPT = fileURLToPath(new URL("./bridge/main.js", import.meta.url));
 
-/** Built-in playbook in the repository root, copied to the global folder on first start. */
-const DEFAULT_PLAYBOOK = fileURLToPath(new URL("../playbooks/implement.md", import.meta.url));
+/** Built-in playbooks in the package root, copied to the global folder when missing (D40). */
+const DEFAULT_PLAYBOOKS = ["implement.md", "review.md"].map((f) => fileURLToPath(new URL(`../playbooks/${f}`, import.meta.url)));
 
 export interface Daemon {
   app: FastifyInstance;
@@ -96,7 +112,13 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const items = new ItemStore(db);
   const events = new EventStore(db);
   const repos = new RepoStore(db);
+  const migrated = migrateManaged(config.sources, items.all().map((s) => s.originUrl));
+  if (migrated) {
+    config = { ...config, sources: migrated };
+    await saveConfig(paths.configFile, config);
+  }
   const asks = new AskStore(db);
+  const grants = new GrantStore(db);
   const transcript = new TranscriptStore(db);
   const drafts = new DraftStore(db);
   // Short on purpose: a unix socket path is limited to 104 bytes on macOS and truncates silently.
@@ -104,7 +126,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const bridgeSocket = join(bridgeDir, "mcp.sock");
   const bridgeSessions = new BridgeSessions();
   let bridge: { close: () => Promise<void> } | undefined;
-  const status = new StatusStore(opts.version);
+  const status = new StatusStore(opts.version, opts.ctx.now());
   const boundPort = () => {
     const a = app.server.address();
     return typeof a === "object" && a ? a.port : port;
@@ -112,15 +134,28 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const guard = makeGuard(boundPort, opts.extraOrigins);
   const hub = new Hub((req) => guard(req.headers));
 
-  const view = (item: WorkItem) => {
+  /** The last poll's checks per item waiting for CI; memory only, the next poll refills it. */
+  const ciChecks = new Map<string, CiCheckView[]>();
+  const onChecks = (itemId: string, checks: CiCheck[]) => {
+    const next = checks.map((c) => ({ name: c.name, bucket: c.bucket, ...(c.startedAt ? { startedAt: c.startedAt } : {}) }));
+    if (JSON.stringify(ciChecks.get(itemId)) === JSON.stringify(next)) return;
+    ciChecks.set(itemId, next);
+    const stored = items.get(itemId);
+    if (stored?.item.state === "checking") pushItem(stored.item);
+  };
+  const view = (item: WorkItem): ItemView => {
+    const repo = item.repoId ? repos.get(item.repoId) : undefined;
+    const origin = repo ? undefined : items.get(item.id)?.originUrl;
+    const clone = origin === undefined ? undefined : cloner.state(origin);
     const itemEvents = events.forItem(item.id);
     const itemDrafts = drafts.forItem(item.id);
     const pr = executedPr(itemDrafts);
-    return toItemView(
+    const finished = finishedAt(item, itemEvents, pr !== undefined);
+    const v = toItemView(
       item,
-      item.repoId ? repos.get(item.repoId) : undefined,
+      repo,
       {
-        ...agentHistory(itemEvents),
+        ...liveHistory(agentHistory(itemEvents), runner.isRunning(item.id)),
         running: runner.isRunning(item.id),
         ...withCurrentTool(runner.currentTool(item.id)),
       },
@@ -134,11 +169,25 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       }),
       pr ? { ...pr, ...prMergeOf(itemEvents), ...conflictView(prConflictOf(itemEvents)) } : undefined,
     );
+    const merge = item.source === "github-pr" ? mergeView(item, items.get(item.id)?.originUrl) : undefined;
+    const checks = item.state === "checking" ? ciChecks.get(item.id) : undefined;
+    return {
+      ...v, ...(finished ? { finishedAt: finished } : {}), ...(clone ? { clone } : {}), ...(merge ? { merge } : {}), ...(checks ? { ci: { checks } } : {}),
+    };
   };
-  /** Issue #33: items of an ignored repository stay off the board unless they still need attention. */
+  /** Whether the card's Merge button may be used, and the repository's merge defaults (D47). */
+  const mergeView = (item: WorkItem, origin: string | undefined): MergeView => {
+    const defaults = mergeDefaults(config.sources, origin ?? "");
+    return { blockers: mergeBlockers(item), auto: autoMergeOn(item, defaults.auto), method: defaults.method };
+  };
+  /**
+   * D46: items of an unmanaged repository stay off the board unless they still need attention.
+   * D37: archived items are only in the Archive.
+   */
   const onBoard = ({ item, originUrl }: StoredItem) =>
-    !hiddenByIgnore({
-      ignored: isIgnored(config.sources, originUrl),
+    item.archivedAt === undefined &&
+    !hiddenUnmanaged({
+      managed: isManaged(config.sources, originUrl),
       state: item.state,
       hasPending: () => drafts.pending(item.id).length > 0 || asks.pending(item.id).length > 0,
     });
@@ -155,6 +204,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     items,
     writer,
     asks,
+    grants,
     transcript,
     push: (type, payload) => hub.push(type, payload),
     ctx: opts.ctx,
@@ -184,11 +234,27 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       };
     },
   });
-  const draftDeps = { items, repos, drafts, writer, ctx: opts.ctx };
+  const draftDeps = { items, repos, drafts, events, writer, ctx: opts.ctx };
   failInterrupted(draftDeps);
 
-  const worktreeRoot = () => expandHome(config.worktreeRoot, opts.home);
-  const orphans = () => findOrphans({ exec: opts.exec, repos, items, worktreeRoot: worktreeRoot(), log: app.log });
+  const expand = (p: string) => expandHome(p, opts.home);
+  const worktreeRoot = () => expand(config.worktreeRoot);
+  const agentActive = (itemId: string) => runner.isRunning(itemId);
+  /** Item worktrees under the current root when `next` changes it (issue #93); none otherwise. */
+  const worktreesAtOldRoot = (next: Config) =>
+    sameDir(expand(next.worktreeRoot), worktreeRoot()) ? [] : worktreesUnder({ items, agentActive }, worktreeRoot());
+  /** Former roots are looked at until nothing is left under them; then they are forgotten. */
+  const orphans = async () => {
+    const former = config.previousWorktreeRoots;
+    const found = await findOrphans({ exec: opts.exec, repos, items, roots: [worktreeRoot(), ...former.map(expand)], log: app.log });
+    const present = [...found.map((o) => o.path), ...items.all().flatMap(({ item }) => (item.worktreePath ? [item.worktreePath] : []))];
+    const kept = occupiedRoots(former, present, expand);
+    if (kept.length !== former.length) {
+      config = { ...config, previousWorktreeRoots: kept };
+      await saveConfig(paths.configFile, config);
+    }
+    return found;
+  };
   const startDeps = (): StartDeps => ({
     items, repos, writer, runner, transcript, exec: opts.exec, ctx: opts.ctx, log: app.log,
     push: (type, payload) => hub.push(type, payload),
@@ -204,6 +270,20 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     return item;
   };
 
+  const cloner = new RepoCloner({
+    exec: opts.exec,
+    repos,
+    ctx: opts.ctx,
+    log: { info: (o, m) => app.log.info(o, m), warn: (o, m) => app.log.warn(o, m), error: (o, m) => app.log.error(o, m) },
+    root: () => expand(config.repoRoot),
+    push: (type, payload) => hub.push(type, payload),
+    // Every item of the origin gets the clone, or shows that it is cloning or why it failed.
+    changed: (origin) => {
+      relinkItems({ db, items, repos, ctx: opts.ctx });
+      for (const stored of items.all()) if (stored.originUrl === origin) pushItem(stored.item);
+    },
+  });
+
   const rescan = async () => {
     await discoverRepos({ root: expandHome(config.repoRoot, opts.home), exec: opts.exec, repos, ctx: opts.ctx, log: app.log });
     for (const item of relinkItems({ db, items, repos, ctx: opts.ctx })) pushItem(item);
@@ -218,16 +298,43 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const poller = new Poller(
     async () => {
       await collectIssues({ db, exec: opts.exec, items, events, repos, status, ctx: opts.ctx, log: app.log, sources: () => config.sources, onItemUpdated: pushItem });
-      if (status.get().gh?.state !== "ready") return;
-      await watchCi({ items, events, writer, exec: opts.exec, ctx: opts.ctx, log: app.log });
-      await watchPrs({
-        items, events, drafts, repos, writer, exec: opts.exec, ctx: opts.ctx, log: app.log,
-        removeOnMerge: () => config.removeWorktreeOnMerge,
-        agentActive: (i) => runner.isRunning(i),
+      if (status.get().gh?.state === "ready") {
+        for (const id of ciChecks.keys()) if (items.get(id)?.item.state !== "checking") ciChecks.delete(id);
+        await watchCi({ items, events, writer, exec: opts.exec, ctx: opts.ctx, log: app.log, onChecks });
+        await autoMergeReady({ items, events, writer, exec: opts.exec, ctx: opts.ctx, log: app.log }, config.sources, (o) => isManaged(config.sources, o));
+        await watchPrs({
+          items, events, drafts, repos, writer, exec: opts.exec, ctx: opts.ctx, log: app.log,
+          removeOnMerge: () => config.removeWorktreeOnMerge,
+          agentActive: (i) => runner.isRunning(i),
+        });
+      }
+      // Needs no gh: what finished and what is due is in the database (D37).
+      applyRetention({
+        db, items, events, drafts, asks, writer, ctx: opts.ctx, log: app.log,
+        retention: () => ({ archiveAfterHours: config.archiveAfterHours, deleteAfterDays: config.deleteAfterDays }),
       });
     },
     config.pollIntervalSeconds * 1000,
   );
+
+  const applyConfig = async (next: Config, choice?: WorktreeChoice) => {
+    const prev = config;
+    const oldRoot = sameDir(expand(next.worktreeRoot), worktreeRoot()) ? undefined : worktreeRoot();
+    if (oldRoot) next = { ...next, previousWorktreeRoots: formerRootsAfter(prev, next, expand) };
+    await saveConfig(paths.configFile, next);
+    config = next;
+    // Only after the new root is in force: a Start meanwhile already creates its worktree there.
+    const worktrees = oldRoot && choice === "move"
+      ? await moveWorktrees({ items, repos, writer, exec: opts.exec, ctx: opts.ctx, log: app.log, agentActive }, oldRoot, worktreeRoot())
+      : undefined;
+    if (next.pollIntervalSeconds !== prev.pollIntervalSeconds) poller.setInterval(next.pollIntervalSeconds * 1000);
+    // Hidden items leave the board and shown ones come back; a newly managed repository is polled now.
+    const flipped = new Set(managedChanges(prev.sources, next.sources));
+    for (const { item, originUrl } of items.all()) if (flipped.has(originUrl)) pushItem(item);
+    if ([...flipped].some((origin) => isManaged(next.sources, origin))) void poller.runNow();
+    if (next.repoRoot !== prev.repoRoot) void rescan().catch((e) => app.log.error({ err: e }, "rescan failed"));
+    return { restartRequired: next.port !== prev.port, ...(worktrees ? { worktrees } : {}) };
+  };
 
   const app = buildServer({
     port: boundPort,
@@ -240,25 +347,36 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     transcript,
     onBoard,
     getConfig: () => config,
-    saveConfig: async (next) => {
-      await saveConfig(paths.configFile, next);
-      const prev = config;
-      config = next;
-      if (next.pollIntervalSeconds !== prev.pollIntervalSeconds) poller.setInterval(next.pollIntervalSeconds * 1000);
-      // Hidden items leave the board and shown ones come back; nothing is read from gh for that.
-      const flipped = new Set(ignoreChanges(prev.sources, next.sources));
-      for (const { item, originUrl } of items.all()) if (flipped.has(originUrl)) pushItem(item);
-      if ([...flipped].some((origin) => !isIgnored(next.sources, origin))) void poller.runNow();
-      if (next.repoRoot !== prev.repoRoot) void rescan().catch((e) => app.log.error({ err: e }, "rescan failed"));
-      return { restartRequired: next.port !== prev.port };
-    },
+    worktreesAtOldRoot,
+    saveConfig: applyConfig,
     rescan,
+    cloneRepo: async (origin) => {
+      const r = await cloner.clone(origin);
+      // "Clone and manage": the click is the choice to work on it (D46).
+      if (!isManaged(config.sources, origin)) await applyConfig({ ...config, sources: withManaged(config.sources, origin, true) });
+      if (r.result === "started") void r.done.catch((e) => app.log.error({ err: e, origin }, "clone bookkeeping failed"));
+      return r;
+    },
     recheck,
     startItem: async (id) => track(await startItem(startDeps(), id)),
     resumeItem: async (id) => track(await resumeItem(startDeps(), id)),
     removeWorktree: (id) =>
       removeItemWorktree({ items, repos, writer, exec: opts.exec, ctx: opts.ctx, agentActive: (i) => runner.isRunning(i) }, id),
-    orphans,
+    orphans: async () => withOrphanDetails(opts.exec, await orphans()),
+    playbooks: () => listPlaybooks(paths.playbooksDir, repos.all()),
+    daemonInfo: () => ({
+      version: opts.version,
+      pid: status.get().pid,
+      port: boundPort(),
+      startedAt: status.get().startedAt,
+      service: opts.service ? "launchd" : "manual",
+      configFile: paths.configFile,
+      dbFile: paths.dbFile,
+      dbBytes: databaseBytes(paths.dbFile),
+      ...(opts.service ? { logFile: opts.service.logFile } : {}),
+      playbooksDir: paths.playbooksDir,
+    }),
+    ...(opts.service ? { restart: opts.service.restart } : {}),
     removeOrphan: (path) => removeOrphan({ exec: opts.exec, orphans }, path),
     stopItem: (id) => runner.stop(id),
     dismissItem: (id) => dismissItem({ items, writer, ctx: opts.ctx, agentActive: (i) => runner.isRunning(i) }, id),
@@ -272,8 +390,30 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
         id,
       ),
     dismissConflict: (id) => dismissConflict({ items, events, writer, ctx: opts.ctx }, id),
+    addressFeedback: (id) =>
+      addressFeedback({ items, events, writer, repos, ctx: opts.ctx, exec: opts.exec, resume: async (itemId, how) => track(await resumeItem(startDeps(), itemId, how)) }, id),
+    dismissFeedback: (id) => dismissFeedback({ items, events, writer, ctx: opts.ctx }, id),
+    commentOnPr: (id, body) => commentOnPr({ items, events, writer, ctx: opts.ctx, exec: opts.exec }, id, body),
+    mergePr: (id, method) => mergePr({ items, events, writer, ctx: opts.ctx, exec: opts.exec }, id, method),
+    setAutoMerge: (id, on) => setAutoMerge({ items, events, writer, ctx: opts.ctx }, id, on),
+    changePlaybook: (id, playbook) =>
+      changePlaybook(
+        {
+          items, writer, ctx: opts.ctx,
+          available: async (item) => {
+            const repo = item.repoId ? repos.get(item.repoId) : undefined;
+            return (await loadPlaybooks(paths.playbooksDir, repo?.path)).playbooks.map((p) => p.name);
+          },
+        },
+        id,
+        playbook,
+      ),
+    sayToAgent: (id, text) =>
+      sayToAgent({ item: (i) => items.get(i)?.item, hasProcess: (i) => runner.hasProcess(i), say: (i, t) => runner.say(i, t) }, id, text),
     view,
     answerAsk: (id, answer) => runner.answer(id, answer),
+    grants: () => grants.active(),
+    revokeGrant: (id) => revokeGrant({ grants, items, writer, ctx: opts.ctx }, id),
     diff: (input) => itemDiff(opts.exec, input),
     testSource: (origin, query) => fetchQueryIssues(opts.exec, origin, query),
     openPath: async (path, target) => {
@@ -316,8 +456,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       // No agent survives a restart (spec 7.5, 9.5): settle what the last run left behind.
       failMissingWorktrees({ items, writer, ctx: opts.ctx, log: app.log });
       recoverAfterRestart({ items, asks, writer, ctx: opts.ctx, log: app.log });
-      await ensureDefaultPlaybook(paths.playbooksDir, DEFAULT_PLAYBOOK).catch((e) =>
-        app.log.warn({ err: e }, "could not write the default playbook"),
+      await ensureDefaultPlaybooks(paths.playbooksDir, DEFAULT_PLAYBOOKS).catch((e) =>
+        app.log.warn({ err: e }, "could not write the default playbooks"),
       );
       await app.listen({ host: "127.0.0.1", port });
       bridge = await listenBridge({ ...draftDeps, exec: opts.exec, sessions: bridgeSessions, log: app.log, version: opts.version }, bridgeSocket);

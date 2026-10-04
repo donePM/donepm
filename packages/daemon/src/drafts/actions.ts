@@ -1,8 +1,10 @@
 import {
-  draftCreated, draftEdited, draftRejected, executedPr, pushTitle,
-  type Ctx, type Draft, type DraftCommit, type DraftType, type PrDraft, type PrDraftPayload, type PushDraft, type WorkItem,
+  draftCreated, draftEdited, draftRejected, draftTitle, executedPr, replyThreads,
+  type CommentDraft, type Ctx, type Draft, type DraftCommit, type DraftReply, type DraftType, type PrDraft, type PrDraftPayload,
+  type PushDraft, type WorkItem,
 } from "@donepm/core";
 import type { ResumeHow } from "../agent/start.js";
+import type { EventStore } from "../events/store.js";
 import type { ItemWriter } from "../items/commit.js";
 import type { ItemStore } from "../items/store.js";
 import type { Exec } from "../process/exec.js";
@@ -24,6 +26,7 @@ export interface DraftDeps {
   items: ItemStore;
   repos: RepoStore;
   drafts: DraftStore;
+  events: EventStore;
   writer: ItemWriter;
   ctx: Ctx;
 }
@@ -54,10 +57,15 @@ export function createPrDraft(deps: DraftDeps, itemId: string, input: { title: s
  * draft opened. The daemon lists the commits the remote branch lacks; uncommitted changes are
  * committed when the push runs, as with a PR draft. Nothing new is an error the agent reads.
  */
-export async function createPushDraft(deps: DraftDeps & { exec: Exec }, itemId: string, input: { summary: string }): Promise<Draft> {
+export async function createPushDraft(
+  deps: DraftDeps & { exec: Exec },
+  itemId: string,
+  input: { summary: string; replies?: DraftReply[] },
+): Promise<Draft> {
   const item = draftableItem(deps, itemId);
   const pr = executedPr(deps.drafts.forItem(itemId));
   if (!pr) throw new DraftError(409, "there is no pull request yet; call draft_pr instead");
+  const replies = checkedReplies(deps, itemId, input.replies ?? []);
   if (!item.worktreePath || !item.branch) throw new DraftError(409, "the item has no worktree");
   const { commits, uncommitted } = await unpushed(deps.exec, item.worktreePath, item.branch);
   if (commits.length === 0 && !uncommitted) throw new DraftError(409, "nothing to push: commit your changes first");
@@ -66,14 +74,44 @@ export async function createPushDraft(deps: DraftDeps & { exec: Exec }, itemId: 
     id: deps.ctx.newId(),
     itemId,
     type: "push",
-    payload: { summary: input.summary, number: pr.number, url: pr.url, branch: item.branch, commits, uncommitted },
+    payload: {
+      summary: input.summary, number: pr.number, url: pr.url, branch: item.branch, commits, uncommitted,
+      ...(replies.length ? { replies } : {}),
+    },
     state: "pending",
   };
   // Re-read: git ran meanwhile and the agent may have ended its turn.
   const current = draftableItem(deps, itemId);
   deps.drafts.insert(draft, deps.ctx.now());
-  deps.writer.commit(draftCreated(current, deps.ctx, draft.id, { type: "push", title: pushTitle(draft.payload) }));
+  deps.writer.commit(draftCreated(current, deps.ctx, draft.id, { type: "push", title: draftTitle(draft) }));
   return draft;
+}
+
+/**
+ * `draft_comment` (decision D39): answers to review feedback when no code changes. The user
+ * approves, the daemon posts them as the user.
+ */
+export function createCommentDraft(deps: DraftDeps, itemId: string, input: { replies: DraftReply[] }): Draft {
+  const item = draftableItem(deps, itemId);
+  const pr = executedPr(deps.drafts.forItem(itemId));
+  if (!pr) throw new DraftError(409, "there is no pull request to comment on");
+  const replies = checkedReplies(deps, itemId, input.replies);
+  if (replies.length === 0) throw new DraftError(409, "there is nothing to post: give at least one reply");
+  const draft: CommentDraft = { id: deps.ctx.newId(), itemId, type: "comment", payload: { number: pr.number, url: pr.url, replies }, state: "pending" };
+  deps.drafts.insert(draft, deps.ctx.now());
+  deps.writer.commit(draftCreated(item, deps.ctx, draft.id, { type: "comment", title: draftTitle(draft) }));
+  return draft;
+}
+
+/** Replies may only answer inline threads a `pr.feedback` brought in, so they land where meant. */
+function checkedReplies(deps: DraftDeps, itemId: string, replies: DraftReply[]): DraftReply[] {
+  const threads = replyThreads(deps.events.forItem(itemId));
+  for (const r of replies) {
+    if (r.inReplyTo !== undefined && !threads.has(r.inReplyTo)) {
+      throw new DraftError(409, `there is no review thread ${r.inReplyTo}; use a thread number from the feedback, or leave inReplyTo out`);
+    }
+  }
+  return replies.map((r) => (r.inReplyTo === undefined ? { body: r.body } : { body: r.body, inReplyTo: r.inReplyTo }));
 }
 
 /** Commits on HEAD the remote branch lacks, oldest first, and whether changes are uncommitted. */
@@ -91,7 +129,7 @@ async function unpushed(exec: Exec, worktree: string, branch: string): Promise<{
   return { commits, uncommitted };
 }
 
-function draftableItem(deps: DraftDeps, itemId: string): WorkItem {
+export function draftableItem(deps: DraftDeps, itemId: string): WorkItem {
   const item = itemOf(deps, itemId);
   if (item.state !== "running") throw new DraftError(409, `the item is ${item.state}, a draft can only be made while the agent is working`);
   if (deps.drafts.pending(itemId).length > 0) {
@@ -143,9 +181,16 @@ export async function rejectDraft(deps: RejectDeps, draftId: string, reason: str
   return { ...draft, state: "rejected" };
 }
 
+const REJECTED: Record<DraftType, { what: string; tool: string }> = {
+  pr: { what: "pull request draft", tool: "draft_pr" },
+  push: { what: "push draft", tool: "draft_push" },
+  comment: { what: "replies", tool: "draft_comment" },
+  review: { what: "review", tool: "draft_review" },
+};
+
 export function rejectionMessage(reason: string | undefined, type: DraftType = "pr"): string {
-  const head = type === "pr" ? "The user rejected your pull request draft." : "The user rejected your push draft.";
-  const tail = `Revise the work and call ${type === "pr" ? "draft_pr" : "draft_push"} again when it is ready.`;
+  const head = `The user rejected your ${REJECTED[type].what}.`;
+  const tail = `Revise the work and call ${REJECTED[type].tool} again when it is ready.`;
   return reason ? `${head}\n\nTheir reason:\n${reason}\n\n${tail}` : `${head}\n\n${tail}`;
 }
 

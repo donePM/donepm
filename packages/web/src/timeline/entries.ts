@@ -1,6 +1,7 @@
-import { isQuestionTool, parseRules, questionsOf, toolSummary, type Event, type PermissionAsk } from "@donepm/core";
+import { isQuestionTool, parseRules, priorityName, questionsOf, rawRule, repoName, toolSummary, type Event, type PermissionAsk } from "@donepm/core";
 import { grantText } from "../asks/grant";
 import { askCopyText, askView } from "../asks/view";
+import { tokens } from "../time/duration";
 
 export type Tone = "attention" | "danger" | "user" | "system";
 
@@ -15,7 +16,13 @@ export interface TimelineEntry {
   detail?: string;
   /** The whole tool input when `code` shows only its first line; the code's tooltip. */
   full?: string;
+  /** Who did it, in bold: "You", "Agent", "System" (spec 12.2). */
+  actor: string;
+  /** `text` without the actor: "created PR draft". */
+  verb: string;
 }
+
+type EntryText = Omit<TimelineEntry, "id" | "at" | "actor" | "verb">;
 
 const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v : undefined);
 
@@ -31,6 +38,14 @@ function askFull(ask: PermissionAsk | undefined): { full?: string } {
   const full = askCopyText(askView(ask.toolName, ask.input));
   return full && full !== toolSummary(ask.toolName, ask.input) ? { full } : {};
 }
+
+/** `Bash(pnpm test *)` from a grant payload (D38). */
+function grantCode(p: Record<string, unknown>): string | undefined {
+  const [rule] = parseRules([p]);
+  return rule ? rawRule(rule) : undefined;
+}
+
+const repoOfPayload = (p: Record<string, unknown>): string => repoName(str(p.repo) ?? "");
 
 function isQuestion(ask: PermissionAsk | undefined, fallbackTool: unknown): boolean {
   return isQuestionTool(ask?.toolName ?? str(fallbackTool) ?? "");
@@ -51,22 +66,87 @@ function answersText(ask: PermissionAsk | undefined, answers: unknown): string |
   return parts.length ? parts.join(" · ") : undefined;
 }
 
-function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: ReadonlySet<string>): Omit<TimelineEntry, "id" | "at"> {
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+
+/**
+ * `item.refreshed` (D45): "Priority changed on GitHub: P2 → P1" when only the priority changed,
+ * else "Changed on GitHub: priority P2 → P1, title, labels +bug −P3"; a changed title in the detail.
+ */
+function refreshedEntry(p: Record<string, unknown>): EntryText {
+  const changed = (typeof p.changed === "object" && p.changed !== null ? p.changed : {}) as Record<string, { from?: unknown; to?: unknown } | undefined>;
+  const { priority, title, labels } = changed;
+  const parts: string[] = [];
+  const tiers = priority && typeof priority.from === "number" && typeof priority.to === "number"
+    ? `${priorityName(priority.from)} → ${priorityName(priority.to)}`
+    : undefined;
+  if (tiers) parts.push(`priority ${tiers}`);
+  if (title) parts.push("title");
+  if (labels) {
+    const from = strings(labels.from);
+    const to = strings(labels.to);
+    const diff = [...to.filter((l) => !from.includes(l)).map((l) => `+${l}`), ...from.filter((l) => !to.includes(l)).map((l) => `−${l}`)];
+    parts.push(diff.length ? `labels ${diff.join(" ")}` : "labels");
+  }
+  const text = tiers && parts.length === 1 ? `Priority changed on GitHub: ${tiers}` : `Changed on GitHub: ${parts.join(", ")}`;
+  const detail = title && str(title.from) && str(title.to) ? { detail: `“${str(title.from)}” → “${str(title.to)}”` } : {};
+  return { tone: "system", text, ...detail };
+}
+
+const DRAFT_NAME: Record<string, string> = { pr: "PR draft", push: "push draft", comment: "reply draft", review: "review draft" };
+
+/** "4 s", "11 min", "1 h 5 min". */
+export function spanText(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s} s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min`;
+  return m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 60)} h`;
+}
+
+/** "11 min · $0.86 · 48.2k in / 6.1k out": how long the turn took, the run's cost and tokens so far. */
+function turnDetail(p: Record<string, unknown>, durationMs: number | undefined): string | undefined {
+  const parts: string[] = [];
+  if (durationMs !== undefined) parts.push(spanText(durationMs));
+  if (typeof p.costUsd === "number") parts.push(`$${p.costUsd.toFixed(2)}`);
+  const u = p.usage as { inputTokens?: unknown; outputTokens?: unknown } | undefined;
+  if (u && typeof u.inputTokens === "number" && typeof u.outputTokens === "number") parts.push(`${tokens(u.inputTokens)} in / ${tokens(u.outputTokens)} out`);
+  return parts.length ? parts.join(" · ") : undefined;
+}
+
+const PROPER = /^(GitHub|CI|PR|PRs|donePM)\b/;
+
+/**
+ * The bold actor and the rest. The text names the user ("You …") or the agent ("Agent …"); an
+ * agent start the user made reads "You started". Everything else is donePM itself.
+ */
+export function splitActor(text: string, actor: Event["actor"]): { actor: string; verb: string } {
+  if (text.startsWith("You ")) return { actor: "You", verb: text.slice(4) };
+  if (text.startsWith("Agent ")) return { actor: actor === "user" ? "You" : "Agent", verb: text.slice(6) };
+  const verb = PROPER.test(text) ? text : text.charAt(0).toLowerCase() + text.slice(1);
+  return { actor: "System", verb };
+}
+
+function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: ReadonlyMap<string, string>, turnMs: ReadonlyMap<string, number>): EntryText {
   const p = e.payload;
   const ask = e.refId ? asks.get(e.refId) : undefined;
-  const push = e.refId !== undefined && pushDrafts.has(e.refId);
-  const draftName = push ? "push draft" : "PR draft";
+  const type = (e.refId !== undefined && draftTypes.get(e.refId)) || "pr";
+  const push = type === "push";
+  const draftName = DRAFT_NAME[type] ?? "draft";
   switch (e.type) {
     case "item.collected":
       return { tone: "system", text: "Collected from GitHub" };
     case "item.playbook_changed":
-      return { tone: "user", text: "You changed the playbook", ...(str(p.name) ? { code: str(p.name) } : {}) };
+      return { tone: "user", text: "You changed the playbook", ...withCode(str(p.to) ?? str(p.name)) };
     case "item.assigned":
       return { tone: "system", text: "Assigned the issue to you on GitHub" };
     case "item.closed_upstream":
       return { tone: "system", text: "Closed on GitHub, moved to Done" };
     case "item.dismissed":
       return { tone: "user", text: "You dismissed it after it was closed on GitHub" };
+    case "item.archived":
+      return { tone: "system", text: "Moved to the Archive" };
+    case "item.refreshed":
+      return refreshedEntry(p);
     case "item.assign_failed":
       return { tone: "attention", text: "Assigning the issue to you failed", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
     case "agent.started":
@@ -74,6 +154,7 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
     case "agent.resumed":
       if (p.reason === "ci_failed") return { tone: "user", text: "You let the agent fix the failed CI" };
       if (p.reason === "pr_conflict") return { tone: "user", text: "You let the agent resolve the merge conflict" };
+      if (p.reason === "pr_feedback") return { tone: "user", text: "You let the agent address the review feedback" };
       return { tone: e.actor === "user" ? "user" : "system", text: e.actor === "user" ? "You resumed the agent" : "Agent resumed" };
     case "agent.interrupted":
       return { tone: "attention", text: "Agent interrupted", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
@@ -83,7 +164,7 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
       return {
         tone: "system",
         text: p.isError === true ? "Agent turn ended with an error" : "Agent turn ended",
-        ...(typeof p.costUsd === "number" ? { detail: `$${p.costUsd.toFixed(2)} so far in this run` } : {}),
+        ...(turnDetail(p, turnMs.get(e.id)) ? { detail: turnDetail(p, turnMs.get(e.id)) } : {}),
       };
     case "agent.failed":
       return { tone: "danger", text: "Agent failed", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
@@ -91,6 +172,9 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
       if (isQuestion(ask, p.toolName)) return { tone: "attention", text: "Agent asked you", ...withCode(questionCode(ask)) };
       return { tone: "attention", text: "Agent asked permission", ...withCode(askCode(ask, p.toolName)), ...askFull(ask) };
     case "permission.answered": {
+      if (e.actor === "system") {
+        return { tone: "system", text: "Denied by donePM", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
+      }
       if (isQuestion(ask, undefined)) {
         const detail = answersText(ask, p.answers);
         return {
@@ -99,6 +183,9 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
           ...withCode(questionCode(ask)),
           ...(detail ? { detail } : {}),
         };
+      }
+      if (p.behavior === "allow" && Array.isArray(p.always)) {
+        return { tone: "user", text: "You always allowed", ...withCode(askCode(ask, undefined)), ...askFull(ask) };
       }
       const grant = p.behavior === "allow" ? grantText(parseRules(p.rules)) : undefined;
       return {
@@ -110,12 +197,26 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
       };
     }
     case "permission.auto_allowed":
+      if (Array.isArray(p.grants)) {
+        const rules = parseRules(p.grants).map(rawRule).join(", ");
+        return {
+          tone: "system",
+          text: `Always allowed in ${repoOfPayload(p)}`,
+          ...withCode(askCode(ask, p.toolName)),
+          ...askFull(ask),
+          ...(rules ? { detail: `${rules} is in Settings → Always allowed` } : {}),
+        };
+      }
       return {
         tone: "system",
         text: "Allowed web access on your list",
         ...withCode(askCode(ask, p.toolName)),
         ...(str(p.domain) ? { detail: `${str(p.domain)} is in Settings → Web access` } : {}),
       };
+    case "permission.granted":
+      return { tone: "user", text: `Added to Always allowed in ${repoOfPayload(p)}`, ...withCode(grantCode(p)) };
+    case "permission.grant_revoked":
+      return { tone: "user", text: `You removed from Always allowed in ${repoOfPayload(p)}`, ...withCode(grantCode(p)) };
     case "draft.created":
       return { tone: "attention", text: `Agent created ${draftName}`, ...(str(p.title) ? { detail: str(p.title) } : {}) };
     case "draft.edited":
@@ -125,10 +226,26 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
     case "draft.rejected":
       return { tone: "user", text: `You rejected the ${draftName}`, ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
     case "draft.executed":
-      if (push) return { tone: "system", text: "Commits pushed", ...(str(p.sha) ? { code: str(p.sha)!.slice(0, 7) } : {}) };
+      if (type === "comment") return { tone: "system", text: `${replies(p.posted)} posted, done` };
+      if (type === "review") return { tone: "system", text: "Review posted, done", ...(str(p.url) ? { detail: str(p.url) } : {}) };
+      if (push) {
+        return {
+          tone: "system",
+          text: Array.isArray(p.posted) && p.posted.length ? `Commits pushed, ${replies(p.posted)} posted` : "Commits pushed",
+          ...(str(p.sha) ? { code: str(p.sha)!.slice(0, 7) } : {}),
+        };
+      }
       return { tone: "system", text: "Pull request created", ...(str(p.url) ? { detail: str(p.url) } : {}) };
     case "draft.execution_failed":
-      return { tone: "danger", text: push ? "Pushing failed" : "Creating the pull request failed", ...(str(p.error) ? { detail: str(p.error) } : {}) };
+      return {
+        tone: "danger",
+        text:
+          p.step === "reply" ? "Posting the replies failed"
+          : p.step === "review" ? "Posting the review failed"
+          : push ? "Pushing failed"
+          : "Creating the pull request failed",
+        ...(str(p.error) ? { detail: str(p.error) } : {}),
+      };
     case "ci.started":
       if (p.reason === "rerun") return { tone: "user", text: `You reran the failed jobs on ${prName(p.number)}` };
       return { tone: "system", text: `Waiting for CI on ${prName(p.number)}` };
@@ -149,6 +266,27 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
       return { tone: "system", text: `${prName(p.number)} can be merged again` };
     case "pr.conflict_dismissed":
       return { tone: "user", text: "You'll resolve the merge conflict yourself" };
+    case "pr.feedback": {
+      const entries = Array.isArray(p.entries) ? p.entries : [];
+      const who = [...new Set(entries.flatMap((x: unknown) => str((x as { author?: unknown } | null)?.author) ?? []))];
+      return {
+        tone: "attention",
+        text: `Review feedback on ${prName(p.number)}`,
+        ...(who.length ? { detail: `${entries.length} from ${who.map((w) => `@${w}`).join(", ")}` } : {}),
+      };
+    }
+    case "pr.feedback_dismissed":
+      return { tone: "user", text: "You marked the review feedback done" };
+    case "pr.commented":
+      return { tone: "user", text: "You commented on the pull request", ...(str(p.body) ? { detail: str(p.body) } : {}) };
+    case "pr.merged":
+      return p.auto
+        ? { tone: "system", text: `Merged automatically (${str(p.method)})` }
+        : { tone: "user", text: `You merged the pull request (${str(p.method)})` };
+    case "pr.merge_failed":
+      return { tone: "danger", text: "Automatic merge failed, turned off for this item", ...(str(p.error) ? { detail: str(p.error) } : {}) };
+    case "pr.auto_merge_set":
+      return { tone: "user", text: p.on ? "You turned on automatic merge" : "You turned off automatic merge" };
     case "item.pr_merged":
       return { tone: "system", text: `${prName(p.number)} merged` };
     case "worktree.removed": {
@@ -156,6 +294,8 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
       if (p.reason === "pr_merged") return { tone: "system", text: `${prName(p.number)} merged, worktree removed`, ...kept };
       return { tone: "user", text: "You removed the worktree", ...kept };
     }
+    case "worktree.moved":
+      return { tone: "user", text: "You moved the worktree", ...(str(p.to) ? { detail: `to ${str(p.to)}` } : {}) };
     case "worktree.remove_skipped": {
       const files = Array.isArray(p.files) ? p.files.filter((f) => typeof f === "string") : [];
       const reason = str(p.reason) ?? "unknown reason";
@@ -169,16 +309,35 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
 
 const withCode = (code: string | undefined) => (code ? { code } : {});
 const prName = (n: unknown) => (typeof n === "number" ? `PR #${n}` : "PR");
+const replies = (posted: unknown) => {
+  const n = Array.isArray(posted) ? posted.length : 0;
+  return n === 1 ? "1 reply" : n ? `${n} replies` : "Replies";
+};
 
 /** Events as the item detail lists them: newest first (spec §12.2). */
 export function timelineEntries(events: readonly Event[], asks: readonly PermissionAsk[]): TimelineEntry[] {
   const byId = new Map(asks.map((a) => [a.id, a]));
   // Only `draft.created` says which kind of draft; the later draft events point to it by refId.
-  const pushDrafts = new Set(events.flatMap((e) => (e.type === "draft.created" && e.payload.type === "push" && e.refId ? [e.refId] : [])));
+  const draftTypes = new Map(
+    events.flatMap((e) => (e.type === "draft.created" && e.refId && typeof e.payload.type === "string" ? [[e.refId, e.payload.type] as const] : [])),
+  );
+  // How long each turn took: from the start, resume or continuation before it.
+  const turnMs = new Map<string, number>();
+  let turnStart: string | undefined;
+  for (const e of events) {
+    if (e.type === "agent.started" || e.type === "agent.resumed" || e.type === "agent.turn_started") turnStart = e.at;
+    else if (e.type === "agent.turn_ended" && turnStart) {
+      turnMs.set(e.id, Date.parse(e.at) - Date.parse(turnStart));
+      turnStart = undefined;
+    }
+  }
   return events
     .map((e, i) => ({ e, i }))
     .sort((a, b) => b.e.at.localeCompare(a.e.at) || b.i - a.i)
-    .map(({ e }) => ({ id: e.id, at: e.at, ...entry(e, byId, pushDrafts) }));
+    .map(({ e }) => {
+      const x = entry(e, byId, draftTypes, turnMs);
+      return { id: e.id, at: e.at, ...x, ...splitActor(x.text, e.actor) };
+    });
 }
 
 /** "09:41" today, "Yesterday 17:02", else "Sep 28 17:02". Local time. */

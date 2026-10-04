@@ -74,3 +74,35 @@ export function diffStats(files: readonly DiffFile[]): DiffStats {
     deletions: files.reduce((n, f) => n + f.deletions, 0),
   };
 }
+
+type Keyed = { path: string; oldPath?: string };
+
+/** Stable identity of a file within one diff (renames include the old path). */
+export function fileKey(f: Keyed): string {
+  return `${f.oldPath ?? ""}→${f.path}`;
+}
+
+/** Every file open. */
+export function expandAll(files: readonly Keyed[]): Set<string> {
+  return new Set(files.map(fileKey));
+}
+
+/** Every file closed. */
+export function collapseAll(): Set<string> {
+  return new Set();
+}
+
+/** A copy of `open` with `key` flipped. */
+export function toggleKey(open: ReadonlySet<string>, key: string): Set<string> {
+  const next = new Set(open);
+  if (!next.delete(key)) next.add(key);
+  return next;
+}
+
+export function allOpen(files: readonly Keyed[], open: ReadonlySet<string>): boolean {
+  return files.length > 0 && files.every((f) => open.has(fileKey(f)));
+}
+
+export function noneOpen(files: readonly Keyed[], open: ReadonlySet<string>): boolean {
+  return !files.some((f) => open.has(fileKey(f)));
+}

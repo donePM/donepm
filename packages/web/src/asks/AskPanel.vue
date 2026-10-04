@@ -4,8 +4,9 @@ import { computed, ref } from "vue";
 import { api } from "../api/client";
 import { errorText } from "../api/errors";
 import type { PermissionRule } from "../api/types";
+import type { RepoRef } from "../markdown/render";
 import AskInput from "./AskInput.vue";
-import { grantText } from "./grant";
+import { grantText, grantWords } from "./grant";
 import QuestionDialog from "./QuestionDialog.vue";
 import { askReason } from "./view";
 
@@ -18,6 +19,10 @@ const props = defineProps<{
   reason?: string;
   /** The item's worktree: a Bash cwd there goes without saying. */
   worktree?: string;
+  /** The item's repository: "Always allow" grants the rules there (D38). */
+  repo?: RepoRef;
+  /** On a card: small buttons, the deny buttons quiet (spec 12.1). */
+  compact?: boolean;
 }>();
 const emit = defineEmits<{ answered: [] }>();
 
@@ -29,6 +34,10 @@ const label = computed(() => (network.value ? "Network access" : props.toolName)
 
 /** What "Allow for this run" adds; no button when the CLI suggested nothing we may grant. */
 const grant = computed(() => grantText(props.rules ?? []));
+/** The same rules, shown under the buttons before the user presses (issue #71). */
+const grantShown = computed(() => grantWords(props.rules ?? []));
+/** `owner/repo` for "Always allow in …"; no button without a repository. */
+const repoName = computed(() => (props.repo ? `${props.repo.owner}/${props.repo.name}` : undefined));
 
 /** AskUserQuestion: Allow alone is no answer; the user answers in a dialog or declines (spec 9.4). */
 const questions = computed(() => (isQuestionTool(props.toolName) ? questionsOf(props.input) : []));
@@ -39,7 +48,7 @@ const message = ref("");
 const busy = ref(false);
 const error = ref<string>();
 
-async function answer(behavior: "allow" | "deny", scope?: "run", answers?: Answers) {
+async function answer(behavior: "allow" | "deny", scope?: "run" | "always", answers?: Answers, interrupt = false) {
   busy.value = true;
   error.value = undefined;
   try {
@@ -48,7 +57,7 @@ async function answer(behavior: "allow" | "deny", scope?: "run", answers?: Answe
       props.askId,
       behavior === "allow"
         ? { behavior, ...(scope ? { scope } : {}), ...(answers ? { answers } : {}) }
-        : msg ? { behavior, message: msg } : { behavior },
+        : { behavior, ...(msg ? { message: msg } : {}), ...(interrupt ? { interrupt } : {}) },
     );
     asking.value = false;
     emit("answered");
@@ -69,32 +78,49 @@ async function answer(behavior: "allow" | "deny", scope?: "run", answers?: Answe
       </li>
     </ul>
     <template v-else>
-      <p class="head"><span class="tool mono">{{ label }}</span><span v-if="reasonText" class="reason">{{ reasonText }}</span></p>
+      <p class="head"><span class="tool-name mono">{{ label }}</span><span v-if="reasonText" class="reason">{{ reasonText }}</span></p>
       <AskInput :tool-name="toolName" :input="input" :worktree="worktree" />
     </template>
     <p v-if="network" class="hint">
       A command wants to connect to this host. Publishing goes through drafts; allow only what the work needs.
     </p>
     <form v-if="denying" class="deny" @submit.prevent="answer('deny')">
-      <label class="sr-only" :for="`deny-${askId}`">Message to the agent</label>
-      <textarea :id="`deny-${askId}`" v-model="message" class="textarea" rows="2" placeholder="Why not, or what to do instead (optional)"></textarea>
+      <label class="sr" :for="`deny-${askId}`">Message to the agent</label>
+      <textarea :id="`deny-${askId}`" v-model="message" class="textarea" rows="2" placeholder="The agent reads this."></textarea>
       <div class="buttons">
-        <button class="btn btn-danger" type="submit" :disabled="busy">{{ questions.length ? "Decline" : "Deny" }}</button>
+        <button class="btn danger" type="submit" :disabled="busy">{{ questions.length ? "Decline" : "Deny" }}</button>
+        <button v-if="!questions.length" class="btn danger" type="button" :disabled="busy" title="Ends the agent's turn; you write the next message" @click="answer('deny', undefined, undefined, true)">Deny and stop</button>
         <button class="btn" type="button" :disabled="busy" @click="denying = false">Cancel</button>
       </div>
     </form>
-    <div v-else-if="questions.length" class="buttons">
-      <button class="btn btn-primary" type="button" :disabled="busy" @click="asking = true">Answer…</button>
+    <div v-else-if="questions.length" class="buttons" :class="{ compact }">
+      <button class="btn primary" type="button" :disabled="busy" @click="asking = true">Answer…</button>
       <button class="btn" type="button" :disabled="busy" @click="denying = true">Decline…</button>
     </div>
-    <div v-else class="buttons">
-      <button class="btn btn-primary" type="button" :disabled="busy" @click="answer('allow')">Allow</button>
+    <div v-else class="buttons" :class="{ compact }">
+      <button class="btn primary" type="button" :disabled="busy" @click="answer('allow')">Allow</button>
       <button v-if="grant" class="btn" type="button" :disabled="busy" :title="`Also allows ${grant} until this run ends`" @click="answer('allow', 'run')">
         Allow for this run
       </button>
-      <button class="btn" type="button" :disabled="busy" @click="denying = true">Deny…</button>
+      <button
+        v-if="grant && repoName"
+        class="btn"
+        type="button"
+        :disabled="busy"
+        :title="`Allows ${grant} in every run in ${repoName}, until you remove it in Settings`"
+        @click="answer('allow', 'always')"
+      >
+        Always allow in {{ repoName }}
+      </button>
+      <button class="btn" :class="{ ghost: compact }" type="button" :disabled="busy" @click="answer('deny')">Deny</button>
+      <button class="btn" :class="{ ghost: compact }" type="button" :disabled="busy" @click="denying = true">{{ compact ? "Deny…" : "Deny and say why…" }}</button>
     </div>
-    <p v-if="grant && !denying" class="hint">For this run also allows: <span class="mono">{{ grant }}</span></p>
+    <p v-if="grantShown.length && !denying && !questions.length" class="hint grant">
+      "Allow for this run" also allows
+      <template v-for="(w, i) in grantShown" :key="i"
+        >{{ i ? ", " : " " }}{{ w.text }}<template v-if="w.pattern"> <code class="mono">{{ w.pattern }}</code></template></template
+      > for the rest of this run<template v-if="repoName">; "Always allow" in every run in {{ repoName }}, until you remove it in Settings</template>.
+    </p>
     <p v-if="error && !asking" class="alert" role="alert">{{ error }}</p>
     <QuestionDialog
       v-if="asking"
@@ -111,11 +137,13 @@ async function answer(behavior: "allow" | "deny", scope?: "run", answers?: Answe
 <style scoped>
 .ask { display: flex; flex-direction: column; gap: 10px; }
 .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0; }
-.tool { font-size: 12px; font-weight: 600; color: var(--ink-2); }
-.reason { font-size: 12px; color: var(--muted, #6b6b63); }
+.tool-name { font-size: 12px; font-weight: 600; color: var(--fg-2); }
+.reason { font-size: 12px; color: var(--fg-3); }
 .questions { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; line-height: 1.4; }
-.chip { margin-right: 6px; padding: 1px 7px; border-radius: 999px; background: var(--blue-tint); color: var(--blue); font-size: 12px; font-weight: 500; }
+.chip { margin-right: 6px; padding: 1px 7px; border-radius: 999px; background: var(--primary-tint); color: var(--primary); font-size: 12px; font-weight: 500; }
 .deny { display: flex; flex-direction: column; gap: 8px; }
 .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
-.hint { margin: 0; font-size: 12px; color: var(--muted, #6b6b63); }
+.buttons.compact .btn { height: 28px; padding: 0 10px; font-size: 12px; }
+.hint { margin: 0; font-size: 12px; color: var(--fg-3); }
+.grant code { padding: 0 4px; border-radius: 4px; background: var(--muted); border: 1px solid var(--border); color: var(--fg-2); overflow-wrap: anywhere; }
 </style>

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>donePM Agents</title>
+
+<link rel="stylesheet" href="./ui.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div class="app light" style="min-height: 900px">
+
+  <header class="top">
+    <a class="brand" href="board.html"><span class="disc"></span>donePM</a>
+    <nav class="nav" aria-label="Main">
+      <a href="board.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M9 3v18M15 3v18"></path></svg>Board</a>
+      <a class="on" href="agents.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"></path><rect x="4" y="8" width="16" height="12" rx="2"></rect><path d="M2 14h2M20 14h2M15 13v2M9 13v2"></path></svg>Agents <span class="badge primary">2</span></a>
+      <a href="settings-repos.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path><circle cx="8" cy="6" r="2" fill="currentColor"></circle><circle cx="16" cy="12" r="2" fill="currentColor"></circle><circle cx="10" cy="18" r="2" fill="currentColor"></circle></svg>Settings</a>
+    </nav>
+    <div class="right">
+      <a href="board.html" class="pill pill-attn" style="text-decoration: none"><svg class="ic-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4M12 16h.01"></path></svg>3 need you</a>
+      <span>1 of 1 slots · today $2.14</span>
+      <button class="iconbtn" aria-label="Switch to dark theme"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg></button>
+    </div>
+  </header>
+
+  <main class="split">
+    <aside class="alist">
+      <div class="grp">Running</div>
+      <a class="on" href="agents.html"><span class="m">laravel-pergament #45</span><span class="t">Migrate config publishing to Laravel 13 conventions</span><span class="s" style="color: var(--primary)"><span class="dot primary"></span>running · 6:12 · $0.41</span></a>
+      <div class="grp">Waiting for CI</div>
+      <a href="board.html"><span class="m">laravel-pergament #44</span><span class="t">Rename pergament:prune options for consistency</span><span class="s" style="color: var(--attn)"><span class="dot attn pulse"></span>2 of 4 checks · 1:20</span></a>
+      <div class="grp">Waiting for you</div>
+      <a href="item.html"><span class="m">laravel-pergament #41</span><span class="t">Throw a typed exception when the storage disk is missing</span><span class="s" style="color: var(--attn)"><span class="dot attn"></span>PR draft · 14 min</span></a>
+      <a href="board.html"><span class="m">beacon #5</span><span class="t">Replace deprecated carbon calls</span><span class="s" style="color: var(--attn)"><span class="dot attn"></span>permission · composer update</span></a>
+      <div class="grp">Finished today</div>
+      <a href="board.html" style="color: var(--fg-3)"><span class="m">laravel-pergament #40</span><span class="t" style="font-weight: 400">Document the pergament:prune command</span><span class="s"><span class="dot ok"></span>merged · $0.65</span></a>
+    </aside>
+
+    <section class="tx">
+      <div class="tx-h">
+        <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+          <span style="font-weight: 600">laravel-pergament #45 · Migrate config publishing to Laravel 13 conventions</span>
+          <span class="mono" style="color: var(--fg-3)">dp/45-migrate-config-publishing · implement · opus · acceptEdits · 31k in / 2k out · session 7f3a…</span>
+        </div>
+        <div class="row" style="margin-left: auto; gap: 6px"><a class="btn sm" href="board.html">Card</a><button class="btn sm">Changes</button><button class="btn sm danger"><svg class="ic-sm" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg>Stop</button></div>
+      </div>
+
+      <div class="tx-b">
+        <div class="turn"><span class="who">Task</span><div class="body card" style="padding: 10px 14px; color: var(--fg-2); box-shadow: none">You are working on a GitHub issue in a dedicated git worktree. Issue rokde/laravel-pergament#45: Migrate config publishing to Laravel 13 conventions … <a href="agents.html" style="text-decoration: none">show all</a></div></div>
+        <div class="turn"><span class="who"></span><button class="btn ghost sm" style="padding: 0; height: auto">▸ Thinking · 4 s</button></div>
+        <div class="turn"><span class="who ai">Agent</span><div class="body">I'll start by reading <span class="inline-code">CLAUDE.md</span> and the current service provider to see how config is published today.</div></div>
+        <div class="turn"><span class="who"></span><div class="body" style="display: flex; flex-direction: column; gap: 6px">
+          <div class="tool"><span class="k">▸ Read</span>CLAUDE.md<span class="r">41 lines</span></div>
+          <div class="tool"><span class="k">▸ Read</span>src/PergamentServiceProvider.php<span class="r">88 lines</span></div>
+          <div class="tool"><span class="k">▸ Grep</span>publishes(<span class="r">3 matches</span></div>
+        </div></div>
+        <div class="turn"><span class="who ai">Agent</span><div class="body">The provider still uses a single <span class="inline-code">publishes()</span> call with the <span class="inline-code">config</span> tag. Laravel 13 expects <span class="inline-code">publishesMigrations()</span> for migrations and separate tags per asset type. I'll split the calls and keep the old tag as an alias so existing projects don't break.</div></div>
+        <div class="turn"><span class="who"></span><div class="body card" style="overflow: hidden; box-shadow: none">
+          <div class="tool" style="border: 0; border-bottom: 1px solid var(--border); border-radius: 0"><span class="k">▾ Edit</span>src/PergamentServiceProvider.php</div>
+          <div class="diff" style="padding: 6px 0; overflow-x: auto"><span class="l del">-        $this-&gt;publishes([__DIR__.'/../config/pergament.php' =&gt; config_path('pergament.php')], 'config');</span><span class="l add">+        $this-&gt;publishes([__DIR__.'/../config/pergament.php' =&gt; config_path('pergament.php')], ['pergament-config', 'config']);</span><span class="l add">+        $this-&gt;publishesMigrations([__DIR__.'/../database/migrations' =&gt; database_path('migrations')], 'pergament-migrations');</span></div>
+        </div></div>
+        <div class="turn"><span class="who"></span><div class="body" style="display: flex; flex-direction: column; gap: 6px">
+          <div class="tool" style="border-style: dashed"><span class="k">▸ Subagent</span>test-runner · 2 tool calls<span class="r">done · 9 s</span></div>
+          <div class="tool live"><span class="dot primary"></span><span class="k">Bash</span>php artisan test --filter=Config<span class="r">running · 14 s</span></div>
+        </div></div>
+        <div class="turn"><span class="who ai">Agent</span><div class="body" style="color: var(--fg-2)">Running the config tests to confirm the alias still<span class="caret"></span></div></div>
+      </div>
+
+      <div class="composer">
+        <label class="sr" for="reply">Message to agent</label>
+        <input id="reply" class="input" placeholder="Send a note to the agent · joins the running turn">
+        <button class="btn">Send</button>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1360,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return { theme: this.props.theme ?? 'light' }; }
+}
+</script>
+</body>
+</html>

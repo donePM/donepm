@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import type { ItemDiff } from "../api/types";
-import { diffFiles, diffStats } from "./files";
+import { allOpen, collapseAll, diffFiles, diffStats, expandAll, fileKey as key, noneOpen, toggleKey } from "./files";
 
 const props = defineProps<{ diff?: ItemDiff; loading: boolean; error?: string }>();
 const emit = defineEmits<{ refresh: [] }>();
@@ -17,14 +17,11 @@ watch(files, (list) => {
   open.value = new Set(total <= AUTO_OPEN_LINES ? list.map(key) : []);
 }, { immediate: true });
 
-function key(f: { path: string; oldPath?: string }) {
-  return `${f.oldPath ?? ""}→${f.path}`;
-}
 function toggle(k: string) {
-  const next = new Set(open.value);
-  if (!next.delete(k)) next.add(k);
-  open.value = next;
+  open.value = toggleKey(open.value, k);
 }
+const everyOpen = computed(() => allOpen(files.value, open.value));
+const nothingOpen = computed(() => noneOpen(files.value, open.value));
 </script>
 
 <template>
@@ -34,7 +31,13 @@ function toggle(k: string) {
       <span v-if="diff" class="sub">
         {{ stats.files }} {{ stats.files === 1 ? "file" : "files" }} · {{ diff.base }}...{{ diff.branch }}, uncommitted included
       </span>
-      <button class="btn refresh" type="button" :disabled="loading" @click="emit('refresh')">{{ loading ? "Loading…" : "Refresh" }}</button>
+      <div class="actions">
+        <template v-if="files.length">
+          <button class="btn" type="button" :disabled="everyOpen" @click="open = expandAll(files)">Expand all</button>
+          <button class="btn" type="button" :disabled="nothingOpen" @click="open = collapseAll()">Collapse all</button>
+        </template>
+        <button class="btn" type="button" :disabled="loading" @click="emit('refresh')">{{ loading ? "Loading…" : "Refresh" }}</button>
+      </div>
     </div>
     <p v-if="error" class="alert msg" role="alert">{{ error }}</p>
     <p v-else-if="diff && !files.length" class="empty">No changes yet.</p>
@@ -67,11 +70,12 @@ function toggle(k: string) {
 .changes { background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .head { display: flex; align-items: baseline; gap: 12px; padding: 14px 20px; flex-wrap: wrap; }
 h2 { margin: 0; font-size: 15px; font-weight: 600; }
-.sub { font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
-.refresh { margin-left: auto; height: 28px; font-size: 12px; }
+.sub { font-size: 12px; color: var(--fg-3); overflow-wrap: anywhere; }
+.actions { margin-left: auto; display: flex; gap: 8px; }
+.actions .btn { height: 28px; font-size: 12px; }
 .msg { margin: 0 20px 14px; }
-.empty { margin: 0; padding: 0 20px 16px; color: var(--ink-3); }
-.file { border-top: 1px solid var(--border-soft); }
+.empty { margin: 0; padding: 0 20px 16px; color: var(--fg-3); }
+.file { border-top: 1px solid var(--border); }
 .file-head {
   width: 100%;
   display: flex;
@@ -79,24 +83,24 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; }
   gap: 12px;
   padding: 10px 20px;
   border: 0;
-  background: var(--card-muted);
+  background: var(--muted);
   font-size: 12px;
-  color: var(--ink);
+  color: var(--fg);
   text-align: left;
   cursor: pointer;
 }
-.file-head:hover { background: var(--border-soft); }
+.file-head:hover { background: var(--muted); }
 .path { min-width: 0; overflow-wrap: anywhere; }
-.tag { margin-left: 6px; font-family: var(--sans); font-size: 11px; color: var(--ink-3); }
+.tag { margin-left: 6px; font-family: var(--sans); font-size: 11px; color: var(--fg-3); }
 .count { flex: none; display: flex; gap: 8px; }
-.add { color: #15803d; }
+.add { color: var(--ok); }
 .del { color: var(--danger); }
-.dim { color: var(--ink-3); }
+.dim { color: var(--fg-3); }
 .hunks { font-size: 12px; overflow-x: auto; }
 .line { white-space: pre; padding: 1px 20px; min-width: max-content; }
 .line.add { background: var(--add); }
-.line.del { background: var(--danger-tint); }
-.line.hunk, .line.meta { color: var(--ink-3); }
+.line.del { background: var(--del); }
+.line.hunk, .line.meta { color: var(--fg-3); }
 .line.hunk { padding-top: 8px; padding-bottom: 4px; }
-.sign { display: inline-block; width: 2ch; color: var(--ink-3); user-select: none; }
+.sign { display: inline-block; width: 2ch; color: var(--fg-3); user-select: none; }
 </style>

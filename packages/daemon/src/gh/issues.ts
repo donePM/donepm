@@ -1,12 +1,11 @@
-import type { SourceIssue } from "@donepm/core";
 import type { ZodType } from "zod";
 import type { Exec } from "../process/exec.js";
-import { IssueStateSchema, ListIssuesSchema, SearchIssuesSchema, toSourceIssue } from "./schema.js";
+import { IssueStateSchema, ListIssuesSchema, SearchIssuesSchema, toSourceIssue, type FetchedIssue } from "./schema.js";
 
 export const ISSUE_LIMIT = "1000";
 
 export type FetchResult =
-  | { ok: true; issues: SourceIssue[] }
+  | { ok: true; issues: FetchedIssue[] }
   | { ok: false; kind: "command"; error: string }
   | { ok: false; kind: "schema"; error: string; raw: string };
 
@@ -37,7 +36,7 @@ export function isUnknownCommand(stderr: string): boolean {
 export async function fetchAssignedIssues(exec: Exec, knownRepos: () => string[]): Promise<FetchResult> {
   const r = await exec("gh", [
     "search", "issues", "--assignee=@me", "--state=open",
-    "--json", "number,title,body,createdAt,labels,repository,url", "--limit", ISSUE_LIMIT,
+    "--json", "id,number,title,body,createdAt,labels,repository,url", "--limit", ISSUE_LIMIT,
   ]);
   if (r.code !== 0) {
     if (isUnknownCommand(r.stderr)) return listPerRepo(exec, knownRepos());
@@ -55,7 +54,7 @@ export async function fetchAssignedIssues(exec: Exec, knownRepos: () => string[]
 export async function fetchQueryIssues(exec: Exec, origin: string, query: string): Promise<FetchResult> {
   const r = await exec("gh", [
     "issue", "list", "--repo", origin, "--search", query, "--state", "open",
-    "--json", "number,title,body,createdAt,labels,url", "--limit", ISSUE_LIMIT,
+    "--json", "id,number,title,body,createdAt,labels,url", "--limit", ISSUE_LIMIT,
   ]);
   if (r.code !== 0) return { ok: false, kind: "command", error: r.stderr.trim() || `gh exited with ${r.code}` };
   const parsed = parseJson(ListIssuesSchema, r.stdout);
@@ -78,12 +77,12 @@ function repositoryOf(origin: string): string {
 }
 
 async function listPerRepo(exec: Exec, origins: string[]): Promise<FetchResult> {
-  const issues: SourceIssue[] = [];
+  const issues: FetchedIssue[] = [];
   for (const origin of [...new Set(origins)]) {
     const repository = repositoryOf(origin);
     const r = await exec("gh", [
       "issue", "list", "--assignee", "@me", "--state", "open", "--repo", origin,
-      "--json", "number,title,body,createdAt,labels,url", "--limit", ISSUE_LIMIT,
+      "--json", "id,number,title,body,createdAt,labels,url", "--limit", ISSUE_LIMIT,
     ]);
     if (r.code !== 0) return { ok: false, kind: "command", error: `${origin}: ${r.stderr.trim()}` };
     const parsed = parseJson(ListIssuesSchema, r.stdout);
@@ -93,7 +92,10 @@ async function listPerRepo(exec: Exec, origins: string[]): Promise<FetchResult> 
   return { ok: true, issues };
 }
 
-/** `OPEN` / `CLOSED`, or undefined when gh fails or the issue cannot be read. */
+/**
+ * `OPEN` / `CLOSED`, or undefined when gh fails or the issue cannot be read. A merged pull request
+ * (an item to review, D40) counts as closed.
+ */
 export async function fetchIssueState(
   exec: Exec,
   repository: string,
@@ -102,7 +104,8 @@ export async function fetchIssueState(
   const r = await exec("gh", ["issue", "view", String(number), "--repo", repository, "--json", "state"]);
   if (r.code !== 0) return undefined;
   const parsed = parseJson(IssueStateSchema, r.stdout);
-  return parsed.ok ? parsed.value.state : undefined;
+  if (!parsed.ok) return undefined;
+  return parsed.value.state === "OPEN" ? "OPEN" : "CLOSED";
 }
 
 /** Assign an issue to the gh user. Only the daemon calls this, on start, when the repo opted in. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ItemView } from "../api/types";
-import { buildLanes, NO_CLONE_KEY, repoName, sortLanes, stableOrder } from "./lanes";
+import { buildLanes, dependabotCount, laneSummary, NO_CLONE_KEY, repoName, sortLanes, stableOrder } from "./lanes";
 
 let n = 0;
 function item(over: Partial<ItemView> & { repoKey?: string | null; origin?: string }): ItemView {
@@ -120,5 +120,30 @@ describe("stableOrder", () => {
   it("sorts by rule with no history", () => {
     const lanes = sortLanes(buildLanes([beta(), alpha()]));
     expect(keys(stableOrder(lanes, []))).toEqual(["a", "b"]);
+  });
+});
+
+describe("laneSummary", () => {
+  it("counts the items of an open lane", () => {
+    const [lane] = buildLanes([alpha(), alpha({ state: "running" })]);
+    expect(laneSummary(lane!, false)).toBe("2 items");
+    expect(laneSummary(buildLanes([alpha()])[0]!, false)).toBe("1 item");
+  });
+
+  it("says what a collapsed lane holds, column by column", () => {
+    const [lane] = buildLanes([alpha(), alpha(), alpha({ state: "needs_you" }), alpha({ state: "done" })]);
+    expect(laneSummary(lane!, true)).toBe("2 ready · 1 needs you · 1 done");
+  });
+});
+
+describe("dependabotCount", () => {
+  it("counts open Dependabot pull requests, not finished ones or other authors", () => {
+    const [lane] = buildLanes([
+      alpha({ source: "github-pr", author: "dependabot[bot]" }),
+      alpha({ source: "github-pr", author: "dependabot[bot]", state: "needs_you" }),
+      alpha({ source: "github-pr", author: "dependabot[bot]", state: "done" }),
+      alpha({ source: "github-pr", author: "octocat" }),
+    ]);
+    expect(dependabotCount(lane!)).toBe(2);
   });
 });

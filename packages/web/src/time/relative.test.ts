@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ago } from "./relative";
+import { ago, since } from "./relative";
 
 const at = Date.parse("2026-10-03T12:00:00Z");
 
@@ -12,4 +12,8 @@ describe("ago", () => {
   ])("%s → %s", (iso, text) => expect(ago(iso, at)).toBe(text));
 
   it("clamps clock skew to 0 s", () => expect(ago("2026-10-03T12:00:05Z", at)).toBe("0 s ago"));
+});
+
+describe("since", () => {
+  it("says how long without the ago", () => expect(since("2026-10-03T11:46:00Z", at)).toBe("14 min"));
 });

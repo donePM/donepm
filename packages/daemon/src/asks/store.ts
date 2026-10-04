@@ -10,6 +10,7 @@ interface AskRow {
   state: string;
   rules: string;
   reason: string | null;
+  outcome_reason: string | null;
 }
 
 function fromRow(r: AskRow): PermissionAsk {
@@ -22,6 +23,7 @@ function fromRow(r: AskRow): PermissionAsk {
     state: r.state as PermissionAskState,
     rules: parseRules(JSON.parse(r.rules) as unknown),
     ...(r.reason ? { reason: r.reason } : {}),
+    ...(r.outcome_reason ? { outcomeReason: r.outcome_reason } : {}),
   };
 }
 
@@ -59,7 +61,9 @@ export class AskStore {
       );
   }
 
-  setState(id: string, state: PermissionAskState, at: string): void {
-    this.db.prepare("UPDATE asks SET state = ?, updated_at = ? WHERE id = ?").run(state, at, id);
+  setState(id: string, state: PermissionAskState, at: string, outcomeReason?: string): void {
+    this.db
+      .prepare("UPDATE asks SET state = ?, outcome_reason = coalesce(?, outcome_reason), updated_at = ? WHERE id = ?")
+      .run(state, outcomeReason ?? null, at, id);
   }
 }

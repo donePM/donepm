@@ -31,8 +31,9 @@ export interface OnMergeDeps {
 
 /**
  * A done item whose PR was merged (decision D33), called by the PR poll (`watchPrs`) once GitHub
- * said so or the events already know. The user opted in: remove the worktree like the button does,
- * unless it holds uncommitted or untracked changes. Otherwise record `item.pr_merged` once.
+ * said so or the events already know. Without a worktree only the merge is recorded (D37). The
+ * user opted in: remove the worktree like the button does, unless it holds uncommitted or untracked
+ * changes. Otherwise record `item.pr_merged` once.
  */
 export async function settleMerged(deps: OnMergeDeps, item: WorkItem, pr: PrDraftResult): Promise<void> {
   const known = prMergeOf(deps.events.forItem(item.id));
@@ -41,10 +42,10 @@ export async function settleMerged(deps: OnMergeDeps, item: WorkItem, pr: PrDraf
     if (!known.merged) deps.writer.commit(prMerged(itemNow(deps, item), deps.ctx, facts));
   };
 
+  const path = item.worktreePath;
   const repo = item.repoId ? deps.repos.get(item.repoId) : undefined;
-  if (!deps.removeOnMerge() || !repo || deps.agentActive(item.id)) return markMerged();
+  if (path === undefined || !deps.removeOnMerge() || !repo || deps.agentActive(item.id)) return markMerged();
 
-  const path = item.worktreePath!;
   // A directory that is already gone holds nothing to lose; the removal only prunes.
   const dirty = existsSync(path) ? await uncommittedChanges(deps.exec, path) : [];
   const now = itemNow(deps, item);

@@ -1,0 +1,1 @@
+{"data":{"nodes":[{"id":"I_kwDOredacted161","issueFieldValues":{"nodes":[{"name":"Medium","field":{"name":"Priority"}}]}},null]},"errors":[{"type":"NOT_FOUND","path":["nodes",1],"locations":[{"line":1,"column":9}],"message":"Could not resolve to a node with the global id of 'I_nonexistent'"}]}

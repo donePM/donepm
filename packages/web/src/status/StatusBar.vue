@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { items } from "../board/items";
+import IconAlert from "../icons/IconAlert.vue";
 import { useNow } from "../time/now";
 import { ago } from "../time/relative";
 import { health, problems, summary } from "./health";
+import { needsYouCount, needsYouLabel, needsYouShort } from "./needs-you";
 import { reachable, status } from "./status";
 
 const now = useNow();
+
+const waiting = computed(() => needsYouCount(items.value));
+const waitingLabel = computed(() => needsYouLabel(waiting.value));
 
 const list = computed(() => problems(status.value, reachable.value));
 const state = computed(() => health(status.value, reachable.value));
@@ -20,27 +26,26 @@ const poll = computed(() => {
 
 <template>
   <div class="status" aria-live="polite">
-    <RouterLink v-if="state === 'problem'" to="/settings" class="problem" :aria-label="label" :title="label">
-      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-        <circle cx="8" cy="8" r="8" fill="currentColor" />
-        <path class="bang-line" d="M8 3.5v5.5" stroke-width="2" stroke-linecap="round" />
-        <circle class="bang-dot" cx="8" cy="12" r="1.2" />
-      </svg>
-      <span class="sr-only">{{ label }}</span>
+    <RouterLink v-if="waiting > 0" to="/" class="pill pill-attn" :aria-label="waitingLabel" :title="waitingLabel">
+      <IconAlert class="ic-sm" />{{ needsYouShort(waiting) }}
     </RouterLink>
-    <span v-else-if="state === 'ok'" class="health"><span class="dot dot-good" aria-hidden="true"></span><span class="sr-only">All systems working</span></span>
-    <span v-else class="health"><span class="dot dot-off" aria-hidden="true"></span><span class="sr-only">Checking…</span></span>
-    <span :class="{ failed: poll.error }" :title="status?.lastPoll?.error">{{ poll.text }}</span>
+    <span class="health">
+      <RouterLink v-if="state === 'problem'" to="/settings/tools" class="problem" :aria-label="label" :title="label">
+        <IconAlert class="ic-sm" />
+      </RouterLink>
+      <span v-else-if="state === 'ok'" class="dot ok" title="All systems working"><span class="sr">All systems working</span></span>
+      <span v-else class="dot off"><span class="sr">Checking…</span></span>
+      <span :class="{ failed: poll.error }" :title="status?.lastPoll?.error">{{ poll.text }}</span>
+    </span>
   </div>
 </template>
 
 <style scoped>
-.status { margin-left: auto; display: flex; align-items: center; gap: 12px; color: var(--ink-2); font-size: 13px; flex-wrap: wrap; }
-.health { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; }
-.problem { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; color: var(--danger); }
+.status { display: flex; align-items: center; gap: 10px; color: var(--fg-3); font-size: 13px; flex-wrap: wrap; }
+.pill { text-decoration: none; }
+.pill:hover { color: var(--attn); filter: brightness(0.97); }
+.health { display: inline-flex; align-items: center; gap: 6px; }
+.problem { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; color: var(--danger); }
 .problem:hover { color: var(--danger); background: var(--danger-tint); }
-.problem:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
-.bang-line { fill: none; stroke: var(--card); }
-.bang-dot { fill: var(--card); }
 .failed { color: var(--danger); }
 </style>

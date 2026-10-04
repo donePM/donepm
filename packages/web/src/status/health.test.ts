@@ -5,6 +5,8 @@ import { health, problems, summary, tools } from "./health";
 const base: Status = {
   version: "0.1.0",
   pid: 1,
+  startedAt: "2026-10-01T00:00:00.000Z",
+  pollErrors: [],
   gh: { state: "ready" },
   claude: { state: "ready" },
   runningAgents: 0,

@@ -1,6 +1,6 @@
 import type { Event, PermissionAsk } from "@donepm/core";
 import { describe, expect, it } from "vitest";
-import { timeLabel, timelineEntries } from "./entries";
+import { spanText, splitActor, timeLabel, timelineEntries } from "./entries";
 
 let n = 0;
 const ev = (type: string, payload: Record<string, unknown> = {}, over: Partial<Event> = {}): Event => {
@@ -27,7 +27,7 @@ describe("timelineEntries", () => {
       { tone: "danger", text: "Agent failed", code: undefined, detail: "exit 1" },
       { tone: "user", text: "You rejected the PR draft", code: undefined, detail: "Add a test" },
       { tone: "attention", text: "Agent created PR draft", code: undefined, detail: "Fix it" },
-      { tone: "system", text: "Agent turn ended", code: undefined, detail: "$0.86 so far in this run" },
+      { tone: "system", text: "Agent turn ended", code: undefined, detail: "3 min · $0.86" },
       { tone: "user", text: "You allowed", code: "Bash: composer test", detail: undefined },
       { tone: "attention", text: "Agent asked permission", code: "Bash: composer test", detail: undefined },
       { tone: "system", text: "Agent started", code: undefined, detail: undefined },
@@ -43,14 +43,31 @@ describe("timelineEntries", () => {
     ];
     expect(timelineEntries(events, [ask, web]).map(({ tone, text, code, detail }) => ({ tone, text, code, detail }))).toEqual([
       { tone: "system", text: "Allowed web access on your list", code: "WebFetch: https://nodejs.org/en", detail: "nodejs.org is in Settings → Web access" },
-      { tone: "user", text: "You allowed for this run", code: "Bash: composer test", detail: "Also allowed until the run ends: Bash: curl *" },
+      { tone: "user", text: "You allowed for this run", code: "Bash: composer test", detail: "Also allowed until the run ends: Bash commands matching curl *" },
+    ]);
+  });
+
+  it("shows always allow, its grant, the answers it gave and its removal (D38)", () => {
+    const later: PermissionAsk = { ...ask, id: "a2", input: { command: "pnpm test core" } };
+    const g = { grantId: "g1", repo: "github.com/o/r", toolName: "Bash", ruleContent: "pnpm test *" };
+    const events = [
+      ev("permission.answered", { behavior: "allow", rules: [], always: [g] }, { refId: "a1", actor: "user" }),
+      ev("permission.granted", { ...g, askId: "a1" }, { refId: "g1", actor: "user" }),
+      ev("permission.auto_allowed", { toolName: "Bash", repo: "github.com/o/r", grants: [{ grantId: "g1", toolName: "Bash", ruleContent: "pnpm test *" }] }, { refId: "a2" }),
+      ev("permission.grant_revoked", g, { refId: "g1", actor: "user" }),
+    ];
+    expect(timelineEntries(events, [ask, later]).map(({ tone, text, code, detail }) => ({ tone, text, code, detail }))).toEqual([
+      { tone: "user", text: "You removed from Always allowed in o/r", code: "Bash(pnpm test *)", detail: undefined },
+      { tone: "system", text: "Always allowed in o/r", code: "Bash: pnpm test core", detail: "Bash(pnpm test *) is in Settings → Always allowed" },
+      { tone: "user", text: "Added to Always allowed in o/r", code: "Bash(pnpm test *)", detail: undefined },
+      { tone: "user", text: "You always allowed", code: "Bash: composer test", detail: undefined },
     ]);
   });
 
   it("keeps a multi-line command whole in the tooltip", () => {
     const long: PermissionAsk = { ...ask, input: { command: "pnpm build \\\n  && pnpm test" } };
     const [asked] = timelineEntries([ev("permission.asked", { toolName: "Bash" }, { refId: "a1", actor: "agent" })], [long]);
-    expect(asked).toMatchObject({ code: "Bash: pnpm build \\", full: "pnpm build \\\n  && pnpm test" });
+    expect(asked).toMatchObject({ code: "Bash: pnpm build && pnpm test", full: "pnpm build \\\n  && pnpm test" });
     const [short] = timelineEntries([ev("permission.asked", { toolName: "Bash" }, { refId: "a1", actor: "agent" })], [ask]);
     expect(short!.full).toBeUndefined();
   });
@@ -120,11 +137,97 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("describes review feedback and the replies to it", () => {
+    const entries = [
+      { kind: "review", id: 1, author: "ana", body: "", url: "u", at: "t" },
+      { kind: "inline", id: 2, author: "ana", body: "x", url: "u", at: "t" },
+      { kind: "comment", id: 3, author: "bo", body: "y", url: "u", at: "t" },
+    ];
+    const events = [
+      ev("pr.feedback", { number: 7, url: "u", entries }),
+      ev("agent.resumed", { reason: "pr_feedback" }, { actor: "user" }),
+      ev("draft.created", { type: "push", title: "Push 1 commit to PR #7, reply 2 times" }, { refId: "p", actor: "agent" }),
+      ev("draft.executed", { sha: "abcdef123", posted: [{ index: 0, url: "a" }, { index: 1, url: "b" }] }, { refId: "p" }),
+      ev("draft.created", { type: "comment", title: "Reply 1 time on PR #7" }, { refId: "c", actor: "agent" }),
+      ev("draft.execution_failed", { step: "reply", error: "HTTP 403" }, { refId: "c" }),
+      ev("draft.executed", { posted: [{ index: 0, url: "a" }] }, { refId: "c" }),
+      ev("pr.feedback_dismissed", { number: 7, url: "u" }, { actor: "user" }),
+    ];
+    expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail })).reverse()).toEqual([
+      { tone: "attention", text: "Review feedback on PR #7", detail: "3 from @ana, @bo" },
+      { tone: "user", text: "You let the agent address the review feedback", detail: undefined },
+      { tone: "attention", text: "Agent created push draft", detail: "Push 1 commit to PR #7, reply 2 times" },
+      { tone: "system", text: "Commits pushed, 2 replies posted", detail: undefined },
+      { tone: "attention", text: "Agent created reply draft", detail: "Reply 1 time on PR #7" },
+      { tone: "danger", text: "Posting the replies failed", detail: "HTTP 403" },
+      { tone: "system", text: "1 reply posted, done", detail: undefined },
+      { tone: "user", text: "You marked the review feedback done", detail: undefined },
+    ]);
+  });
+
+  it("describes a comment the user posted from the card (D47)", () => {
+    const [entry] = timelineEntries([ev("pr.commented", { body: "@dependabot rebase" }, { actor: "user" })], []);
+    expect(entry).toMatchObject({ tone: "user", text: "You commented on the pull request", detail: "@dependabot rebase" });
+  });
+
+  it("describes merging someone else's pull request (D47)", () => {
+    const entries = timelineEntries([
+      ev("pr.auto_merge_set", { on: true }, { actor: "user" }),
+      ev("pr.merge_failed", { method: "squash", auto: true, error: "merge queue required" }),
+      ev("pr.merged", { method: "rebase", auto: false }, { actor: "user" }),
+      ev("pr.merged", { method: "squash", auto: true }),
+    ], []);
+    // Newest first.
+    expect(entries.map((e) => [e.tone, e.text, e.detail])).toEqual([
+      ["system", "Merged automatically (squash)", undefined],
+      ["user", "You merged the pull request (rebase)", undefined],
+      ["danger", "Automatic merge failed, turned off for this item", "merge queue required"],
+      ["user", "You turned on automatic merge", undefined],
+    ]);
+  });
+
+  it("describes a review of someone else's pull request (D43)", () => {
+    const events = [
+      ev("draft.created", { type: "review", title: "Approve PR #7" }, { refId: "r", actor: "agent" }),
+      ev("draft.execution_failed", { step: "review", error: "HTTP 422" }, { refId: "r" }),
+      ev("draft.executed", { id: 1, url: "https://github.com/o/r/pull/7#pullrequestreview-1" }, { refId: "r" }),
+    ];
+    expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail })).reverse()).toEqual([
+      { tone: "attention", text: "Agent created review draft", detail: "Approve PR #7" },
+      { tone: "danger", text: "Posting the review failed", detail: "HTTP 422" },
+      { tone: "system", text: "Review posted, done", detail: "https://github.com/o/r/pull/7#pullrequestreview-1" },
+    ]);
+  });
+
   it("describes items closed upstream", () => {
     const events = [ev("item.closed_upstream"), ev("item.dismissed", {}, { actor: "user" })];
     expect(timelineEntries(events, []).map(({ tone, text }) => ({ tone, text }))).toEqual([
       { tone: "user", text: "You dismissed it after it was closed on GitHub" },
       { tone: "system", text: "Closed on GitHub, moved to Done" },
+    ]);
+  });
+
+  it("describes archiving a finished item", () => {
+    expect(timelineEntries([ev("item.archived", { finishedAt: "2026-10-01T00:00:00Z" })], [])[0]).toMatchObject({
+      tone: "system",
+      text: "Moved to the Archive",
+    });
+  });
+
+  it("describes changes taken over from GitHub (D45)", () => {
+    const only = ev("item.refreshed", { changed: { priority: { from: 2, to: 1 } } });
+    const all = ev("item.refreshed", {
+      changed: {
+        priority: { from: 3, to: 0 },
+        title: { from: "Old", to: "New" },
+        labels: { from: ["P3", "bug"], to: ["bug", "urgent"] },
+      },
+    });
+    const labelsOnly = ev("item.refreshed", { changed: { labels: { from: [], to: ["docs"] } } });
+    expect(timelineEntries([only, all, labelsOnly], []).map(({ tone, text, detail }) => ({ tone, text, detail }))).toEqual([
+      { tone: "system", text: "Changed on GitHub: labels +docs", detail: undefined },
+      { tone: "system", text: "Changed on GitHub: priority P3 → P0, title, labels +urgent −P3", detail: "“Old” → “New”" },
+      { tone: "system", text: "Priority changed on GitHub: P2 → P1", detail: undefined },
     ]);
   });
 
@@ -164,10 +267,44 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("shows a moved worktree with its new path", () => {
+    const events = [ev("worktree.moved", { from: "/old/r/dp-1-x", to: "/new/r/dp-1-x" }, { actor: "user" })];
+    expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail }))).toEqual([
+      { tone: "user", text: "You moved the worktree", detail: "to /new/r/dp-1-x" },
+    ]);
+  });
+
   it("keeps insertion order for events in the same instant", () => {
     const at = "2026-10-03T10:00:00Z";
     const events = [ev("draft.created", {}, { at, id: "first" }), ev("draft.edited", {}, { at, id: "second" })];
     expect(timelineEntries(events, []).map((e) => e.id)).toEqual(["second", "first"]);
+  });
+});
+
+describe("turn details", () => {
+  it("shows how long a turn took, the cost and the tokens", () => {
+    const events = [
+      ev("agent.turn_started", {}, { at: "2026-10-03T09:30:00Z" }),
+      ev("agent.turn_ended", { costUsd: 0.86, usage: { inputTokens: 48_200, outputTokens: 6_100 } }, { at: "2026-10-03T09:41:00Z" }),
+    ];
+    expect(timelineEntries(events, [])[0]?.detail).toBe("11 min · $0.86 · 48.2k in / 6.1k out");
+  });
+
+  it("spells durations short", () => {
+    expect(spanText(4_000)).toBe("4 s");
+    expect(spanText(11 * 60_000)).toBe("11 min");
+    expect(spanText(65 * 60_000)).toBe("1 h 5 min");
+    expect(spanText(120 * 60_000)).toBe("2 h");
+  });
+});
+
+describe("splitActor", () => {
+  it("puts who did it first, in its own field", () => {
+    expect(splitActor("You allowed", "user")).toEqual({ actor: "You", verb: "allowed" });
+    expect(splitActor("Agent created PR draft", "agent")).toEqual({ actor: "Agent", verb: "created PR draft" });
+    expect(splitActor("Agent started", "user")).toEqual({ actor: "You", verb: "started" });
+    expect(splitActor("Collected from GitHub", "system")).toEqual({ actor: "System", verb: "collected from GitHub" });
+    expect(splitActor("CI passed", "system")).toEqual({ actor: "System", verb: "CI passed" });
   });
 });
 

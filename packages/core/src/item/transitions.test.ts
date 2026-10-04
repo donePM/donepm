@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { Ctx } from "../ids.js";
 import {
   InvalidTransitionError, agentAsked, agentFailed, answered, autoAllowed, draftApproved, draftCreated, draftEdited, draftExecuted,
-  draftExecutionFailed, draftRejected, interrupted, issueAssignFailed, issueAssigned, resume, start, worktreeRemoved,
+  draftExecutionFailed, draftRejected, interrupted, issueAssignFailed, issueAssigned, resume, start, worktreeRemoved, worktreeMoved,
   turnEnded, turnStarted, closedUpstream, ciFailed, ciFix, ciMarkedDone, ciPassed, ciRerun, dismissed, wasStarted, prMerged, worktreeRemovedOnMerge, worktreeRemoveSkipped,
-  prConflicted, prConflictResolved, prConflictDismissed, prConflictFix,
+  prConflicted, prConflictResolved, prConflictDismissed, prConflictFix, archived, alwaysAllowed, grantRevoked,
+  prFeedback, prFeedbackFix, prFeedbackDismissed, repliesPosted, reviewPosted, reviewedPrMerged, playbookChanged,
 } from "./transitions.js";
 import type { PrConflict } from "../pr/conflict.js";
+import type { FeedbackEntry, PrFeedback } from "../pr/feedback.js";
 import type { ItemState, WorkItem } from "./types.js";
 
 function makeCtx(): Ctx {
@@ -25,6 +27,9 @@ function item(state: ItemState, extra: Partial<WorkItem> = {}): WorkItem {
 
 const PR = { number: 5, url: "https://github.com/o/r/pull/5" };
 const conflict: PrConflict = { pr: PR, base: "main", files: ["a.ts"], from: "checking", waiting: true };
+
+const entry: FeedbackEntry = { kind: "review", id: 1, author: "rev", body: "Please rename", url: "https://github.com/o/r/pull/5#r1", at: "2026-10-03T11:00:00Z", state: "CHANGES_REQUESTED" };
+const feedback: PrFeedback = { pr: PR, entries: [entry], waiting: true };
 
 const ALL: ItemState[] = ["ready", "running", "needs_you", "checking", "done", "failed"];
 
@@ -57,6 +62,12 @@ const table: Array<{
   { name: "prConflicted", run: (i) => prConflicted(i, makeCtx(), { ...PR, base: "main", files: [] }), from: ["done", "checking"], to: "needs_you", type: "pr.conflicted", actor: "system" },
   { name: "prConflictDismissed", run: (i) => prConflictDismissed(i, makeCtx(), conflict), from: ["needs_you"], to: "checking", type: "pr.conflict_dismissed", actor: "user" },
   { name: "prConflictFix", run: (i) => prConflictFix({ ...i, agentSessionId: "sess" }, makeCtx()), from: ["needs_you"], to: "running", type: "agent.resumed", actor: "user" },
+  { name: "prFeedback", run: (i) => prFeedback(i, makeCtx(), { ...PR, entries: [entry] }), from: ["done"], to: "needs_you", type: "pr.feedback", actor: "system" },
+  { name: "prFeedbackFix", run: (i) => prFeedbackFix({ ...i, agentSessionId: "sess" }, makeCtx()), from: ["needs_you"], to: "running", type: "agent.resumed", actor: "user" },
+  { name: "prFeedbackDismissed", run: (i) => prFeedbackDismissed(i, makeCtx(), feedback), from: ["needs_you"], to: "done", type: "pr.feedback_dismissed", actor: "user" },
+  { name: "repliesPosted", run: (i) => repliesPosted(i, makeCtx(), "d-1"), from: ["needs_you"], to: "done", type: "draft.executed", actor: "system" },
+  { name: "reviewPosted", run: (i) => reviewPosted(i, makeCtx(), "d-1"), from: ["needs_you"], to: "done", type: "draft.executed", actor: "system" },
+  { name: "reviewedPrMerged", run: (i) => reviewedPrMerged({ ...i, source: "github-pr" }, makeCtx(), { method: "squash", auto: false }), from: ["ready", "done"], to: "done", type: "pr.merged", actor: "user" },
 ];
 
 describe.each(table)("$name", ({ run, from, to, type, actor, name }) => {
@@ -120,6 +131,23 @@ describe("details", () => {
     expect(prConflictFix(item("needs_you", { agentSessionId: "s" }), makeCtx()).events[0]?.payload).toEqual({ reason: "pr_conflict" });
     expect(() => prConflictFix(item("needs_you"), makeCtx())).toThrow(InvalidTransitionError);
     expect(() => prConflictDismissed(item("needs_you"), makeCtx(), { ...conflict, waiting: false })).toThrow(InvalidTransitionError);
+  });
+
+  it("prFeedback carries the PR and the entries; prFeedbackFix needs a session; dismissing needs waiting feedback", () => {
+    expect(prFeedback(item("done"), makeCtx(), { ...PR, entries: [entry] }).events[0]?.payload).toEqual({ ...PR, entries: [entry] });
+    expect(prFeedbackFix(item("needs_you", { agentSessionId: "s" }), makeCtx()).events[0]?.payload).toEqual({ reason: "pr_feedback" });
+    expect(() => prFeedbackFix(item("needs_you"), makeCtx())).toThrow(InvalidTransitionError);
+    expect(() => prFeedbackDismissed(item("needs_you"), makeCtx(), { ...feedback, waiting: false })).toThrow(InvalidTransitionError);
+    expect(repliesPosted(item("needs_you"), makeCtx(), "d-9").events[0]?.refId).toBe("d-9");
+    expect(reviewPosted(item("needs_you"), makeCtx(), "d-8", { id: 3, url: "u" }).events[0]).toMatchObject({ refId: "d-8", payload: { id: 3, url: "u" } });
+  });
+
+  it("reviewedPrMerged records how and by whom, marks the pull request merged, and refuses an issue (D47)", () => {
+    const status = { mergeable: "MERGEABLE", base: "main", state: "OPEN" };
+    const t = reviewedPrMerged(item("done", { source: "github-pr", prStatus: status }), makeCtx(), { method: "rebase", auto: true });
+    expect(t.events[0]).toMatchObject({ type: "pr.merged", actor: "system", payload: { method: "rebase", auto: true } });
+    expect(t.item.prStatus).toEqual({ ...status, state: "MERGED", closedAt: t.events[0]!.at });
+    expect(() => reviewedPrMerged(item("done"), makeCtx(), { method: "squash", auto: false })).toThrow(InvalidTransitionError);
   });
 
   it("prConflictResolved returns a waiting item to where it was and leaves any other where it is", () => {
@@ -197,6 +225,22 @@ describe("worktreeRemoved", () => {
   });
 });
 
+describe("worktreeMoved", () => {
+  it.each(["ready", "needs_you", "checking", "done", "failed"] as const)("keeps %s and the session, points to the new path", (state) => {
+    const before = item(state, { worktreePath: "/old/r/dp-1-t", branch: "dp/1-t", agentSessionId: "sess" });
+    const { item: after, events } = worktreeMoved(before, makeCtx(), { from: "/old/r/dp-1-t", to: "/new/r/dp-1-t" });
+    expect(after).toMatchObject({
+      state, worktreePath: "/new/r/dp-1-t", agentSessionId: "sess", branch: "dp/1-t", stateSince: "2026-10-01T00:00:00.000Z",
+    });
+    expect(before.worktreePath).toBe("/old/r/dp-1-t");
+    expect(events[0]).toMatchObject({ type: "worktree.moved", actor: "user", payload: { from: "/old/r/dp-1-t", to: "/new/r/dp-1-t" } });
+  });
+
+  it("throws while the agent is running", () => {
+    expect(() => worktreeMoved(item("running", { worktreePath: "/a" }), makeCtx(), { from: "/a", to: "/b" })).toThrow(InvalidTransitionError);
+  });
+});
+
 describe("worktreeRemovedOnMerge", () => {
   it("clears the worktree of a done item as the system, with the reason", () => {
     const before = item("done", { worktreePath: "/wt/1", branch: "dp/1-t", agentSessionId: "sess" });
@@ -261,6 +305,37 @@ describe("autoAllowed", () => {
   });
 });
 
+describe("alwaysAllowed", () => {
+  const grant = { id: "g1", repo: "github.com/o/r", toolName: "Bash", ruleContent: "pnpm test *" };
+
+  it("answers like Allow and records each new grant", () => {
+    const { item: after, events } = alwaysAllowed(item("needs_you"), makeCtx(), "ask-1", [grant]);
+    expect(after.state).toBe("running");
+    expect(events.map((e) => [e.type, e.actor, e.refId])).toEqual([
+      ["permission.answered", "user", "ask-1"],
+      ["permission.granted", "user", "g1"],
+    ]);
+    expect(events[0]!.payload).toEqual({ behavior: "allow", rules: [], always: [{ grantId: "g1", repo: "github.com/o/r", toolName: "Bash", ruleContent: "pnpm test *" }] });
+    expect(events[1]!.payload).toEqual({ grantId: "g1", repo: "github.com/o/r", toolName: "Bash", ruleContent: "pnpm test *", askId: "ask-1" });
+  });
+
+  it("keeps waiting while other asks are open", () => {
+    expect(alwaysAllowed(item("needs_you"), makeCtx(), "ask-1", [grant], true).item.state).toBe("needs_you");
+  });
+
+  it.each(["ready", "running", "done"] as const)("throws from %s", (state) => {
+    expect(() => alwaysAllowed(item(state), makeCtx(), "ask-1", [grant])).toThrow(InvalidTransitionError);
+  });
+});
+
+describe("grantRevoked", () => {
+  it.each(ALL)("records the removal without leaving %s", (state) => {
+    const { item: after, events } = grantRevoked(item(state), makeCtx(), { id: "g1", repo: "github.com/o/r", toolName: "Read" });
+    expect(after.state).toBe(state);
+    expect(events[0]).toMatchObject({ type: "permission.grant_revoked", actor: "user", refId: "g1", payload: { grantId: "g1", toolName: "Read" } });
+  });
+});
+
 describe("closedUpstream", () => {
   it("moves a never-started ready item to done with the badge", () => {
     const { item: after, events } = closedUpstream(item("ready"), makeCtx());
@@ -291,5 +366,46 @@ describe("dismissed", () => {
 
   it("throws when the issue is not closed upstream", () => {
     expect(() => dismissed(item("ready"), makeCtx())).toThrow(InvalidTransitionError);
+  });
+});
+
+describe("archived", () => {
+  it("archives a done item, keeping its state, with a system event carrying finishedAt (D37)", () => {
+    const { item: after, events } = archived(item("done"), makeCtx(), "2026-10-02T08:00:00.000Z");
+    expect(after).toMatchObject({ state: "done", archivedAt: "2026-10-03T12:00:00.000Z" });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "item.archived", actor: "system", at: "2026-10-03T12:00:00.000Z",
+      payload: { finishedAt: "2026-10-02T08:00:00.000Z" },
+    });
+  });
+
+  it.each(ALL.filter((s) => s !== "done"))("throws from %s", (state) => {
+    expect(() => archived(item(state), makeCtx(), "2026-10-02T08:00:00.000Z")).toThrow(InvalidTransitionError);
+  });
+
+  it("throws for an item already archived", () => {
+    const once = archived(item("done"), makeCtx(), "2026-10-02T08:00:00.000Z").item;
+    expect(() => archived(once, makeCtx(), "2026-10-02T08:00:00.000Z")).toThrow(InvalidTransitionError);
+  });
+});
+
+describe("playbookChanged", () => {
+  it("sets the playbook of a Ready item and records the change", () => {
+    const t = playbookChanged(item("ready"), makeCtx(), "review");
+    expect(t.item.playbook).toBe("review");
+    expect(t.item.state).toBe("ready");
+    expect(t.item.stateSince).toBe("2026-10-01T00:00:00.000Z");
+    expect(t.events).toEqual([
+      expect.objectContaining({ type: "item.playbook_changed", actor: "user", payload: { from: "implement", to: "review" } }),
+    ]);
+  });
+
+  it.each(ALL.filter((s) => s !== "ready"))("throws from %s", (state) => {
+    expect(() => playbookChanged(item(state), makeCtx(), "review")).toThrow(InvalidTransitionError);
+  });
+
+  it("throws once the item was started", () => {
+    expect(() => playbookChanged(item("ready", { startedAt: "2026-10-02T00:00:00.000Z" }), makeCtx(), "review")).toThrow(InvalidTransitionError);
   });
 });

@@ -26,7 +26,7 @@ export function draftStores() {
   };
   items.insert(item, "github.com/o/r");
   writer.commit(start(item, ctx));
-  const deps: DraftDeps = { items, repos, drafts, writer, ctx };
+  const deps: DraftDeps = { items, repos, drafts, events, writer, ctx };
   const state = (id = "item-1") => items.get(id)!.item.state;
   const types = (id = "item-1") => events.forItem(id).map((e) => e.type);
   return { db, deps, items, events, drafts, state, types };

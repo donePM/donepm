@@ -57,7 +57,7 @@ also restarts the daemon on the new code.
 | What | Where |
 |---|---|
 | Config | `~/.config/donepm/config.json` (created on first start) |
-| Playbooks | `~/.config/donepm/playbooks/` (`implement.md` is written on first start), `<repo>/.donepm/playbooks/` |
+| Playbooks | `~/.config/donepm/playbooks/` (`implement.md` and `review.md` are written on start when missing), `<repo>/.donepm/playbooks/` |
 | Database | `~/.local/share/donepm/donepm.db` |
 | Worktrees | `~/.local/share/donepm/worktrees/<owner-repo>/<branch>` |
 | Logs (service) | `~/Library/Logs/donepm/daemon.log`, `daemon.err.log` |
@@ -135,7 +135,7 @@ curl -X POST -H 'content-type: application/json' \
 
 Worktrees go to `worktreeRoot/<owner-repo>/<branch>`. A repository can add `.donepm/setup.yml`
 (`copy:` files from the main clone, `run:` commands in the worktree). Playbooks live in
-`~/.config/donepm/playbooks/` (the default `implement.md` is written there on first start) and
+`~/.config/donepm/playbooks/` (the defaults `implement.md` and `review.md` are written there on start when missing) and
 `<repo>/.donepm/playbooks/`.
 
 ### Testing
@@ -181,5 +181,5 @@ Check who holds a port with `lsof -iTCP:6174 -sTCP:LISTEN`.
 - `docs/intent.md` – why this exists and what it is not
 - `docs/spec.md` – the MVP, in detail
 - `docs/decisions.md` – decisions already made, with reasons
-- `packages/daemon/playbooks/implement.md` – the default playbook, copied to `~/.config/donepm/playbooks/` on first start
+- `packages/daemon/playbooks/implement.md`, `review.md` – the default playbooks, copied to `~/.config/donepm/playbooks/` when missing
 - `CLAUDE.md` – rules for coding agents working on this repository

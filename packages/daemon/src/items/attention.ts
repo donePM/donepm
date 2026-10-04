@@ -1,6 +1,6 @@
 import {
-  ciFailureOf, draftTitle, prConflictOf,
-  type CheckLog, type CiPr, type Draft, type DraftState, type DraftType, type Event, type FailedCheck, type ItemState,
+  ciFailureOf, draftTitle, prConflictOf, prFeedbackOf,
+  type CheckLog, type CiPr, type Draft, type DraftState, type DraftType, type Event, type FailedCheck, type FeedbackEntry, type ItemState,
   type PermissionAsk, type PermissionRule,
 } from "@donepm/core";
 
@@ -24,12 +24,14 @@ export type Attention =
   | { kind: "ci_failed"; pr?: CiPr; failed: FailedCheck[]; logs: CheckLog[]; runs: string[] }
   /** The open PR conflicts with its base (D36): resolve with the agent, or take it on yourself. */
   | { kind: "pr_conflict"; pr: CiPr; base: string; files: string[] }
+  /** Someone reviewed the done item's PR (D39): address it with the agent, or mark it done. */
+  | { kind: "pr_feedback"; pr: CiPr; entries: FeedbackEntry[] }
   /** No process is left for the waiting item (daemon restart); Resume continues its session. */
   | { kind: "resume"; reason: string };
 
 /**
  * A pending permission question first (the agent is blocked on it), then an open draft (pending,
- * being executed, or failed to execute), then a merge conflict, then a red CI, then a session to resume, then the latest
+ * being executed, or failed to execute), then a merge conflict, then review feedback, then a red CI, then a session to resume, then the latest
  * failure.
  * Nothing for items that do not wait on the user.
  */
@@ -57,6 +59,8 @@ export function attentionOf(input: {
     }
     const conflict = prConflictOf(input.events);
     if (conflict?.waiting && !input.agentAlive) return { kind: "pr_conflict", pr: conflict.pr, base: conflict.base, files: conflict.files };
+    const feedback = prFeedbackOf(input.events);
+    if (feedback?.waiting && !input.agentAlive) return { kind: "pr_feedback", pr: feedback.pr, entries: feedback.entries };
     const ci = ciFailureOf(input.events);
     if (ci && !input.agentAlive) return { kind: "ci_failed", ...ci };
     if (!input.agentAlive && input.hasSession) {
@@ -78,5 +82,7 @@ export function attentionOf(input: {
 function executionError(draft: Draft, events: readonly Event[]): string {
   const e = events.findLast((x) => x.type === "draft.execution_failed" && x.refId === draft.id);
   if (typeof e?.payload.error === "string") return e.payload.error;
-  return draft.type === "pr" ? "creating the pull request failed" : "pushing the commits failed";
+  if (draft.type === "pr") return "creating the pull request failed";
+  if (draft.type === "review") return "posting the review failed";
+  return draft.type === "push" ? "pushing the commits failed" : "posting the replies failed";
 }

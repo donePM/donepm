@@ -1,17 +1,23 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { Draft, PrDraftPayload, WorkItem } from "@donepm/core";
+import { MERGE_METHODS, type Draft, type MergeMethod, type PermissionGrant, type PrDraftPayload, type WorkItem } from "@donepm/core";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { z } from "zod";
 import { AskError, StopError } from "../agent/runner.js";
 import { StartError } from "../agent/start.js";
 import { WorktreeError } from "../worktrees/create.js";
-import type { OrphanWorktree } from "../worktrees/reconcile.js";
+import type { OrphanDetails } from "../worktrees/orphan-details.js";
+import type { PlaybookList } from "../playbooks/list.js";
+import type { DaemonInfo } from "../system/info.js";
+import type { MoveOutcome, WorktreeAtOldRoot } from "../worktrees/move.js";
 import { RemoveError } from "../worktrees/remove.js";
 import { DismissError } from "../items/dismiss.js";
+import { PlaybookChangeError } from "../items/playbook.js";
+import { SayError } from "../agent/say.js";
 import { CiActionError } from "../ci/actions.js";
-import { ConflictActionError } from "../prs/actions.js";
+import { PrActionError } from "../prs/actions.js";
+import { GrantError } from "../asks/revoke.js";
 import type { AskStore } from "../asks/store.js";
 import { ConfigSchema, SourceKey, type Config } from "../config/config.js";
 import { DraftError } from "../drafts/actions.js";
@@ -22,7 +28,8 @@ import type { EventStore } from "../events/store.js";
 import type { FetchResult } from "../gh/issues.js";
 import type { ItemStore, StoredItem } from "../items/store.js";
 import type { ItemView } from "../items/view.js";
-import { isIgnored, withIgnored } from "../repos/ignore.js";
+import { CloneError } from "../repos/clone.js";
+import { isManaged, withManaged } from "../repos/managed.js";
 import type { RepoStore } from "../repos/store.js";
 import type { StatusStore } from "../status/status.js";
 import type { TranscriptStore } from "../transcript/store.js";
@@ -38,12 +45,24 @@ export interface ServerDeps {
   transcript: TranscriptStore;
   repos: RepoStore;
   status: StatusStore;
-  /** The item belongs on the board: its repository is not ignored, or it still needs attention (issue #33). */
+  /** The item belongs on the board: its repository is managed, or it still needs attention (D46). */
   onBoard: (stored: StoredItem) => boolean;
   getConfig: () => Config;
-  /** Validated full config; returns what changed needs a restart. Pushes the items an ignore change shows or hides. */
-  saveConfig: (next: Config) => Promise<{ restartRequired: boolean }>;
+  /**
+   * Validated full config; returns what changed needs a restart. Pushes the items a managed change
+   * shows or hides, and polls when a repository became managed. With a changed worktree root and `"move"`, moves the item worktrees under the
+   * old root and returns what moved and what was skipped (issue #93).
+   */
+  saveConfig: (next: Config, worktrees?: WorktreeChoice) => Promise<{ restartRequired: boolean; worktrees?: MoveOutcome }>;
+  /** Item worktrees under the current root if `next` changes the root; empty otherwise. */
+  worktreesAtOldRoot: (next: Config) => WorktreeAtOldRoot[];
   rescan: () => Promise<void>;
+  /**
+   * Throws CloneError. `cloned`: a clone of the origin was at the target and is registered now.
+   * `started`: `gh repo clone` runs; `repo.*` pushes tell how it ends (issue #37). Either way the
+   * origin is managed from then on (D46).
+   */
+  cloneRepo: (origin: string) => Promise<{ target: string; result: "cloned" | "started" }>;
   /** Detect `gh` and `claude` again ("Check again" in Settings). */
   recheck: () => Promise<void>;
   /** Throws StartError; resolves once the item is `running`, the rest happens in the background. */
@@ -52,8 +71,8 @@ export interface ServerDeps {
   resumeItem: (id: string) => Promise<unknown>;
   /** Throws RemoveError or WorktreeError. Resolves with the item once git is done. */
   removeWorktree: (id: string) => Promise<WorkItem>;
-  /** Worktrees under donePM's root that no item uses. */
-  orphans: () => Promise<OrphanWorktree[]>;
+  /** Worktrees under donePM's root that no item uses, with size and last commit. */
+  orphans: () => Promise<OrphanDetails[]>;
   /** Throws RemoveError (404 for paths that are not orphans) or WorktreeError. */
   removeOrphan: (path: string) => Promise<void>;
   /** Throws DismissError. Moves an item whose issue was closed upstream to Done (D32). */
@@ -64,10 +83,22 @@ export interface ServerDeps {
   markCiDone: (id: string) => WorkItem;
   /** Throws CiActionError or StartError; same contract as resumeItem, with the failures as the message. */
   fixCi: (id: string) => Promise<unknown>;
-  /** Throws ConflictActionError or StartError. Fetches the base and resumes the agent on a PR's merge conflict (D36). */
+  /** Throws PrActionError or StartError. Fetches the base and resumes the agent on a PR's merge conflict (D36). */
   resolveConflict: (id: string) => Promise<unknown>;
-  /** Throws ConflictActionError. "I'll do it myself": the item goes back to where it was. */
+  /** Throws PrActionError. "I'll do it myself": the item goes back to where it was. */
   dismissConflict: (id: string) => WorkItem;
+  /** Throws PrActionError or StartError. Resumes the agent on review feedback of the item's PR (D39). */
+  addressFeedback: (id: string) => Promise<unknown>;
+  /** Throws PrActionError. "Mark done": the item is done again despite the feedback. */
+  dismissFeedback: (id: string) => WorkItem;
+  /** Throws PrActionError. Posts the user's comment on someone else's pull request (D47). */
+  commentOnPr: (id: string, body: string) => Promise<WorkItem>;
+  mergePr: (id: string, method: MergeMethod) => Promise<WorkItem>;
+  setAutoMerge: (id: string, on: boolean) => WorkItem;
+  /** Throws PlaybookChangeError. The playbook dropdown on a Ready card. */
+  changePlaybook: (id: string, playbook: string) => Promise<WorkItem>;
+  /** Throws SayError. A note from the composer that joins the running turn. */
+  sayToAgent: (id: string, text: string) => void;
   /** Throws StopError when no agent process is alive. Resolves once it exited. */
   stopItem: (id: string) => Promise<void>;
   /** The item as the API shows it: clone, badges, agent. */
@@ -85,8 +116,18 @@ export interface ServerDeps {
   openPath: (path: string, target: OpenTarget) => Promise<void>;
   /** Throws AskError. */
   answerAsk: (id: string, answer: AskAnswer) => void;
+  /** "Always allow" grants in force, every repository (D38). */
+  grants: () => PermissionGrant[];
+  /** Throws GrantError (404 for a missing or removed grant). The grant stops matching at once. */
+  revokeGrant: (id: string) => PermissionGrant;
   /** Runs a repository query once, for the Test button in Settings (issue #32). */
   testSource: (origin: string, query: string) => Promise<FetchResult>;
+  /** Global and repository playbooks for Settings (issue #127). */
+  playbooks: () => Promise<PlaybookList>;
+  /** Version, port, files and how the daemon was started (Settings > Daemon). */
+  daemonInfo: () => DaemonInfo;
+  /** Exits so launchd starts the daemon again; absent when it was started by hand. */
+  restart?: () => void;
   /** Built web UI (`packages/web` builds into it). Served at `/` when it exists. */
   publicDir?: string;
   extraOrigins?: readonly string[];
@@ -94,13 +135,14 @@ export interface ServerDeps {
 }
 
 const AskAnswerSchema = z.discriminatedUnion("behavior", [
-  // `scope: "run"` also grants the rules the CLI suggested for the rest of the run.
+  // `scope: "run"` also grants the rules the CLI suggested for the rest of the run; `"always"` stores
+  // them as grants of the item's repository (D38).
   z.object({
     behavior: z.literal("allow"),
-    scope: z.literal("run").optional(),
+    scope: z.enum(["run", "always"]).optional(),
     answers: z.record(z.string(), z.string()).optional(),
   }).strict(),
-  z.object({ behavior: z.literal("deny"), message: z.string().optional() }).strict(),
+  z.object({ behavior: z.literal("deny"), message: z.string().optional(), interrupt: z.boolean().optional() }).strict(),
 ]);
 export type AskAnswer = z.infer<typeof AskAnswerSchema>;
 
@@ -116,7 +158,11 @@ const DraftEditSchema = z
 const OpenSchema = z.object({ target: z.enum(["finder", "terminal"]) }).strict();
 export type OpenTarget = z.infer<typeof OpenSchema>["target"];
 
-const RepoPatchSchema = z.object({ ignored: z.boolean() }).strict();
+const DaemonOpenSchema = z.object({ what: z.enum(["logs", "playbooks"]) }).strict();
+
+const RepoPatchSchema = z.object({ managed: z.boolean() }).strict();
+
+const RepoCloneSchema = z.object({ origin: z.string().min(1) }).strict();
 
 const OrphanRemoveSchema = z.object({ path: z.string().min(1) }).strict();
 
@@ -134,10 +180,20 @@ async function ciCall<T>(reply: FastifyReply, fn: () => Promise<T>) {
   try {
     return await fn();
   } catch (e) {
-    if (e instanceof CiActionError || e instanceof ConflictActionError || e instanceof StartError) return reply.code(e.status).send({ error: e.message });
+    if (e instanceof CiActionError || e instanceof PrActionError || e instanceof StartError) return reply.code(e.status).send({ error: e.message });
     throw e;
   }
 }
+
+const PrCommentSchema = z.object({ body: z.string() }).strict();
+
+const PrMergeSchema = z.object({ method: z.enum(MERGE_METHODS) }).strict();
+
+const AutoMergeSchema = z.object({ on: z.boolean() }).strict();
+
+const PlaybookSchema = z.object({ playbook: z.string().trim().min(1) }).strict();
+
+const SaySchema = z.object({ text: z.string() }).strict();
 
 const DraftRejectSchema = z.object({ reason: z.string().optional() }).strict();
 
@@ -147,7 +203,12 @@ const SourceTestSchema = z.object({ origin: SourceKey, query: z.string().trim().
 const SOURCE_TEST_SAMPLE = 10;
 
 /** Partial update; unknown keys are rejected. */
-const SettingsPatch = ConfigSchema.partial().strict();
+/** `previousWorktreeRoots` is the daemon's bookkeeping (issue #93), not a setting. */
+const SettingsPatch = ConfigSchema.omit({ previousWorktreeRoots: true }).partial().strict();
+
+/** What happens to the worktrees under the old root when `worktreeRoot` changes (issue #93). */
+const WorktreeChoiceSchema = z.object({ worktrees: z.enum(["move", "leave"]).optional() });
+export type WorktreeChoice = "move" | "leave";
 
 async function draftCall(reply: FastifyReply, fn: () => Draft | Promise<Draft>) {
   try {
@@ -173,6 +234,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.get("/api/items", async () =>
     deps.items.all().filter(deps.onBoard).map(({ item }) => deps.view(item)),
   );
+
+  /** Archived items, the most recently archived first (D37). The web filters them. */
+  app.get("/api/archive", async () => deps.items.archived().map(({ item }) => deps.view(item)));
 
   app.get<{ Params: { id: string } }>("/api/items/:id", async (req, reply) => {
     const stored = deps.items.get(req.params.id);
@@ -250,6 +314,56 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     ciCall(reply, async () => deps.view(deps.dismissConflict(req.params.id))),
   );
 
+  app.post<{ Params: { id: string } }>("/api/items/:id/feedback/address", async (req, reply) => {
+    const r = await ciCall(reply, () => deps.addressFeedback(req.params.id));
+    return reply.sent ? r : reply.code(202).send(r);
+  });
+
+  app.post<{ Params: { id: string } }>("/api/items/:id/feedback/dismiss", async (req, reply) =>
+    ciCall(reply, async () => deps.view(deps.dismissFeedback(req.params.id))),
+  );
+
+  app.post<{ Params: { id: string } }>("/api/items/:id/pr/comment", async (req, reply) => {
+    const parsed = PrCommentSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: "body must be {body: string}" });
+    return ciCall(reply, async () => deps.view(await deps.commentOnPr(req.params.id, parsed.data.body)));
+  });
+
+  app.post<{ Params: { id: string } }>("/api/items/:id/pr/merge", async (req, reply) => {
+    const parsed = PrMergeSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: `body must be {method: ${MERGE_METHODS.join("|")}}` });
+    return ciCall(reply, async () => deps.view(await deps.mergePr(req.params.id, parsed.data.method)));
+  });
+
+  app.put<{ Params: { id: string } }>("/api/items/:id/auto-merge", async (req, reply) => {
+    const parsed = AutoMergeSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: "body must be {on: boolean}" });
+    return ciCall(reply, async () => deps.view(deps.setAutoMerge(req.params.id, parsed.data.on)));
+  });
+
+  app.put<{ Params: { id: string } }>("/api/items/:id/playbook", async (req, reply) => {
+    const parsed = PlaybookSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: "body must be {playbook: string}" });
+    try {
+      return deps.view(await deps.changePlaybook(req.params.id, parsed.data.playbook));
+    } catch (e) {
+      if (e instanceof PlaybookChangeError) return reply.code(e.status).send({ error: e.message });
+      throw e;
+    }
+  });
+
+  app.post<{ Params: { id: string } }>("/api/items/:id/say", async (req, reply) => {
+    const parsed = SaySchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: "body must be {text: string}" });
+    try {
+      deps.sayToAgent(req.params.id, parsed.data.text);
+      return { ok: true };
+    } catch (e) {
+      if (e instanceof SayError) return reply.code(e.status).send({ error: e.message });
+      throw e;
+    }
+  });
+
   app.post<{ Params: { id: string } }>("/api/items/:id/stop", async (req, reply) => {
     if (!deps.items.get(req.params.id)) return reply.code(404).send({ error: "item not found" });
     try {
@@ -273,7 +387,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!repo || !item.worktreePath || !item.branch || !existsSync(item.worktreePath)) {
       return reply.code(409).send({ error: "the item has no worktree" });
     }
-    return deps.diff({ worktreePath: item.worktreePath, branch: item.branch, defaultBranch: repo.defaultBranch });
+    // A pull request under review compares against its own base, not the repo's default (D41).
+    return deps.diff({ worktreePath: item.worktreePath, branch: item.branch, defaultBranch: item.baseBranch ?? repo.defaultBranch });
   });
 
   app.post<{ Params: { id: string } }>("/api/items/:id/open", async (req, reply) => {
@@ -288,7 +403,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   app.post<{ Params: { id: string } }>("/api/asks/:id/answer", async (req, reply) => {
     const answer = AskAnswerSchema.safeParse(req.body ?? {});
-    if (!answer.success) return reply.code(400).send({ error: "body must be {behavior: allow, scope?: run, answers?} or {behavior: deny, message?}" });
+    if (!answer.success) return reply.code(400).send({ error: "body must be {behavior: allow, scope?: run|always, answers?} or {behavior: deny, message?, interrupt?}" });
     try {
       deps.answerAsk(req.params.id, answer.data);
     } catch (e) {
@@ -296,6 +411,17 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       throw e;
     }
     return { ok: true };
+  });
+
+  app.get("/api/grants", async () => deps.grants());
+
+  app.post<{ Params: { id: string } }>("/api/grants/:id/revoke", async (req, reply) => {
+    try {
+      return deps.revokeGrant(req.params.id);
+    } catch (e) {
+      if (e instanceof GrantError) return reply.code(e.status).send({ error: e.message });
+      throw e;
+    }
   });
 
   app.post<{ Params: { id: string } }>("/api/drafts/:id/edit", async (req, reply) => {
@@ -323,7 +449,11 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   const repoViews = () => {
     const { sources } = deps.getConfig();
-    return deps.repos.all().map((r) => ({ ...r, ignored: isIgnored(sources, r.originUrl) }));
+    const worktrees = new Map<string, number>();
+    for (const { item } of deps.items.all()) {
+      if (item.repoId && item.worktreePath) worktrees.set(item.repoId, (worktrees.get(item.repoId) ?? 0) + 1);
+    }
+    return deps.repos.all().map((r) => ({ ...r, managed: isManaged(sources, r.originUrl), worktrees: worktrees.get(r.id) ?? 0 }));
   };
 
   app.get("/api/repos", async () => repoViews());
@@ -333,15 +463,27 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     return repoViews();
   });
 
+  app.post("/api/repos/clone", async (req, reply) => {
+    const body = RepoCloneSchema.safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "body must be {origin: string}" });
+    try {
+      const { target, result } = await deps.cloneRepo(body.data.origin);
+      return reply.code(result === "started" ? 202 : 200).send({ origin: body.data.origin, path: target, result });
+    } catch (e) {
+      if (e instanceof CloneError) return reply.code(e.status).send({ error: e.message });
+      throw e;
+    }
+  });
+
   // The flag belongs to the origin, so every clone of it changes together.
   app.put<{ Params: { id: string } }>("/api/repos/:id", async (req, reply) => {
     const body = RepoPatchSchema.safeParse(req.body ?? {});
-    if (!body.success) return reply.code(400).send({ error: "body must be {ignored: boolean}" });
+    if (!body.success) return reply.code(400).send({ error: "body must be {managed: boolean}" });
     const repo = deps.repos.get(req.params.id);
     if (!repo) return reply.code(404).send({ error: "repository not found" });
     const settings = ConfigSchema.parse({
       ...deps.getConfig(),
-      sources: withIgnored(deps.getConfig().sources, repo.originUrl, body.data.ignored),
+      sources: withManaged(deps.getConfig().sources, repo.originUrl, body.data.managed),
     });
     await deps.saveConfig(settings);
     return { repos: repoViews(), settings };
@@ -367,14 +509,43 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   app.get("/api/settings", async () => deps.getConfig());
 
+  app.get("/api/playbooks", async () => deps.playbooks());
+
+  app.get("/api/daemon", async () => deps.daemonInfo());
+
+  app.post("/api/daemon/restart", async (_req, reply) => {
+    const restart = deps.restart;
+    if (!restart) return reply.code(409).send({ error: "donePM was started by hand: stop it and run `donepm start` again" });
+    // After the answer is out: the restart closes the server.
+    reply.raw.once("finish", () => setImmediate(restart));
+    return reply.code(202).send({ ok: true });
+  });
+
+  app.post("/api/daemon/open", async (req, reply) => {
+    const body = DaemonOpenSchema.safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "body must be {what: logs|playbooks}" });
+    const info = deps.daemonInfo();
+    const path = body.data.what === "logs" ? info.logFile : info.playbooksDir;
+    if (!path || !existsSync(path)) return reply.code(409).send({ error: body.data.what === "logs" ? "no log file: donePM logs to the terminal it was started in" : `${path} does not exist` });
+    await deps.openPath(path, "finder");
+    return { ok: true };
+  });
+
   app.put("/api/settings", async (req, reply) => {
     const patch = SettingsPatch.safeParse(req.body ?? {});
     if (!patch.success) {
       return reply.code(400).send({ error: "invalid settings", issues: patch.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })) });
     }
+    const choice = WorktreeChoiceSchema.safeParse(req.query ?? {});
+    if (!choice.success) return reply.code(400).send({ error: "worktrees must be move or leave" });
     const next = ConfigSchema.parse({ ...deps.getConfig(), ...patch.data });
-    const { restartRequired } = await deps.saveConfig(next);
-    return { settings: next, restartRequired };
+    // A new worktree root with worktrees under the old one: nothing is saved until the user chose.
+    const atOldRoot = deps.worktreesAtOldRoot(next);
+    if (atOldRoot.length && !choice.data.worktrees) {
+      return reply.code(409).send({ error: `${atOldRoot.length} worktrees are in the old location`, worktreesAtOldRoot: atOldRoot });
+    }
+    const { restartRequired, worktrees } = await deps.saveConfig(next, choice.data.worktrees);
+    return { settings: deps.getConfig(), restartRequired, ...(worktrees ? { worktrees } : {}) };
   });
 
   const ui = deps.publicDir && existsSync(join(deps.publicDir, "index.html")) ? deps.publicDir : undefined;

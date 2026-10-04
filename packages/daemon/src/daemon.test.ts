@@ -1,10 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, statSync, writeFileSync } from "node:fs";
-import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PassThrough } from "node:stream";
+import { parsePlaybook } from "@donepm/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import { runShim } from "./bridge/shim.js";
@@ -35,6 +36,7 @@ function execWith(search: () => string, view = () => fixture("gh/issue-view-open
     "which gh": ok("/opt/homebrew/bin/gh\n"),
     "gh auth status": ok(fixture("gh/auth-status-ok.stdout")),
     "gh search issues": () => ok(search()),
+    "gh search prs": ok("[]"),
     "gh issue view": () => ok(view()),
     "gh issue list": ok(JSON.stringify([
       { number: 200, title: "Unassigned bug", body: "", labels: [], url: "https://github.com/acme/widgets/issues/200", createdAt: "2026-09-01T00:00:00Z" },
@@ -46,6 +48,14 @@ function execWith(search: () => string, view = () => fixture("gh/issue-view-open
     "gh pr create": ok("https://github.com/acme/widgets/pull/200\n"),
     "gh pr checks": { code: 1, stdout: fixture("gh/pr-checks-fail.json"), stderr: "" },
     "gh run view": ok(fixture("gh/run-view-log-failed.txt")),
+    // A clone the way gh leaves it: origin on github.com. No network (issue #37).
+    "gh repo clone": ({ args }) => {
+      const [, , slug, target] = args as [string, string, string, string];
+      if (slug === "acme/api") return { code: 1, stdout: "", stderr: "GraphQL: Could not resolve to a Repository with the name 'acme/api'.\n" };
+      execFileSync("git", ["init", "-q", target]);
+      execFileSync("git", ["-C", target, "remote", "add", "origin", `git@github.com:${slug}.git`]);
+      return ok("");
+    },
   });
   return (cmd, args, opts) => {
     // origin points at github.com; the clone already has origin/main, so fetching is skipped.
@@ -74,6 +84,18 @@ async function homeWithHistory(): Promise<string> {
   return h;
 }
 
+/** The repositories of the recorded searches, managed (D46) unless a test wrote its own config. */
+const FIXTURE_SOURCES = Object.fromEntries(
+  ["github.com/acme/widgets", "github.com/acme/api", "github.com/solo/tool"].map((o) => [o, { assignOnStart: false, managed: true }]),
+);
+
+function manageFixtureRepos(h: string) {
+  const file = join(h, ".config/donepm/config.json");
+  if (existsSync(file)) return;
+  mkdirSync(join(h, ".config/donepm"), { recursive: true });
+  writeFileSync(file, JSON.stringify({ sources: FIXTURE_SOURCES }));
+}
+
 async function start(
   h: string,
   search = () => fixture("gh/search-issues.json"),
@@ -81,6 +103,7 @@ async function start(
   spawn = fakeProcesses(),
   view?: () => string,
 ): Promise<Daemon> {
+  manageFixtureRepos(h);
   daemon = await createDaemon({
     home: h, exec: execWith(search, view), ctx: testCtx(), version: "0.0.0-test", port: 0, publicDir, spawn,
     env: { PATH: "/usr/bin:/bin", GH_TOKEN: "secret" },
@@ -136,10 +159,9 @@ async function get(d: Daemon, path: string, init?: RequestInit): Promise<{ statu
 }
 
 describe("daemon", { timeout: 30_000 }, () => {
-  it("creates the config on first start and serves polled items", async () => {
+  it("serves polled items", async () => {
     const h = await home();
     const d = await start(h);
-    expect(JSON.parse(await readFile(join(h, ".config/donepm/config.json"), "utf8")).port).toBe(6174);
 
     const { status, body } = await get(d, "/api/items");
     expect(status).toBe(200);
@@ -150,6 +172,58 @@ describe("daemon", { timeout: 30_000 }, () => {
       ["Acme/API#12", "ready", ["no-local-clone"]],
     ]);
     expect(body[0].repo.path).toBe(join(h, "Code", "acme", "widgets"));
+  });
+
+  it("clones a missing repository from the board and links its items without a rescan", async () => {
+    const h = await home();
+    const d = await start(h);
+    const target = join(h, "Code", "solo", "tool");
+    const tool = () => get(d, "/api/items").then((r) => r.body.find((i: any) => i.externalId === "solo/tool#61"));
+    expect((await tool()).clone).toEqual({ origin: "github.com/solo/tool", target });
+    expect((await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161").clone).toBeUndefined();
+
+    const ws = new WebSocket(d.address().replace("http", "ws") + "/ws");
+    await new Promise((r) => ws.once("open", r));
+    const pushed: string[] = [];
+    ws.on("message", (m) => {
+      const msg = JSON.parse(String(m));
+      if (msg.type.startsWith("repo.")) pushed.push(msg.type);
+    });
+
+    const post = (origin: unknown) =>
+      get(d, "/api/repos/clone", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ origin }) });
+    const res = await post("github.com/solo/tool");
+    expect(res).toEqual({ status: 202, body: { origin: "github.com/solo/tool", path: target, result: "started" } });
+    await waitFor(async () => expect((await tool()).badges).toEqual([]));
+    const item = await tool();
+    expect(item.repo.path).toBe(target);
+    expect(item.clone).toBeUndefined();
+    await waitFor(() => expect(pushed).toEqual(["repo.cloning", "repo.cloned"]));
+    ws.close();
+
+    expect((await post("github.com/solo/tool")).status).toBe(409);
+    expect((await post("gitlab.com/solo/tool")).status).toBe(400);
+    expect((await post(42)).status).toBe(400);
+  });
+
+  it("refuses an occupied clone target and shows a failed clone on the card", async () => {
+    const h = await home();
+    const d = await start(h);
+    const api = () => get(d, "/api/items").then((r) => r.body.find((i: any) => i.externalId === "Acme/API#12"));
+    const post = () =>
+      get(d, "/api/repos/clone", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ origin: "github.com/acme/api" }) });
+
+    const target = join(h, "Code", "acme", "api");
+    await mkdir(target);
+    await writeFile(join(target, "notes.txt"), "mine");
+    expect(await post()).toEqual({ status: 409, body: { error: `${target} is a folder with files in it, not a clone` } });
+    expect(await readFile(join(target, "notes.txt"), "utf8")).toBe("mine");
+
+    await rm(join(target, "notes.txt"));
+    expect((await post()).status).toBe(202);
+    await waitFor(async () => expect((await api()).clone.error).toBe("GraphQL: Could not resolve to a Repository with the name 'acme/api'."));
+    expect((await api()).badges).toEqual(["no-local-clone"]);
+    expect((await get(d, "/api/repos")).body.map((r: any) => r.originUrl)).toEqual(["github.com/acme/widgets"]);
   });
 
   it("returns one item with events, drafts and asks, and 404 for unknown ids", async () => {
@@ -188,6 +262,44 @@ describe("daemon", { timeout: 30_000 }, () => {
       runningAgents: 0,
     });
     expect(body.lastScan).toEqual(expect.any(String));
+  });
+
+  it("describes itself, its playbooks and worktrees per repository for Settings (#127)", async () => {
+    const h = await home();
+    const d = await start(h);
+    const info = (await get(d, "/api/daemon")).body;
+    expect(info).toMatchObject({
+      version: "0.0.0-test",
+      service: "manual",
+      dbFile: join(h, ".local/share/donepm/donepm.db"),
+      playbooksDir: join(h, ".config/donepm/playbooks"),
+    });
+    expect(info.dbBytes).toBeGreaterThan(0);
+    expect(info.logFile).toBeUndefined();
+    expect((await get(d, "/api/status")).body.startedAt).toBe(info.startedAt);
+    const post = (path: string, body?: object) =>
+      get(d, path, { method: "POST", ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}) });
+    expect((await post("/api/daemon/restart")).status).toBe(409);
+    expect((await post("/api/daemon/open", { what: "logs" })).status).toBe(409);
+
+    const { body } = await get(d, "/api/playbooks");
+    expect(body.globalDir).toBe(join(h, ".config/donepm/playbooks"));
+    expect(body.playbooks.map((p: any) => [p.name, p.scope.kind])).toEqual([["implement", "global"], ["review", "global"]]);
+    expect((await get(d, "/api/repos")).body.map((r: any) => r.worktrees)).toEqual([0]);
+  });
+
+  it("restarts through launchd when it runs as a service (#127)", async () => {
+    const h = await home();
+    manageFixtureRepos(h);
+    const restart = vi.fn();
+    daemon = await createDaemon({
+      home: h, exec: execWith(() => fixture("gh/search-issues.json")), ctx: testCtx(), version: "0.0.0-test", port: 0,
+      publicDir: join(h, "no-ui"), service: { logFile: join(h, "daemon.log"), restart },
+    });
+    await daemon.start();
+    expect((await get(daemon, "/api/daemon")).body).toMatchObject({ service: "launchd", logFile: join(h, "daemon.log") });
+    expect((await get(daemon, "/api/daemon/restart", { method: "POST" })).status).toBe(202);
+    await waitFor(() => expect(restart).toHaveBeenCalledOnce());
   });
 
   it("detects the CLIs again on recheck", async () => {
@@ -325,7 +437,7 @@ describe("daemon", { timeout: 30_000 }, () => {
     });
     first.last().emit({ type: "control_request", request_id: "r2", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "rm x" } } });
     expect((await get(d, `/api/items/${item.id}`)).body.state).toBe("needs_you");
-    // An agent mid-turn: the ask is answered later, the state is what shutdown keeps.
+    // An agent mid-turn: shutdown denies the open ask and keeps the state.
     await daemon!.stop();
     expect(first.last().signals).toEqual(["SIGTERM"]);
 
@@ -334,8 +446,8 @@ describe("daemon", { timeout: 30_000 }, () => {
     d = await start(h, undefined, undefined, second);
     const after = (await get(d, `/api/items/${item.id}`)).body;
     expect(after.state).toBe("needs_you");
-    expect(after.attention).toEqual({ kind: "resume", reason: "daemon restarted" });
-    expect(after.asks.map((a: any) => a.state)).toEqual(["allowed", "expired"]);
+    expect(after.attention).toEqual({ kind: "resume", reason: "donePM is shutting down" });
+    expect(after.asks.map((a: any) => a.state)).toEqual(["allowed", "denied"]);
     expect(second.spawned).toHaveLength(0);
 
     const resumed = await get(d, `/api/items/${item.id}/resume`, { method: "POST" });
@@ -398,6 +510,7 @@ describe("daemon", { timeout: 30_000 }, () => {
     git(clone, "worktree", "add", "-q", "-b", "mine", join(h, "elsewhere"));
     const listed = (await get(d, "/api/worktrees/orphaned")).body;
     expect(listed.map((o: any) => [o.path.endsWith("/leftover"), o.branch])).toEqual([[true, "leftover"]]);
+    expect(listed[0].lastCommitAt).toEqual(expect.any(String));
 
     const removed = await get(d, `/api/items/${item.id}/worktree/remove`, { method: "POST" });
     expect(removed.status).toBe(200);
@@ -416,11 +529,110 @@ describe("daemon", { timeout: 30_000 }, () => {
     expect(existsSync(join(h, "elsewhere"))).toBe(true);
   });
 
+  describe("a new worktree root (#93)", () => {
+    const put = (d: Daemon, body: object, query = "") =>
+      get(d, `/api/settings${query}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    /** #161 has a worktree and a session but no agent; the second item's agent is still running. */
+    async function twoItems() {
+      // Resolved (`/var` → `/private/var`), so the paths git lists compare with ours.
+      const h = realpathSync(await homeWithHistory());
+      const spawn = fakeProcesses();
+      const d = await start(h, undefined, undefined, spawn);
+      await put(d, { maxConcurrentAgents: 2 });
+      const all = (await get(d, "/api/items")).body.filter((i: any) => i.repo);
+      const idle = all.find((i: any) => i.externalId === "acme/widgets#161");
+      const busy = all.find((i: any) => i !== idle);
+      await get(d, `/api/items/${idle.id}/start`, { method: "POST" });
+      await waitFor(() => expect(spawn.spawned).toHaveLength(1));
+      spawn.last().emit({ type: "system", subtype: "init", session_id: "s1" });
+      await get(d, `/api/items/${idle.id}/stop`, { method: "POST" });
+      await get(d, `/api/items/${busy.id}/start`, { method: "POST" });
+      await waitFor(() => expect(spawn.spawned).toHaveLength(2));
+      const path = (id: string) => get(d, `/api/items/${id}`).then((r) => r.body.worktreePath as string);
+      return { h, d, spawn, idle, busy, idlePath: await path(idle.id), busyPath: await path(busy.id), clone: join(h, "Code", "acme", "widgets") };
+    }
+
+    it("asks first, then moves with git worktree move, skips running agents, and the session resumes there", async () => {
+      const { h, d, spawn, idle, busy, idlePath, busyPath, clone } = await twoItems();
+      const newRoot = join(h, "new-root");
+
+      const asked = await put(d, { worktreeRoot: newRoot });
+      expect(asked.status).toBe(409);
+      expect(asked.body.worktreesAtOldRoot).toEqual(expect.arrayContaining([
+        { itemId: idle.id, title: idle.title, path: idlePath, running: false },
+        { itemId: busy.id, title: busy.title, path: busyPath, running: true },
+      ]));
+      expect((await get(d, "/api/settings")).body.worktreeRoot).toBe("~/.local/share/donepm/worktrees");
+      expect((await put(d, { worktreeRoot: newRoot }, "?worktrees=sideways")).status).toBe(400);
+
+      const moved = await put(d, { worktreeRoot: newRoot }, "?worktrees=move");
+      expect(moved.status).toBe(200);
+      expect(moved.body.settings).toMatchObject({ worktreeRoot: newRoot, previousWorktreeRoots: ["~/.local/share/donepm/worktrees"] });
+      const target = join(newRoot, "acme-widgets", idlePath.split("/").at(-1)!);
+      expect(moved.body.worktrees).toEqual({
+        moved: [{ itemId: idle.id, title: idle.title, from: idlePath, to: target }],
+        skipped: [{ itemId: busy.id, title: busy.title, path: busyPath, reason: "its agent is running" }],
+      });
+      expect(existsSync(target)).toBe(true);
+      expect(existsSync(idlePath)).toBe(false);
+      expect(existsSync(busyPath)).toBe(true);
+      const listed = git(clone, "worktree", "list", "--porcelain");
+      expect(listed).toContain(`worktree ${target}\n`);
+      expect(listed).not.toContain(`worktree ${idlePath}\n`);
+      const after = (await get(d, `/api/items/${idle.id}`)).body;
+      expect(after).toMatchObject({ worktreePath: target, agentSessionId: "s1" });
+      expect(after.events.at(-1)).toMatchObject({ type: "worktree.moved", actor: "user", payload: { from: idlePath, to: target } });
+
+      // Former root still holds the running item's worktree, so its orphans are still found.
+      const orphan = join(h, ".local/share/donepm/worktrees/acme-widgets/leftover");
+      git(clone, "worktree", "add", "-q", "-b", "leftover", orphan);
+      expect((await get(d, "/api/worktrees/orphaned")).body.map((o: any) => o.branch)).toEqual(["leftover"]);
+
+      await get(d, `/api/items/${idle.id}/start`, { method: "POST" });
+      await waitFor(() => expect(spawn.spawned).toHaveLength(3));
+      expect(spawn.last().args).toEqual(expect.arrayContaining(["--resume", "s1"]));
+      expect(spawn.last().opts.cwd).toBe(target);
+    });
+
+    it("leaves them where they are: paths, git and resume unchanged, new worktrees under the new root", async () => {
+      const { h, d, spawn, idle, busy, idlePath, clone } = await twoItems();
+      const newRoot = join(h, "new-root");
+      const left = await put(d, { worktreeRoot: newRoot }, "?worktrees=leave");
+      expect(left.status).toBe(200);
+      expect(left.body.worktrees).toBeUndefined();
+      expect(left.body.settings.previousWorktreeRoots).toEqual(["~/.local/share/donepm/worktrees"]);
+      expect((await get(d, `/api/items/${idle.id}`)).body.worktreePath).toBe(idlePath);
+      expect(git(clone, "worktree", "list", "--porcelain")).toContain(`worktree ${idlePath}\n`);
+      // Changing something else asks nothing.
+      expect((await put(d, { branchPrefix: "dp/" })).status).toBe(200);
+
+      await get(d, `/api/items/${idle.id}/start`, { method: "POST" });
+      await waitFor(() => expect(spawn.spawned).toHaveLength(3));
+      expect(spawn.last().opts.cwd).toBe(idlePath);
+
+      // A fresh worktree goes to the new root.
+      await get(d, `/api/items/${busy.id}/stop`, { method: "POST" });
+      expect((await get(d, `/api/items/${busy.id}/worktree/remove`, { method: "POST" })).status).toBe(200);
+      await get(d, `/api/items/${busy.id}/start`, { method: "POST" });
+      await waitFor(() => expect(spawn.spawned).toHaveLength(4));
+      expect(spawn.last().opts.cwd.startsWith(join(newRoot, "acme-widgets"))).toBe(true);
+
+      // Back to the old root: it is no former root any more.
+      const back = await put(d, { worktreeRoot: "~/.local/share/donepm/worktrees" }, "?worktrees=leave");
+      expect(back.body.settings.previousWorktreeRoots).toEqual([newRoot]);
+    });
+  });
+
   it("starts an agent: worktree, setup, claude in the worktree, transcript stored", async () => {
     const h = await homeWithHistory();
     const spawn = fakeProcesses();
     const d = await start(h, undefined, undefined, spawn);
     expect(await readFile(join(h, ".config/donepm/playbooks/implement.md"), "utf8")).toMatch(/name: implement/);
+    // The built-in review playbook (D42) parses: read-only, review drafts only, for review requests.
+    expect(parsePlaybook(await readFile(join(h, ".config/donepm/playbooks/review.md"), "utf8"))).toMatchObject({
+      name: "review", readOnly: true, drafts: ["review"], permissionMode: "default", match: { source: "github-pr" },
+    });
     const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
 
     const started = await get(d, `/api/items/${item.id}/start`, { method: "POST" });
@@ -454,7 +666,7 @@ describe("daemon", { timeout: 30_000 }, () => {
     const h = await homeWithHistory();
     await mkdir(join(h, ".config/donepm"), { recursive: true });
     await writeFile(join(h, ".config/donepm/config.json"), JSON.stringify({
-      sources: { "github.com/acme/widgets": { query: "is:issue no:assignee", assignOnStart: true } },
+      sources: { ...FIXTURE_SOURCES, "github.com/acme/widgets": { query: "is:issue no:assignee", assignOnStart: true, managed: true } },
     }));
     const spawn = fakeProcesses();
     const d = await start(h, undefined, undefined, spawn);
@@ -541,6 +753,37 @@ describe("daemon", { timeout: 30_000 }, () => {
     expect((await get(d, "/api/items/nope/dismiss", { method: "POST" })).status).toBe(404);
   });
 
+  it("changes the playbook of a Ready item until it starts, and passes the composer's note to the running agent", async () => {
+    const spawn = fakeProcesses();
+    const d = await start(await homeWithHistory(), undefined, undefined, spawn);
+    const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
+    const put = (body: unknown) =>
+      get(d, `/api/items/${item.id}/playbook`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const say = (body: unknown) =>
+      get(d, `/api/items/${item.id}/say`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    expect(item.playbook).toBe("implement");
+    const changed = await put({ playbook: "review" });
+    expect(changed).toMatchObject({ status: 200, body: { playbook: "review", state: "ready" } });
+    expect((await get(d, `/api/items/${item.id}`)).body.events.at(-1)).toMatchObject({
+      type: "item.playbook_changed", actor: "user", payload: { from: "implement", to: "review" },
+    });
+    expect((await put({ playbook: "nope" })).status).toBe(400);
+    expect((await put({})).status).toBe(400);
+    expect((await get(d, "/api/items/nope/playbook", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ playbook: "review" }) })).status).toBe(404);
+    expect((await put({ playbook: "implement" })).status).toBe(200);
+
+    expect((await say({ text: "hi" })).body).toEqual({ error: "the agent is not running" });
+    await get(d, `/api/items/${item.id}/start`, { method: "POST" });
+    await waitFor(() => expect(spawn.spawned).toHaveLength(1));
+    const proc = spawn.last();
+    proc.emit({ type: "system", subtype: "init", session_id: "s1" });
+    expect((await put({ playbook: "review" })).status).toBe(409);
+    expect((await say({ text: "  " })).status).toBe(400);
+    expect(await say({ text: "Keep the old tag as an alias." })).toEqual({ status: 200, body: { ok: true } });
+    expect(proc.sent().at(-1)).toMatchObject({ type: "user", message: { role: "user", content: [{ type: "text", text: "Keep the old tag as an alias." }] } });
+  });
+
   it("refuses to start twice, items without a clone, and a second agent", async () => {
     const d = await start(await homeWithHistory());
     const items = (await get(d, "/api/items")).body;
@@ -584,6 +827,39 @@ describe("daemon", { timeout: 30_000 }, () => {
     expect(spawn.last().sent().at(-1).response).toMatchObject({ request_id: "r1", response: { behavior: "deny", message: "no" } });
     expect((await post({ behavior: "allow" })).status).toBe(409);
     expect((await get(d, "/api/asks/nope/answer", { method: "POST", headers: { "content-type": "application/json" }, body: "{\"behavior\":\"allow\"}" })).status).toBe(404);
+  });
+
+  it("always allows per repository over HTTP, lists the grant and removes it", async () => {
+    const spawn = fakeProcesses();
+    const d = await start(await homeWithHistory(), undefined, undefined, spawn);
+    const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
+    await get(d, `/api/items/${item.id}/start`, { method: "POST" });
+    await waitFor(() => expect(spawn.spawned).toHaveLength(1));
+    const ask = (id: string) => ({
+      type: "control_request", request_id: id,
+      request: {
+        subtype: "can_use_tool", tool_name: "Bash", input: { command: "pnpm test" },
+        permission_suggestions: [{ type: "addRules", behavior: "allow", destination: "localSettings", rules: [{ toolName: "Bash", ruleContent: "pnpm test *" }] }],
+      },
+    });
+    spawn.last().emit(ask("r1"));
+    const [first] = (await get(d, `/api/items/${item.id}`)).body.asks;
+    const json = { method: "POST", headers: { "content-type": "application/json" } };
+    expect((await get(d, `/api/asks/${first.id}/answer`, { ...json, body: JSON.stringify({ behavior: "allow", scope: "always" }) })).body).toEqual({ ok: true });
+
+    const grants = (await get(d, "/api/grants")).body;
+    expect(grants).toMatchObject([{ repo: "github.com/acme/widgets", toolName: "Bash", ruleContent: "pnpm test *", call: "Bash: pnpm test", useCount: 0 }]);
+    spawn.last().emit(ask("r2"));
+    expect(spawn.last().sent().at(-1).response).toMatchObject({ request_id: "r2", response: { behavior: "allow" } });
+    expect((await get(d, "/api/grants")).body[0].useCount).toBe(1);
+
+    expect((await get(d, `/api/grants/${grants[0].id}/revoke`, { method: "POST" })).body.revokedAt).toEqual(expect.any(String));
+    expect((await get(d, `/api/grants/${grants[0].id}/revoke`, { method: "POST" })).status).toBe(404);
+    expect((await get(d, "/api/grants")).body).toEqual([]);
+    spawn.last().emit(ask("r3"));
+    const detail = (await get(d, `/api/items/${item.id}`)).body;
+    expect(detail.state).toBe("needs_you");
+    expect(detail.events.map((e: any) => e.type)).toContain("permission.grant_revoked");
   });
 
   it("approving a draft commits leftovers, opens the PR and waits for CI", async () => {
@@ -693,29 +969,106 @@ describe("daemon", { timeout: 30_000 }, () => {
     expect(await shim).toBe(0);
   });
 
-  describe("ignored repositories", () => {
+  it("shows a finished item muted, then moves it to the archive on the next poll after archiveAfterHours (D37)", async () => {
+    const d = await start(await home());
+    const json = { "content-type": "application/json" };
+    const externalId = "solo/tool#61";
+    const { id } = d.db.prepare("SELECT id FROM items WHERE external_id = ?").get(externalId) as { id: string };
+    d.db.prepare("UPDATE items SET state = 'done', state_since = ? WHERE id = ?").run("2026-01-01T00:00:00.000Z", id);
+    expect((await get(d, `/api/items/${id}`)).body).toMatchObject({ state: "done", finishedAt: "2026-01-01T00:00:00.000Z" });
+    expect((await get(d, "/api/archive")).body).toEqual([]);
+
+    const saved = await get(d, "/api/settings", { method: "PUT", headers: json, body: JSON.stringify({ archiveAfterHours: 0, deleteAfterDays: null }) });
+    expect(saved.status).toBe(200);
+    await d.pollNow();
+    expect((await get(d, "/api/items")).body.map((i: any) => i.externalId)).not.toContain(externalId);
+    const archive = (await get(d, "/api/archive")).body;
+    expect(archive.map((i: any) => [i.id, i.state])).toEqual([[id, "done"]]);
+    expect(archive[0].archivedAt).toBeDefined();
+    expect((await get(d, `/api/items/${id}`)).status).toBe(200);
+    expect((await get(d, "/api/settings", { method: "PUT", headers: json, body: JSON.stringify({ archiveAfterHours: -1 }) })).status).toBe(400);
+  });
+
+  describe("managed repositories (D46)", () => {
     const WIDGETS = "github.com/acme/widgets";
     const json = { "content-type": "application/json" };
     const put = (d: Daemon, path: string, body: unknown) => get(d, path, { method: "PUT", headers: json, body: JSON.stringify(body) });
-    const ignore = async (d: Daemon, ignored: boolean) => {
+    const manage = async (d: Daemon, managed: boolean) => {
       const repo = (await get(d, "/api/repos")).body.find((r: any) => r.originUrl === WIDGETS);
-      return put(d, `/api/repos/${repo.id}`, { ignored });
+      return put(d, `/api/repos/${repo.id}`, { managed });
     };
     const externalIds = async (d: Daemon) => (await get(d, "/api/items")).body.map((i: any) => i.externalId);
+    const configFile = (h: string) => join(h, ".config/donepm/config.json");
+    const fresh = async (h: string) => {
+      daemon = await createDaemon({
+        home: h, exec: execWith(() => fixture("gh/search-issues.json")), ctx: testCtx(), version: "0.0.0-test", port: 0,
+        publicDir: join(h, "no-ui"), spawn: fakeProcesses(), env: { PATH: "/usr/bin:/bin" },
+      });
+      await daemon.start();
+      await daemon.pollNow();
+      return daemon;
+    };
 
-    it("hides the idle items of an ignored repository, stops polling it and brings the same items back", async () => {
+    it("starts a fresh install with nothing managed and offers what the search found", async () => {
+      const h = await home();
+      const d = await fresh(h);
+      const config = JSON.parse(await readFile(configFile(h), "utf8"));
+      expect(config).toMatchObject({ port: 6174, sources: {} });
+      expect(await externalIds(d)).toEqual([]);
+      expect((await get(d, "/api/repos")).body.map((r: any) => [r.originUrl, r.managed])).toEqual([[WIDGETS, false]]);
+      expect((await get(d, "/api/status")).body.lastPoll).toMatchObject({
+        ok: true, issues: 0, discovered: { "github.com/acme/api": 1, "github.com/solo/tool": 1 },
+      });
+
+      // "Clone and manage": the clone starts and the repository's work is collected.
+      const res = await get(d, "/api/repos/clone", { method: "POST", headers: json, body: JSON.stringify({ origin: "github.com/solo/tool" }) });
+      expect(res.status).toBe(202);
+      expect(JSON.parse(await readFile(configFile(h), "utf8")).sources).toEqual({ "github.com/solo/tool": { assignOnStart: false, managed: true } });
+      await waitFor(async () => expect(await externalIds(d)).toEqual(["solo/tool#61"]));
+
+      expect((await manage(d, true)).status).toBe(200);
+      await waitFor(async () => expect((await externalIds(d)).sort()).toEqual(["acme/widgets#157", "acme/widgets#161", "solo/tool#61"]));
+      expect((await get(d, "/api/status")).body.lastPoll.discovered).toEqual({ "github.com/acme/api": 1 });
+    });
+
+    it("migrates once: origins with items or settings are managed, ignored ones are not", async () => {
+      const h = await home();
+      await start(h);
+      await daemon!.stop();
+      daemon = undefined;
+      await writeFile(configFile(h), JSON.stringify({ sources: { "github.com/acme/api": { assignOnStart: false, ignored: true } } }));
+
+      const d = await start(h, () => fixture("gh/search-issues-empty.json"));
+      expect(JSON.parse(await readFile(configFile(h), "utf8")).sources).toEqual({
+        [WIDGETS]: { assignOnStart: false, managed: true },
+        "github.com/solo/tool": { assignOnStart: false, managed: true },
+        "github.com/acme/api": { assignOnStart: false, managed: false },
+      });
+      expect(await externalIds(d)).toEqual(["acme/widgets#161", "acme/widgets#157", "solo/tool#61"]);
+
+      // Unmanaging everything is a choice the next start keeps.
+      for (const origin of [WIDGETS, "github.com/solo/tool"]) {
+        const { sources } = (await get(d, "/api/settings")).body;
+        await put(d, "/api/settings", { sources: { ...sources, [origin]: { assignOnStart: false, managed: false } } });
+      }
+      await daemon!.stop();
+      daemon = undefined;
+      const again = await start(h, () => fixture("gh/search-issues-empty.json"));
+      expect(await externalIds(again)).toEqual([]);
+    });
+
+    it("hides the idle items of an unmanaged repository, stops polling it and brings the same items back", async () => {
       const h = await home();
       const d = await start(h);
       const before = (await get(d, "/api/items")).body.map((i: any) => [i.externalId, i.id]);
-      expect((await get(d, "/api/repos")).body.map((r: any) => [r.originUrl, r.ignored])).toEqual([[WIDGETS, false]]);
+      expect((await get(d, "/api/repos")).body.map((r: any) => [r.originUrl, r.managed])).toEqual([[WIDGETS, true]]);
 
-      const hidden = await ignore(d, true);
+      const hidden = await manage(d, false);
       expect(hidden.status).toBe(200);
-      expect(hidden.body.repos.map((r: any) => [r.originUrl, r.ignored])).toEqual([[WIDGETS, true]]);
-      expect(hidden.body.settings.sources).toEqual({ [WIDGETS]: { assignOnStart: false, ignored: true } });
-      expect(JSON.parse(await readFile(join(h, ".config/donepm/config.json"), "utf8")).sources).toEqual(hidden.body.settings.sources);
+      expect(hidden.body.repos.map((r: any) => [r.originUrl, r.managed])).toEqual([[WIDGETS, false]]);
+      expect(hidden.body.settings.sources[WIDGETS]).toEqual({ assignOnStart: false, managed: false });
+      expect(JSON.parse(await readFile(configFile(h), "utf8")).sources).toEqual(hidden.body.settings.sources);
       expect(await externalIds(d)).toEqual(["solo/tool#61", "Acme/API#12"]);
-      expect((await get(d, "/api/repos")).body[0].ignored).toBe(true);
 
       // Nothing is deleted: the item is still there by id, and the next poll leaves it alone.
       const [hiddenId] = before[0]!.slice(1);
@@ -725,14 +1078,14 @@ describe("daemon", { timeout: 30_000 }, () => {
       expect((await get(d, "/api/status")).body.lastPoll).toMatchObject({ ok: true, issues: 2 });
       expect(d.db.prepare("SELECT COUNT(*) AS n FROM items").get()).toEqual({ n: 4 });
 
-      const shown = await ignore(d, false);
-      expect(shown.body.settings.sources).toEqual({});
+      const shown = await manage(d, true);
+      expect(shown.body.settings.sources[WIDGETS]).toEqual({ assignOnStart: false, managed: true });
       await d.pollNow();
       expect((await get(d, "/api/items")).body.map((i: any) => [i.externalId, i.id])).toEqual(before);
       expect((await get(d, "/api/status")).body.lastPoll).toMatchObject({ ok: true, issues: 4 });
     });
 
-    it("keeps an ignored repository's running items and items with a pending draft on the board", async () => {
+    it("keeps an unmanaged repository's running items and items with a pending draft on the board", async () => {
       const d = await start(await home());
       const [pendingDraft, running] = ["acme/widgets#161", "acme/widgets#157"];
       const at = "2026-10-03T12:00:00.000Z";
@@ -742,7 +1095,7 @@ describe("daemon", { timeout: 30_000 }, () => {
         .run("d1", id(pendingDraft!), JSON.stringify({ title: "Fix", body: "", base: "main" }), at, at);
       d.db.prepare("UPDATE items SET state = 'running' WHERE id = ?").run(id(running!));
 
-      await ignore(d, true);
+      await manage(d, false);
       expect(await externalIds(d)).toEqual(["acme/widgets#161", "acme/widgets#157", "solo/tool#61", "Acme/API#12"]);
 
       // Once the draft is settled and the agent is done, nothing needs the user and the items go.
@@ -760,42 +1113,52 @@ describe("daemon", { timeout: 30_000 }, () => {
       const of = (type: string) => messages.filter((m) => m.type === type).map((m) => m.payload.externalId ?? m.payload.id);
       const ids = Object.fromEntries((await get(d, "/api/items")).body.map((i: any) => [i.externalId, i.id]));
 
-      await ignore(d, true);
+      await manage(d, false);
       await waitFor(() => expect(of("item.removed")).toEqual([ids["acme/widgets#161"], ids["acme/widgets#157"]]));
       expect(of("item.updated")).toEqual([]);
 
-      await ignore(d, false);
-      await waitFor(() => expect(of("item.updated")).toEqual(["acme/widgets#161", "acme/widgets#157"]));
+      await manage(d, true);
+      await waitFor(() => expect(of("item.updated").slice(0, 2)).toEqual(["acme/widgets#161", "acme/widgets#157"]));
       await d.pollNow();
       ws.close();
     });
 
     it("changes one origin at a time and needs no restart, also through the settings patch", async () => {
       const d = await start(await home());
-      const other = { query: "label:bug", assignOnStart: true };
-      const saved = await put(d, "/api/settings", { sources: { "github.com/solo/tool": other } });
+      const other = { query: "label:bug", assignOnStart: true, managed: true };
+      const saved = await put(d, "/api/settings", { sources: { ...FIXTURE_SOURCES, "github.com/solo/tool": other } });
       expect(saved.body).toMatchObject({ settings: { sources: { "github.com/solo/tool": other } }, restartRequired: false });
 
-      expect((await ignore(d, true)).body.settings.sources).toEqual({
+      expect((await manage(d, false)).body.settings.sources).toMatchObject({
         "github.com/solo/tool": other,
-        [WIDGETS]: { assignOnStart: false, ignored: true },
+        [WIDGETS]: { assignOnStart: false, managed: false },
       });
-      expect((await ignore(d, false)).body.settings.sources).toEqual({ "github.com/solo/tool": other });
+      expect((await manage(d, true)).body.settings.sources[WIDGETS]).toEqual({ assignOnStart: false, managed: true });
 
-      const patched = await put(d, "/api/settings", { sources: { [WIDGETS]: { ignored: true } } });
+      const patched = await put(d, "/api/settings", { sources: { ...FIXTURE_SOURCES, [WIDGETS]: { managed: false } } });
       expect(patched.body.restartRequired).toBe(false);
       expect(await externalIds(d)).toEqual(["solo/tool#61", "Acme/API#12"]);
-      expect((await put(d, "/api/settings", { sources: {} })).body.restartRequired).toBe(false);
+      expect((await put(d, "/api/settings", { sources: FIXTURE_SOURCES })).body.restartRequired).toBe(false);
       await d.pollNow();
       expect(await externalIds(d)).toEqual(expect.arrayContaining(["acme/widgets#161", "acme/widgets#157"]));
+    });
+
+    it("refuses to start an item of an unmanaged repository", async () => {
+      const d = await start(await home());
+      const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
+      await manage(d, false);
+      expect(await get(d, `/api/items/${item.id}/start`, { method: "POST" })).toEqual({
+        status: 409, body: { error: `${WIDGETS} is not managed` },
+      });
+      expect((await get(d, `/api/items/${item.id}`)).body.state).toBe("ready");
     });
 
     it("rejects a bad body and an unknown repository", async () => {
       const d = await start(await home());
       const repo = (await get(d, "/api/repos")).body[0];
-      expect((await put(d, `/api/repos/${repo.id}`, { ignored: "yes" })).status).toBe(400);
-      expect((await put(d, `/api/repos/${repo.id}`, { ignored: true, query: "x" })).status).toBe(400);
-      expect((await put(d, "/api/repos/nope", { ignored: true })).status).toBe(404);
+      expect((await put(d, `/api/repos/${repo.id}`, { managed: "yes" })).status).toBe(400);
+      expect((await put(d, `/api/repos/${repo.id}`, { managed: true, query: "x" })).status).toBe(400);
+      expect((await put(d, "/api/repos/nope", { managed: true })).status).toBe(404);
     });
   });
 });

@@ -2,12 +2,12 @@
 import { computed, reactive } from "vue";
 import AskInput from "../asks/AskInput.vue";
 import AskPanel from "../asks/AskPanel.vue";
+import AnsiText from "../ansi/AnsiText.vue";
 import MarkdownView from "../markdown/MarkdownView.vue";
 import type { RepoRef } from "../markdown/render";
-import { clock } from "../time/duration";
 import { rendersMarkdown } from "./markdown";
-import DiffView from "./DiffView.vue";
-import { agentNote, askOutcomeText, hasPendingAsk, resultNote, type Row } from "./rows";
+import { agentNote, askOutcomeText, groupNote, hasPendingAsk, lastTool, type Row } from "./rows";
+import ToolStep from "./ToolStep.vue";
 import TranscriptRows from "./TranscriptRows.vue";
 
 const props = defineProps<{
@@ -29,13 +29,13 @@ const isOpen = (row: Row) => open.has(row.id) || hasPendingAsk(row);
 /** Only the latest tool call without a result counts as running, and only while the agent runs. */
 const runningTool = computed(() => {
   if (!props.running) return undefined;
-  const last = [...props.rows].reverse().find((r) => r.type === "tool");
-  return last?.type === "tool" && !last.result ? last.id : undefined;
+  const last = lastTool(props.rows);
+  return last && !last.result ? last.id : undefined;
 });
+const groupRunning = (row: Extract<Row, { type: "group" }>) => row.children.some((c) => c.id === runningTool.value);
 
 const TASK_PREVIEW = 220;
 const preview = (text: string) => (text.length > TASK_PREVIEW ? `${text.slice(0, TASK_PREVIEW).trimEnd()} …` : text);
-const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
 </script>
 
 <template>
@@ -59,12 +59,12 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
 
       <div v-else-if="row.type === 'setup'" class="row">
         <span class="who">Setup</span>
-        <div class="tool" :class="{ failed: !row.ok }">
+        <div class="call" :class="{ failed: !row.ok }">
           <button class="tool-head" type="button" :disabled="!row.output" @click="toggle(row.id)">
             <span class="dim">{{ row.output ? (open.has(row.id) ? "▾" : "▸") : "" }} {{ row.ok ? "ok" : "failed" }}</span>
             <span class="summary">{{ row.label }}</span>
           </button>
-          <pre v-if="open.has(row.id)" class="body">{{ row.output }}</pre>
+          <pre v-if="open.has(row.id)" class="body"><AnsiText :text="row.output ?? ''" /></pre>
         </div>
       </div>
 
@@ -82,31 +82,34 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
         <div v-else class="text pre">{{ row.text }}</div>
       </div>
 
-      <div v-else-if="row.type === 'tool'" class="row">
+      <div v-else-if="row.type === 'tool'" class="row step-row">
         <span class="who"></span>
-        <div class="tool" :class="{ running: runningTool === row.id, failed: row.result?.isError }">
-          <button class="tool-head" type="button" @click="toggle(row.id)">
-            <span v-if="runningTool === row.id" class="dot dot-ok" aria-hidden="true"></span>
-            <span class="dim">{{ runningTool === row.id ? "" : open.has(row.id) ? "▾" : "▸" }} {{ row.name }}</span>
+        <ToolStep :row="row" :open="open.has(row.id)" :running="runningTool === row.id" :now="now" @toggle="toggle(row.id)" />
+      </div>
+
+      <div v-else-if="row.type === 'group'" class="row step-row">
+        <span class="who"></span>
+        <div class="group" :class="{ running: groupRunning(row) }">
+          <button class="tool-head" type="button" :aria-expanded="open.has(row.id)" @click="toggle(row.id)">
+            <span v-if="groupRunning(row)" class="dot primary" aria-hidden="true"></span>
+            <span v-else class="dim">{{ open.has(row.id) ? "▾" : "▸" }}</span>
+            <span class="dim">{{ row.label }}</span>
             <span class="summary">{{ row.summary }}</span>
-            <span class="note dim">
-              <template v-if="runningTool === row.id">running · {{ clock(now - Date.parse(row.at)) }}</template>
-              <template v-else-if="row.result">{{ resultNote(row.result) }}</template>
-            </span>
+            <span class="note dim" :class="{ bad: groupNote(row) }">{{ groupRunning(row) ? "running" : groupNote(row) }}</span>
           </button>
-          <template v-if="open.has(row.id)">
-            <DiffView v-if="row.diff" class="diff" :lines="row.diff" />
-            <pre v-else class="body">{{ formatInput(row.input) }}</pre>
-            <pre v-if="row.result" class="body result">{{ row.result.text || "(no output)" }}</pre>
-          </template>
+          <div v-if="open.has(row.id)" class="group-steps">
+            <ToolStep
+              v-for="c in row.children" :key="c.id" :row="c" :open="open.has(c.id)" :running="runningTool === c.id" :now="now" @toggle="toggle(c.id)"
+            />
+          </div>
         </div>
       </div>
 
       <div v-else-if="row.type === 'agent'" class="row">
         <span class="who agent">Subagent</span>
-        <div class="tool sub" :class="{ running: running && row.status === 'running', failed: row.status === 'failed' }">
+        <div class="call sub" :class="{ running: running && row.status === 'running', failed: row.status === 'failed' }">
           <button class="tool-head" type="button" @click="toggle(row.id)">
-            <span v-if="running && row.status === 'running'" class="dot dot-ok" aria-hidden="true"></span>
+            <span v-if="running && row.status === 'running'" class="dot primary" aria-hidden="true"></span>
             <span class="dim">{{ running && row.status === "running" ? "" : isOpen(row) ? "▾" : "▸" }} {{ row.agentType ?? "Agent" }}</span>
             <span class="summary">{{ row.description }}</span>
             <span class="note dim">{{ agentNote(row, running, now) }}</span>
@@ -129,9 +132,9 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
       <div v-else-if="row.type === 'ask'" class="row">
         <span class="who ask">Asked</span>
         <div v-if="row.ask" class="ask-open">
-          <AskPanel :ask-id="row.ask.id" :tool-name="row.name" :input="row.input" :rules="row.ask.rules" :reason="row.reason" :worktree="worktree" />
+          <AskPanel :ask-id="row.ask.id" :tool-name="row.name" :input="row.input" :rules="row.ask.rules" :reason="row.reason" :worktree="worktree" :repo="repo" />
         </div>
-        <div v-else class="tool">
+        <div v-else class="call">
           <button class="tool-head" type="button" @click="toggle(row.id)">
             <span class="dim">{{ open.has(row.id) ? "▾" : "▸" }} {{ row.name }}</span>
             <span class="summary">{{ row.summary }}</span>
@@ -165,12 +168,12 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--ink-3);
+  color: var(--fg-3);
 }
-.who.agent { color: var(--blue); }
-.who.ask { color: var(--amber); }
+.who.agent { color: var(--primary); }
+.who.ask { color: var(--attn); }
 .pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-.dim { color: var(--ink-3); }
+.dim { color: var(--fg-3); }
 .bubble {
   flex: 1;
   min-width: 0;
@@ -179,10 +182,10 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
   border-radius: 8px;
   padding: 12px 14px;
   line-height: 1.5;
-  color: var(--ink-2);
+  color: var(--fg-2);
 }
 .text { flex: 1; min-width: 0; line-height: 1.55; }
-.text.live { color: var(--ink-2); }
+.text.live { color: var(--fg-2); }
 /* The cursor sits after the last block the stream has written so far. */
 .text.live :deep(> :last-child)::after {
   content: "";
@@ -190,14 +193,14 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
   width: 8px;
   height: 14px;
   margin-left: 2px;
-  background: var(--blue);
+  background: var(--primary);
   vertical-align: text-bottom;
 }
-.link { border: 0; background: none; padding: 0; margin-left: 6px; font: inherit; font-size: 13px; color: var(--blue); cursor: pointer; }
+.link { border: 0; background: none; padding: 0; margin-left: 6px; font: inherit; font-size: 13px; color: var(--primary); cursor: pointer; }
 .thinking { flex: 1; min-width: 0; }
-.thinking .link { margin-left: 0; color: var(--ink-3); }
+.thinking .link { margin-left: 0; color: var(--fg-3); }
 .thinking p { margin: 6px 0 0; font-size: 13px; line-height: 1.5; }
-.tool {
+.call {
   flex: 1;
   min-width: 0;
   border: 1px solid var(--border);
@@ -207,8 +210,24 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
   font-family: var(--mono);
   font-size: 12px;
 }
-.tool.running { border-color: var(--blue); }
-.tool.failed { border-color: var(--danger); }
+.call.running { border-color: var(--primary-ring); }
+/* Steps follow each other closely; text and turns keep their distance. */
+.step-row + .step-row { margin-top: -10px; }
+.group {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.group.running { border-color: var(--primary-ring); }
+.group > .tool-head:hover { background: var(--muted); }
+.group-steps { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 4px 14px; border-top: 1px solid var(--border); }
+.note.bad { color: var(--danger); }
+.call.failed { border-color: var(--danger); }
 .tool-head {
   display: flex;
   align-items: center;
@@ -218,41 +237,40 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
   border: 0;
   background: none;
   font: inherit;
-  color: var(--ink-2);
+  color: var(--fg-2);
   text-align: left;
   cursor: pointer;
 }
 .tool-head:disabled { cursor: default; }
 .summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .note { margin-left: auto; flex: none; padding-left: 8px; }
-.body, .diff {
+.body {
   margin: 0;
   padding: 8px 12px;
-  border-top: 1px solid var(--border-soft);
+  border-top: 1px solid var(--border);
   max-height: 360px;
   overflow: auto;
   line-height: 1.6;
   white-space: pre;
 }
-.body.result { color: var(--ink-2); }
-.diff { padding: 8px 0; }
-.tool.sub { font-family: inherit; font-size: 13px; }
-.tool.sub > .tool-head { font-family: var(--mono); font-size: 12px; }
-.children { padding: 10px 12px 12px; border-top: 1px solid var(--border-soft); }
+.body.result { color: var(--fg-2); }
+.call.sub { font-family: inherit; font-size: 13px; border-style: dashed; }
+.call.sub > .tool-head { font-family: var(--mono); font-size: 12px; }
+.children { padding: 10px 12px 12px; border-top: 1px solid var(--border); }
 .children .meta { margin: 0 0 10px; font-size: 12px; }
 .report { white-space: normal; font-family: inherit; font-size: 13px; }
 .ask-open {
   flex: 1;
   min-width: 0;
   padding: 12px 14px;
-  border: 1px solid var(--amber);
+  border: 1px solid var(--attn);
   border-radius: 8px;
   background: var(--card);
   font-size: 13px;
 }
-.ask-input { padding: 8px 12px; border-top: 1px solid var(--border-soft); }
+.ask-input { padding: 8px 12px; border-top: 1px solid var(--border); }
 .outcome.denied { color: var(--danger); }
-.outcome.allowed, .outcome.allowed_run, .outcome.expired { color: var(--ink-3); }
-.turn { font-size: 12px; color: var(--ink-3); }
+.outcome.allowed, .outcome.allowed_run, .outcome.expired { color: var(--fg-3); }
+.turn { font-size: 12px; color: var(--fg-3); }
 .turn.failed { color: var(--danger); }
 </style>

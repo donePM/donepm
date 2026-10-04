@@ -48,6 +48,26 @@ describe("claudeArgv", () => {
 
   it("never passes --strict-mcp-config", () => {
     expect(claudeArgv({ playbook, mcpConfigPath: "/x" })).not.toContain("--strict-mcp-config");
+    expect(claudeArgv({ playbook: { ...playbook, readOnly: true }, mcpConfigPath: "/x" })).not.toContain("--strict-mcp-config");
+  });
+
+  it("locks a read-only playbook to reading (D42)", () => {
+    const args = claudeArgv({ playbook: { model: "opus", permissionMode: "default", readOnly: true }, home: "/Users/x" });
+    expect(args.slice(args.indexOf("--permission-mode"), args.indexOf("--permission-mode") + 2)).toEqual(["--permission-mode", "default"]);
+    const settings = JSON.parse(args[args.indexOf("--settings") + 1]!);
+    expect(settings.permissions).toEqual({
+      allow: ["mcp__donepm", "Bash(git diff *)", "Bash(git log *)", "Bash(git show *)"],
+      deny: [
+        "Bash(gh *)", "Bash(glab *)", "Bash(jira *)", "Bash(git push*)",
+        "Edit", "Write", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch",
+      ],
+    });
+    expect(settings.sandbox).toMatchObject({ enabled: true, autoAllowBashIfSandboxed: false, allowUnsandboxedCommands: false });
+    expect(args.slice(args.indexOf("--setting-sources"), args.indexOf("--setting-sources") + 2)).toEqual(["--setting-sources", "user"]);
+  });
+
+  it("loads every setting source for a playbook that is not read-only", () => {
+    expect(claudeArgv({ playbook })).not.toContain("--setting-sources");
   });
 });
 
@@ -91,5 +111,12 @@ describe("stdin lines", () => {
     expect(JSON.parse(askAnswerLine("r1", { behavior: "deny", message: "no" })).response.response).toEqual({
       behavior: "deny", message: "no",
     });
+  });
+
+  it("adds interrupt to a deny only when asked", () => {
+    expect(JSON.parse(askAnswerLine("r1", { behavior: "deny", message: "no", interrupt: true })).response.response).toEqual({
+      behavior: "deny", message: "no", interrupt: true,
+    });
+    expect(JSON.parse(askAnswerLine("r1", { behavior: "deny", message: "no", interrupt: false })).response.response).not.toHaveProperty("interrupt");
   });
 });

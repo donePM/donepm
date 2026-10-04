@@ -11,7 +11,7 @@ describe("database", () => {
   it("migrates an empty database to the latest version", () => {
     const db = openDb(":memory:");
     expect(schemaVersion(db)).toBe(MIGRATIONS.length);
-    expect(tables(db)).toEqual(["asks", "drafts", "events", "items", "repos", "transcript"]);
+    expect(tables(db)).toEqual(["asks", "drafts", "events", "items", "permission_grants", "repos", "tombstones", "transcript"]);
   });
 
   it("is idempotent", () => {
@@ -42,10 +42,39 @@ describe("database", () => {
 
   it("keeps events append-only", () => {
     const db = openDb(":memory:");
-    db.exec(`INSERT INTO items VALUES ('i','github-issue','o/r#1','u','github.com/o/r',NULL,'t','b','[]','ready','implement',0,NULL,NULL,NULL,0,'a','a',NULL,NULL,'a')`);
+    db.exec(`INSERT INTO items VALUES ('i','github-issue','o/r#1','u','github.com/o/r',NULL,'t','b','[]','ready','implement',0,NULL,NULL,NULL,0,'a','a',NULL,NULL,'a',NULL,NULL,NULL,NULL,NULL)`);
     db.exec(`INSERT INTO events (id,item_id,at,actor,type,payload) VALUES ('e','i','a','system','item.collected','{}')`);
     expect(() => db.exec("UPDATE events SET type = 'x'")).toThrow(/append-only/);
     expect(() => db.exec("DELETE FROM events")).toThrow(/append-only/);
+  });
+
+  it("lets only the events of an archived item be deleted (D37)", () => {
+    const db = openDb(":memory:");
+    db.exec(`INSERT INTO items VALUES ('i','github-issue','o/r#1','u','github.com/o/r',NULL,'t','b','[]','done','implement',0,NULL,NULL,NULL,0,'a','a',NULL,NULL,'a','2026-10-01',NULL,NULL,NULL,NULL)`);
+    db.exec(`INSERT INTO events (id,item_id,at,actor,type,payload) VALUES ('e','i','a','system','item.collected','{}')`);
+    expect(() => db.exec("UPDATE events SET type = 'x'")).toThrow(/append-only/);
+    db.exec("DELETE FROM events WHERE item_id = 'i'");
+    expect(db.prepare("SELECT count(*) AS n FROM events").get()).toEqual({ n: 0 });
+  });
+
+  it("keeps external_id unique among live items only (migration 6)", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec("PRAGMA foreign_keys = ON");
+    migrate(db, MIGRATIONS.slice(0, 4));
+    db.exec(`INSERT INTO items VALUES ('old','github-issue','o/r#1','u','github.com/o/r',NULL,'t','b','[]','done','implement',2,NULL,NULL,NULL,1,'a','a',NULL,NULL,'s')`);
+    db.exec(`INSERT INTO events (id,item_id,at,actor,type,payload) VALUES ('e','old','a','system','item.collected','{}')`);
+    migrate(db);
+    expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
+    expect(db.prepare("SELECT id, closed_upstream, state_since, archived_at FROM items").all()).toEqual([
+      { id: "old", closed_upstream: 1, state_since: "s", archived_at: null },
+    ]);
+    const live = (id: string) =>
+      db.exec(`INSERT INTO items VALUES ('${id}','github-issue','o/r#1','u','github.com/o/r',NULL,'t','b','[]','ready','implement',2,NULL,NULL,NULL,0,'a','a',NULL,NULL,'s',NULL,NULL,NULL,NULL,NULL)`);
+    expect(() => live("new")).toThrow(/UNIQUE/);
+    db.exec("UPDATE items SET archived_at = 'z' WHERE id = 'old'");
+    live("new");
+    expect(() => live("third")).toThrow(/UNIQUE/);
+    expect(() => db.exec(`INSERT INTO events (id,item_id,at,actor,type,payload) VALUES ('x','missing','a','system','t','{}')`)).toThrow(/FOREIGN KEY/);
   });
 
   it("backfills the sort keys from the events (migration 3)", () => {

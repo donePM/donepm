@@ -1,5 +1,8 @@
 import { join } from "node:path";
-import { BLOCKED_COMMANDS, DENY_RULES, isRuleOfferable, type PermissionRule, type Playbook } from "@donepm/core";
+import {
+  BLOCKED_COMMANDS, DENY_RULES, isRuleOfferable, READ_ONLY_ALLOW_RULES, READ_ONLY_DENY_RULES,
+  type PermissionRule, type Playbook,
+} from "@donepm/core";
 
 // One source for the deny list: core's `isRuleOfferable` checks grants against the same commands.
 export { BLOCKED_COMMANDS, DENY_RULES };
@@ -14,10 +17,11 @@ export const ALLOW_RULES = ["mcp__donepm"] as const;
  * like any other: nothing leaves the machine without them. There is no allowlist on purpose: a
  * package registry also takes `npm publish`. No way out of the sandbox for the model.
  */
-export function sandboxSettings(home: string | undefined) {
+export function sandboxSettings(home: string | undefined, readOnly = false) {
   return {
     enabled: true,
-    autoAllowBashIfSandboxed: true,
+    // A read-only agent (D42) works on code nobody vetted: a sandboxed command still asks.
+    autoAllowBashIfSandboxed: !readOnly,
     allowUnsandboxedCommands: false,
     // Writes outside the worktree fail inside the sandbox; build tools keep their caches here.
     ...(home ? { filesystem: { allowWrite: CACHE_DIRS.map((d) => join(home, d)) } } : {}),
@@ -27,7 +31,7 @@ export function sandboxSettings(home: string | undefined) {
 const CACHE_DIRS = ["Library/Caches", ".cache", ".npm"] as const;
 
 export interface ArgvInput {
-  playbook: Pick<Playbook, "model" | "effort" | "permissionMode">;
+  playbook: Pick<Playbook, "model" | "effort" | "permissionMode" | "readOnly">;
   /** Per-session MCP config file (mode 0600), never inline JSON: argv is visible in `ps`. */
   mcpConfigPath?: string;
   resumeSessionId?: string;
@@ -50,8 +54,16 @@ export function claudeArgv(input: ArgvInput): string[] {
     "--model", playbook.model,
   ];
   if (playbook.effort) args.push("--effort", playbook.effort);
+  const readOnly = playbook.readOnly === true;
+  const permissions = readOnly
+    ? { allow: [...ALLOW_RULES, ...READ_ONLY_ALLOW_RULES], deny: [...DENY_RULES, ...READ_ONLY_DENY_RULES] }
+    : { allow: ALLOW_RULES, deny: DENY_RULES };
   // One object: --settings does not accumulate.
-  args.push("--settings", JSON.stringify({ permissions: { allow: ALLOW_RULES, deny: DENY_RULES }, sandbox: sandboxSettings(input.home) }));
+  args.push("--settings", JSON.stringify({ permissions, sandbox: sandboxSettings(input.home, readOnly) }));
+  // A read-only agent reviews someone else's code (D42): the worktree's `.claude/settings.json` and
+  // `settings.local.json` (hooks, allow rules, enabled `.mcp.json` servers) come from that code, so
+  // only the user's own settings load. No `--strict-mcp-config`: the user's MCP servers stay (spec 9.1).
+  if (readOnly) args.push("--setting-sources", "user");
   if (input.mcpConfigPath) args.push("--mcp-config", input.mcpConfigPath);
   if (input.resumeSessionId) args.push("--resume", input.resumeSessionId);
   return args;
@@ -73,7 +85,7 @@ export function askAnswerLine(
   requestId: string,
   answer:
     | { behavior: "allow"; input: unknown; rules?: readonly PermissionRule[] }
-    | { behavior: "deny"; message: string },
+    | { behavior: "deny"; message: string; interrupt?: boolean },
 ): string {
   let response: Record<string, unknown>;
   if (answer.behavior === "allow") {
@@ -84,7 +96,7 @@ export function askAnswerLine(
       response.updatedPermissions = [{ type: "addRules", rules: answer.rules, behavior: "allow", destination: "session" }];
     }
   } else {
-    response = { behavior: "deny", message: answer.message };
+    response = { behavior: "deny", message: answer.message, ...(answer.interrupt ? { interrupt: true } : {}) };
   }
   return JSON.stringify({ type: "control_response", response: { request_id: requestId, subtype: "success", response } });
 }

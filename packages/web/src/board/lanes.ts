@@ -61,3 +61,21 @@ export function stableOrder(lanes: readonly Lane[], previousKeys: readonly strin
   const out = [...known, ...added];
   return [...out.filter((l) => l.key !== NO_CLONE_KEY), ...out.filter((l) => l.key === NO_CLONE_KEY)];
 }
+
+const SUMMARY_WORDS: Record<ColumnKey, string> = { ready: "ready", in_progress: "in progress", needs_you: "need you", done: "done" };
+
+/** A lane's header: "6 items" when open, what is in it when collapsed: "4 ready · 1 need you". */
+export function laneSummary(lane: Lane, collapsed: boolean): string {
+  const total = COLUMNS.reduce((n, c) => n + lane.counts[c.key], 0);
+  if (!collapsed) return `${total} ${total === 1 ? "item" : "items"}`;
+  return COLUMNS.filter((c) => lane.counts[c.key] > 0)
+    .map((c) => `${lane.counts[c.key]} ${c.key === "needs_you" && lane.counts[c.key] === 1 ? "needs you" : SUMMARY_WORDS[c.key]}`)
+    .join(" · ");
+}
+
+/** Open Dependabot pull requests in a lane; a collapsed lane names them in a badge. */
+export function dependabotCount(lane: Lane): number {
+  return COLUMNS.filter((c) => c.key !== "done")
+    .flatMap((c) => lane.columns[c.key])
+    .filter((i) => i.source === "github-pr" && i.author?.replace(/\[bot\]$/, "") === "dependabot").length;
+}

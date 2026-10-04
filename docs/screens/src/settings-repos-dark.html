@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>donePM Settings Repositories</title>
+
+<link rel="stylesheet" href="./ui.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div class="app dark" style="min-height: 940px">
+
+  <header class="top">
+    <a class="brand" href="board-dark.html"><span class="disc"></span>donePM</a>
+    <nav class="nav" aria-label="Main">
+      <a href="board-dark.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M9 3v18M15 3v18"></path></svg>Board</a>
+      <a href="agents-dark.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"></path><rect x="4" y="8" width="16" height="12" rx="2"></rect><path d="M2 14h2M20 14h2M15 13v2M9 13v2"></path></svg>Agents <span class="badge primary">2</span></a>
+      <a class="on" href="settings-repos-dark.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path><circle cx="8" cy="6" r="2" fill="currentColor"></circle><circle cx="16" cy="12" r="2" fill="currentColor"></circle><circle cx="10" cy="18" r="2" fill="currentColor"></circle></svg>Settings</a>
+    </nav>
+    <div class="right">
+      <a href="board-dark.html" class="pill pill-attn" style="text-decoration: none"><svg class="ic-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4M12 16h.01"></path></svg>3 need you</a>
+      <span class="row" style="gap: 6px"><span class="dot ok"></span>all systems working</span>
+      <button class="iconbtn" aria-label="Switch to light theme"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg></button>
+    </div>
+  </header>
+
+  <main class="settings">
+    <nav class="snav" aria-label="Settings">
+      <div class="grp">Workspace</div>
+      <a href="settings-repos-dark.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>General</a>
+      <a class="on" href="settings-repos-dark.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v12"></path><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>Repositories <span class="badge muted" style="margin-left: auto">4</span></a>
+      <div class="grp">Agents</div>
+      <a href="Settingsagents-dark.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>Agents &amp; access</a>
+      <a href="Settingsagents-dark.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5z"></path></svg>Playbooks</a>
+      <div class="grp">System</div>
+      <a href="Settingsagents-dark.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 17 6-6-6-6M12 19h8"></path></svg>Tools <span class="dot ok" style="margin-left: auto"></span></a>
+      <a href="Settingsagents-dark.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="20" height="8" rx="2"></rect><rect x="2" y="14" width="20" height="8" rx="2"></rect><path d="M6 6h.01M6 18h.01"></path></svg>Daemon</a>
+    </nav>
+
+    <div class="content">
+      <div>
+        <h1>Repositories</h1>
+        <p class="lead">Found under <span class="mono">~/Code</span>, depth 4 · scanned 2 min ago. Items come from each repository's own query; ignored repositories stay off the board.</p>
+      </div>
+
+      <section class="card">
+        <div class="row" style="padding: 12px 14px; border-bottom: 1px solid var(--border)">
+          <label class="sr" for="q">Filter repositories</label>
+          <input id="q" class="input" placeholder="Filter…" style="max-width: 260px">
+          <label class="check" style="font-size: 13px; color: var(--fg-2)"><input type="checkbox"> Show ignored (1)</label>
+          <button class="btn sm" style="margin-left: auto"><svg class="ic-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"></path></svg>Rescan</button>
+        </div>
+        <div style="overflow-x: auto">
+          <table class="tbl" style="min-width: 760px">
+            <thead><tr><th>Repository</th><th>Base</th><th>Source query</th><th>Options</th><th>Worktrees</th><th></th></tr></thead>
+            <tbody>
+              <tr>
+                <td><div style="font-weight: 500">rokde/laravel-pergament</div><div class="mono" style="color: var(--fg-3)">~/Code/oss/laravel-pergament</div></td>
+                <td class="mono">main</td>
+                <td><span class="mono">assignee:@me is:open</span><div class="sub">last poll ok · 4 issues</div></td>
+                <td><div class="row" style="gap: 4px"><span class="badge">assigns on start</span><span class="badge ok">setup.yml</span></div></td>
+                <td>2</td>
+                <td><button class="btn sm ghost">Edit</button></td>
+              </tr>
+              <tr style="background: var(--muted)">
+                <td colspan="6" style="padding: 16px 14px">
+                  <div style="display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 18px; align-items: start">
+                    <div style="display: flex; flex-direction: column; gap: 12px">
+                      <div class="field">
+                        <label for="query">GitHub search query</label>
+                        <div class="row" style="flex-wrap: nowrap"><input id="query" class="input mono" value="assignee:@me is:open label:agent-ready"><button class="btn sm">Test</button></div>
+                        <span class="help">Leave empty for <span class="mono">assignee:@me is:open</span>. Test: <span style="color: var(--ok)">3 issues match</span>.</span>
+                      </div>
+                      <div class="field">
+                        <label for="pb-default">Default playbook</label>
+                        <select id="pb-default" class="select" style="max-width: 320px"><option>implement · opus (global)</option><option>dependency-update · sonnet</option></select>
+                      </div>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 12px">
+                      <label class="switch"><input type="checkbox" checked><span>Assign the issue to me when an agent starts</span></label>
+                      <label class="switch"><input type="checkbox"><span>Ignore this repository</span></label>
+                      <label class="switch"><input type="checkbox" checked><span>Collect Dependabot PRs</span></label>
+                      <div class="row" style="gap: 8px; margin-top: 4px"><button class="btn sm primary">Save</button><button class="btn sm ghost">Cancel</button></div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td><div style="font-weight: 500">rokde/beacon</div><div class="mono" style="color: var(--fg-3)">~/Code/oss/beacon</div></td>
+                <td class="mono">main</td>
+                <td><span class="sub">assigned to you</span></td>
+                <td><span class="sub">—</span></td>
+                <td>1</td>
+                <td><button class="btn sm ghost">Edit</button></td>
+              </tr>
+              <tr>
+                <td><div style="font-weight: 500">donePM/donepm</div><div class="mono" style="color: var(--fg-3)">~/Code/products/donepm</div></td>
+                <td class="mono">main</td>
+                <td><span class="mono">assignee:@me is:open</span><div class="sub" style="color: var(--danger)">query failed · rate limit, retry in 40 s</div></td>
+                <td><div class="row" style="gap: 4px"><span class="badge">assigns on start</span><span class="badge ok">setup.yml</span><span class="badge">dependabot</span></div></td>
+                <td>0</td>
+                <td><button class="btn sm ghost">Edit</button></td>
+              </tr>
+              <tr class="off">
+                <td><div style="font-weight: 500">rokde/clonio</div><div class="mono">~/Code/products/clonio</div></td>
+                <td class="mono">main</td>
+                <td>—</td>
+                <td><span class="badge muted">ignored</span></td>
+                <td>0</td>
+                <td><button class="btn sm ghost">Edit</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="row" style="justify-content: space-between">
+          <h2><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4M12 16h.01"></path></svg>Worktrees without an item</h2>
+          <span class="sub">under <span class="mono">~/.local/share/donepm/worktrees</span></span>
+        </div>
+        <div class="status-row warn">
+          <div class="w"><div class="h"><span class="mono" style="font-size: 13px">laravel-pergament/dp-37-old-branch</span><span class="badge muted">2.1 GB</span></div><div class="d">Branch <span class="mono">dp/37-old-branch</span> · last commit 9 days ago · no item refers to it</div></div>
+          <button class="btn sm"><svg class="ic-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"></path></svg>Remove</button>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"dark"},"$preview":{"width":1360,"height":940}}'>
+class Component extends DCLogic {
+  renderVals() { return { theme: this.props.theme ?? 'dark' }; }
+}
+</script>
+</body>
+</html>

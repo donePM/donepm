@@ -1,0 +1,51 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "author": {
+          "login": "ValentinYoushkevich"
+        },
+        "reviews": {
+          "nodes": []
+        },
+        "comments": {
+          "nodes": [
+            {
+              "id": "IC_kwDOCCum188AAAABYnNawg",
+              "databaseId": 5946694338,
+              "body": "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n<!-- This is an auto-generated comment: skip review by coderabbit.ai -->\n\n> [!IMPORTANT]\n> ## Review skipped\n> \n> Auto reviews are disabled on base/target branches other than the default branch.\n> \n> \n> \n> Please check the settings in the CodeRabbit UI or the `.coderabbit.yaml` file in this repository. To trigger a single review, invoke the `@coderabbitai review` command.\n> \n> <details>\n> <summary>⚙️ Run configuration</summary>\n> \n> **Configuration used**: defaults\n> \n> **Review profile**: CHILL\n> \n> **Plan**: Advanced\n> \n> **Run ID**: `77ef7bbe-e554-43df-90dd-b84bc757c817`\n> \n> </details>\n> \n> You can disable this status message by setting the `reviews.review_status` to `false` in the CodeRabbit configuration file.\n> \n> Use the checkbox below for a quick retry:\n> - [ ] <!-- {\"checkboxId\":\"e9bb8d72-00e8-4f67-9cb2-caf3b22574fe\"} --> 🔍 Trigger review\n\n<!-- end of auto-generated comment: skip review by coderabbit.ai -->\n\n<!-- autopilot:start -->\n- [ ] <!-- {\"checkboxId\":\"2708ad07-9f24-4260-9c11-7dc76a49f2e3\"} --> <strong title=\"Keep fixing CodeRabbit findings and required CI, and resolving merge conflicts\">Autopilot</strong> · Keep fixing CodeRabbit findings and required CI, and resolving merge conflicts\n\n> Autopilot is currently an internal CodeRabbit preview.\n<!-- autopilot:end -->\n<!-- tips_start -->\n\n---\n\nThanks for using [CodeRabbit](https://coderabbit.ai?utm_source=oss&utm_medium=github&utm_campaign=vuejs/core&utm_content=15751)! It's free for OSS, and your support helps us grow. If you like it, consider giving us a shout-out.\n\n<details>\n<summary>❤️ Share</summary>\n\n- [X](https://twitter.com/intent/tweet?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A&url=https%3A//coderabbit.ai)\n- [Mastodon](https://mastodon.social/share?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A%20https%3A%2F%2Fcoderabbit.ai)\n- [Reddit](https://www.reddit.com/submit?title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&text=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code.%20Check%20it%20out%3A%20https%3A//coderabbit.ai)\n- [LinkedIn](https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fcoderabbit.ai&mini=true&title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&summary=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code)\n\n</details>\n\n\n<sub>Comment `@coderabbitai help` to get the list of available commands.</sub>\n\n<!-- tips_end -->",
+              "createdAt": "2026-10-02T06:24:52Z",
+              "url": "https://github.com/vuejs/core/pull/15751#issuecomment-5946694338",
+              "author": {
+                "login": "coderabbitai",
+                "__typename": "Bot"
+              }
+            },
+            {
+              "id": "IC_kwDOCCum188AAAABYnNtqQ",
+              "databaseId": 5946699177,
+              "body": "\n[Open in StackBlitz](https://pkg.pr.new/template/ed74a570-85b4-4ed8-b4c4-28a98ad37320)\n\n\n<details><summary><b>@vue/compiler-core</b></summary><p>\n\n  ```\n  pnpm add https://pkg.pr.new/@vue/compiler-core@15751\n  ```\n  \n\n  ```\n  npm i https://pkg.pr.new/@vue/compiler-core@15751\n  ```\n  \n\n  ```\n  yarn add https://pkg.pr.new/@vue/compiler-core@15751.tgz\n  ```\n  \n</p></details>\n      \n    \n\n<details><summary><b>@vue/compiler-dom</b></summary><p>\n\n  ```\n  pnpm add https://pkg.pr.new/@vue/compiler-dom@15751\n  ```\n  \n\n  ```\n  npm i https://pkg.pr.new/@vue/compiler-dom@15751\n  ```\n  \n\n  ```\n  yarn add https://pkg.pr.new/@vue/compiler-dom@15751.tgz\n  ```\n  \n</p></details>\n      \n    \n\n<details><summary><b>@vue/compiler-sfc</b></summary><p>\n\n  ```\n  pnpm add https://pkg.pr.new/@vue/compiler-sfc@15751\n  ```\n  \n\n  ```\n  npm i https://pkg.pr.new/@vue/compiler-sfc@15751\n  ```\n  \n\n  ```\n  yarn add https://pkg.pr.new/@vue/compiler-sfc@15751.tgz\n  ```\n  \n</p></details>\n      \n    \n\n<details><summary><b>@vue/compiler-ssr</b></summary><p>\n\n  ```\n  pnpm add https://pkg.pr.new/@vue/compiler-ssr@15751\n  ```\n  \n\n  ```\n  npm i https://pkg.pr.new/@vue/compiler-ssr@15751\n  ```\n  \n\n  ```\n  yarn add https://pkg.pr.new/@vue/compiler-ssr@15751.tgz\n  ```\n  \n</p></details>\n      \n    \n\n<details><summary><b>@vue/compiler-vapor</b></summary><p>\n\n  ```\n  pnpm add https://pkg.pr.new/@vue/compiler-vapor@15751\n  ```\n  \n\n  ```\n  npm i https://pkg.pr.new/@vue/compiler-vapor@15751\n  ```\n  \n\n  ```\n  yarn add https://pkg.pr.new/@vue/compiler-vapor@15751.tgz\n  ```\n  \n</p></details>\n      \n    \n\n<details><summary><b>@vue/reactivity</b></summary><p>\n\n  ```\n  pnpm add https://pkg.pr.new/@vue/reactivity@15751\n  ```\n  \n\n  ```\n  npm i https://pkg.pr.new/@vue/reactivity@15751\n  ```\n  \n\n  ```\n  yarn add https://pkg.pr.new/@vue/reactivity@15751.tgz\n  ```\n  \n</p></details>\n      \n    \n\n<details><summary><b>@vue/runtime-core</b></summary><p>\n\n  ```\n  pnpm add https://pkg.pr.new/@vue/runtime-core@15751\n  ```\n  \n\n  ```\n  npm i https://pkg.pr.new/@vue/runtime-core@15751\n  ```\n  \n\n  ```\n  yarn add https://pkg.pr.new/@vue/runtime-core@15751.tgz\n  ```\n  \n</p></details>\n      \n    \n\n<details><summary><b>@vue/runtime-dom</b></summary><p>\n\n  ```\n  pnpm add https://pkg.pr.new/@vue/runtime-dom@15751\n  ```\n  \n\n  ```\n  npm i https://pkg.pr.new/@vue/runtime-dom@15751\n  ```\n  \n\n  ```\n  yarn add https://pkg.pr.new/@vue/runtime-dom@15751.tgz\n  ```\n  \n</p></details>\n      \n    \n\n<details><summary><b>@vue/runtime-vapor</b></summary><p>\n\n  ```\n  pnpm add https://pkg.pr.new/@vue/runtime-vapor@15751\n  ```\n  \n\n  ```\n  npm i https://pkg.pr.new/@vue/runtime-vapor@15751\n  ```\n  \n\n  ```\n  yarn add https://pkg.pr.new/@vue/runtime-vapor@15751.tgz\n  ```\n  \n</p></details>\n      \n    \n\n<details><summary><b>@vue/server-renderer</b></summary><p>\n\n  ```\n  pnpm add https://pkg.pr.new/@vue/server-renderer@15751\n  ```\n  \n\n  ```\n  npm i https://pkg.pr.new/@vue/server-renderer@15751\n  ```\n  \n\n  ```\n  yarn add https://pkg.pr.new/@vue/server-renderer@15751.tgz\n  ```\n  \n</p></details>\n      \n    \n\n<details><summary><b>@vue/shared</b></summary><p>\n\n  ```\n  pnpm add https://pkg.pr.new/@vue/shared@15751\n  ```\n  \n\n  ```\n  npm i https://pkg.pr.new/@vue/shared@15751\n  ```\n  \n\n  ```\n  yarn add https://pkg.pr.new/@vue/shared@15751.tgz\n  ```\n  \n</p></details>\n      \n    \n\n<details><summary><b>vue</b></summary><p>\n\n  ```\n  pnpm add https://pkg.pr.new/vue@15751\n  ```\n  \n\n  ```\n  npm i https://pkg.pr.new/vue@15751\n  ```\n  \n\n  ```\n  yarn add https://pkg.pr.new/vue@15751.tgz\n  ```\n  \n</p></details>\n      \n    \n\n<details><summary><b>@vue/compat</b></summary><p>\n\n  ```\n  pnpm add https://pkg.pr.new/@vue/compat@15751\n  ```\n  \n\n  ```\n  npm i https://pkg.pr.new/@vue/compat@15751\n  ```\n  \n\n  ```\n  yarn add https://pkg.pr.new/@vue/compat@15751.tgz\n  ```\n  \n</p></details>\n      \n    \n\n_commit: <a href=\"https://github.com/vuejs/core/runs/110826546205\"><code>2cc068b</code></a>_\n",
+              "createdAt": "2026-10-02T06:25:21Z",
+              "url": "https://github.com/vuejs/core/pull/15751#issuecomment-5946699177",
+              "author": {
+                "login": "pkg-pr-new",
+                "__typename": "Bot"
+              }
+            },
+            {
+              "id": "IC_kwDOCCum188AAAABYnOK7w",
+              "databaseId": 5946706671,
+              "body": "## Size Report\n\n### Bundles\n\n| File                        | Size    | Gzip    | Brotli  |\n| --------------------------- | ------- | ------- | ------- |\n| compiler-dom.global.prod.js | 87.2 kB | 30.6 kB | 26.9 kB |\n| runtime-dom.global.prod.js  | 117 kB  | 43.9 kB | 39.3 kB |\n| vue.global.prod.js          | 177 kB  | 64 kB   | 57 kB   |\n\n\n### Usages\n\n| Name                           | Size    | Gzip    | Brotli  |\n| ------------------------------ | ------- | ------- | ------- |\n| createApp (CAPI only)          | 53.2 kB | 20.7 kB | 18.9 kB |\n| createApp                      | 62 kB   | 23.9 kB | 21.8 kB |\n| createApp + vaporInteropPlugin | 129 kB  | 46.6 kB | 41.9 kB |\n| createVaporApp                 | 34.1 kB | 13.1 kB | 12 kB   |\n| createSSRApp                   | 67 kB   | 26 kB   | 23.6 kB |\n| createVaporSSRApp              | 40.8 kB | 15.5 kB | 14.2 kB |\n| defineCustomElement            | 68.5 kB | 25.9 kB | 23.6 kB |\n| defineVaporCustomElement       | 48.6 kB | 17.7 kB | 16.3 kB |\n| overall                        | 77.5 kB | 29.5 kB | 26.7 kB |\n\n\n<!-- VUE_CORE_SIZE -->\n<!-- VUE_CORE_SIZE -->",
+              "createdAt": "2026-10-02T06:26:06Z",
+              "url": "https://github.com/vuejs/core/pull/15751#issuecomment-5946706671",
+              "author": {
+                "login": "github-actions",
+                "__typename": "Bot"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

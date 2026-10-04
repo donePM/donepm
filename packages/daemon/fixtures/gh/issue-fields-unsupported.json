@@ -1,0 +1,1 @@
+{"errors":[{"path":["query","nodes","... on Issue","issueFieldValues"],"extensions":{"code":"undefinedField","typeName":"Issue","fieldName":"issueFieldValues"},"locations":[{"line":1,"column":70}],"message":"Field 'issueFieldValues' doesn't exist on type 'Issue'"}]}
