@@ -39,6 +39,7 @@ import { attentionOf } from "./items/attention.js";
 import { toItemView, type CurrentTool } from "./items/view.js";
 import type { Exec } from "./process/exec.js";
 import { ensureDefaultPlaybooks } from "./playbooks/load.js";
+import { RepoCloner } from "./repos/clone.js";
 import { discoverRepos } from "./repos/discover.js";
 import { hiddenByIgnore, ignoreChanges, isIgnored } from "./repos/ignore.js";
 import { RepoStore } from "./repos/store.js";
@@ -120,13 +121,16 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const hub = new Hub((req) => guard(req.headers));
 
   const view = (item: WorkItem) => {
+    const repo = item.repoId ? repos.get(item.repoId) : undefined;
+    const origin = repo ? undefined : items.get(item.id)?.originUrl;
+    const clone = origin === undefined ? undefined : cloner.state(origin);
     const itemEvents = events.forItem(item.id);
     const itemDrafts = drafts.forItem(item.id);
     const pr = executedPr(itemDrafts);
     const finished = finishedAt(item, itemEvents, pr !== undefined);
     const v = toItemView(
       item,
-      item.repoId ? repos.get(item.repoId) : undefined,
+      repo,
       {
         ...liveHistory(agentHistory(itemEvents), runner.isRunning(item.id)),
         running: runner.isRunning(item.id),
@@ -142,7 +146,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       }),
       pr ? { ...pr, ...prMergeOf(itemEvents), ...conflictView(prConflictOf(itemEvents)) } : undefined,
     );
-    return finished ? { ...v, finishedAt: finished } : v;
+    return { ...v, ...(finished ? { finishedAt: finished } : {}), ...(clone ? { clone } : {}) };
   };
   /**
    * Issue #33: items of an ignored repository stay off the board unless they still need attention.
@@ -234,6 +238,21 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     return item;
   };
 
+  const cloner = new RepoCloner({
+    exec: opts.exec,
+    repos,
+    ctx: opts.ctx,
+    log: { info: (o, m) => app.log.info(o, m), warn: (o, m) => app.log.warn(o, m), error: (o, m) => app.log.error(o, m) },
+    root: () => expand(config.repoRoot),
+    ignored: (origin) => isIgnored(config.sources, origin),
+    push: (type, payload) => hub.push(type, payload),
+    // Every item of the origin gets the clone, or shows that it is cloning or why it failed.
+    changed: (origin) => {
+      relinkItems({ db, items, repos, ctx: opts.ctx });
+      for (const stored of items.all()) if (stored.originUrl === origin) pushItem(stored.item);
+    },
+  });
+
   const rescan = async () => {
     await discoverRepos({ root: expandHome(config.repoRoot, opts.home), exec: opts.exec, repos, ctx: opts.ctx, log: app.log });
     for (const item of relinkItems({ db, items, repos, ctx: opts.ctx })) pushItem(item);
@@ -296,6 +315,11 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       return { restartRequired: next.port !== prev.port, ...(worktrees ? { worktrees } : {}) };
     },
     rescan,
+    cloneRepo: async (origin) => {
+      const r = await cloner.clone(origin);
+      if (r.result === "started") void r.done.catch((e) => app.log.error({ err: e, origin }, "clone bookkeeping failed"));
+      return r;
+    },
     recheck,
     startItem: async (id) => track(await startItem(startDeps(), id)),
     resumeItem: async (id) => track(await resumeItem(startDeps(), id)),

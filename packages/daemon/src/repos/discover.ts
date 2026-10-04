@@ -1,6 +1,7 @@
 import { normalizeOriginUrl, type Ctx, type Repo } from "@donepm/core";
 import type { Exec } from "../process/exec.js";
 import type { Log } from "../log.js";
+import { cloneableOrigin, cloneTarget, hasGitDir } from "./clone.js";
 import { readDefaultBranch, readOrigin } from "./git.js";
 import { findGitRepos } from "./scan.js";
 import type { RepoStore } from "./store.js";
@@ -15,11 +16,14 @@ export interface DiscoverDeps {
 
 /**
  * Scan `root`, read origin and default branch of every clone, store them, and drop repos that are
- * gone. Clones without an origin cannot be matched to issues and are skipped.
+ * gone. Clones without an origin cannot be matched to issues and are skipped. A stored clone at
+ * `<root>/<owner>/<repo>` of its own origin is kept even where the scan does not look (an owner
+ * named `vendor` or `.x`): donePM cloned it there (issue #37).
  */
 export async function discoverRepos(deps: DiscoverDeps): Promise<Repo[]> {
   const { root, exec, repos, ctx, log } = deps;
-  const paths = await findGitRepos(root);
+  const scanned = await findGitRepos(root);
+  const paths = [...scanned, ...(await clonedOutsideScan(repos, root, scanned))];
   const kept: string[] = [];
   const scannedAt = ctx.now();
 
@@ -44,4 +48,15 @@ export async function discoverRepos(deps: DiscoverDeps): Promise<Repo[]> {
   repos.removeExcept(kept);
   log.info({ root, found: kept.length }, "repo scan done");
   return repos.all();
+}
+
+async function clonedOutsideScan(repos: RepoStore, root: string, scanned: readonly string[]): Promise<string[]> {
+  const seen = new Set(scanned);
+  const found: string[] = [];
+  for (const repo of repos.all()) {
+    const origin = cloneableOrigin(repo.originUrl);
+    if (!origin || seen.has(repo.path) || repo.path !== cloneTarget(root, origin)) continue;
+    if (await hasGitDir(repo.path)) found.push(repo.path);
+  }
+  return found;
 }

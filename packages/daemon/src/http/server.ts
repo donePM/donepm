@@ -24,6 +24,7 @@ import type { EventStore } from "../events/store.js";
 import type { FetchResult } from "../gh/issues.js";
 import type { ItemStore, StoredItem } from "../items/store.js";
 import type { ItemView } from "../items/view.js";
+import { CloneError } from "../repos/clone.js";
 import { isIgnored, withIgnored } from "../repos/ignore.js";
 import type { RepoStore } from "../repos/store.js";
 import type { StatusStore } from "../status/status.js";
@@ -52,6 +53,11 @@ export interface ServerDeps {
   /** Item worktrees under the current root if `next` changes the root; empty otherwise. */
   worktreesAtOldRoot: (next: Config) => WorktreeAtOldRoot[];
   rescan: () => Promise<void>;
+  /**
+   * Throws CloneError. `cloned`: a clone of the origin was at the target and is registered now.
+   * `started`: `gh repo clone` runs; `repo.*` pushes tell how it ends (issue #37).
+   */
+  cloneRepo: (origin: string) => Promise<{ target: string; result: "cloned" | "started" }>;
   /** Detect `gh` and `claude` again ("Check again" in Settings). */
   recheck: () => Promise<void>;
   /** Throws StartError; resolves once the item is `running`, the rest happens in the background. */
@@ -134,6 +140,8 @@ const OpenSchema = z.object({ target: z.enum(["finder", "terminal"]) }).strict()
 export type OpenTarget = z.infer<typeof OpenSchema>["target"];
 
 const RepoPatchSchema = z.object({ ignored: z.boolean() }).strict();
+
+const RepoCloneSchema = z.object({ origin: z.string().min(1) }).strict();
 
 const OrphanRemoveSchema = z.object({ path: z.string().min(1) }).strict();
 
@@ -377,6 +385,18 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.post("/api/repos/rescan", async () => {
     await deps.rescan();
     return repoViews();
+  });
+
+  app.post("/api/repos/clone", async (req, reply) => {
+    const body = RepoCloneSchema.safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "body must be {origin: string}" });
+    try {
+      const { target, result } = await deps.cloneRepo(body.data.origin);
+      return reply.code(result === "started" ? 202 : 200).send({ origin: body.data.origin, path: target, result });
+    } catch (e) {
+      if (e instanceof CloneError) return reply.code(e.status).send({ error: e.message });
+      throw e;
+    }
   });
 
   // The flag belongs to the origin, so every clone of it changes together.
