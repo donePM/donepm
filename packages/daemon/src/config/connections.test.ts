@@ -26,7 +26,7 @@ describe("connections", () => {
   });
 
   it("refuses unknown kinds, bad ids and hosts, unknown fields and tokens", () => {
-    expect(errors([{ id: "j", kind: "jira", host: "acme.atlassian.net" }])).toHaveLength(1);
+    expect(errors([{ id: "g", kind: "gitlab", host: "gitlab.com" }])).toHaveLength(1);
     expect(errors([{ id: "Acme Corp", kind: "github", host: "github.com" }])[0]).toMatch(/^0.id/);
     expect(errors([{ id: "a", kind: "github", host: "https://github.com/" }])[0]).toMatch(/^0.host/);
     expect(errors([{ id: "a", kind: "github", host: "github.com", token: "x" }])[0]).toMatch(/token/);
@@ -44,5 +44,39 @@ describe("connections", () => {
   it("finds the connection by an origin's host", () => {
     expect(connectionFor(DEFAULT_CONNECTIONS, "github.com/acme/widgets")?.id).toBe("github");
     expect(connectionFor(DEFAULT_CONNECTIONS, "gitlab.com/acme/widgets")).toBeUndefined();
+  });
+
+  it("takes a Jira Cloud connection over the API, with the account's email", () => {
+    const r = parse([{ id: "jira", kind: "jira", baseUrl: "https://acme.atlassian.net/", deployment: "cloud", email: "dev@acme.test" }]);
+    expect(r.success && r.data).toEqual([{ id: "jira", kind: "jira", backend: "api", baseUrl: "https://acme.atlassian.net", deployment: "cloud", email: "dev@acme.test" }]);
+  });
+
+  it("takes a Jira Data Center connection with a context path and no email", () => {
+    const r = parse([{ id: "jira", kind: "jira", baseUrl: "https://Jira.Acme.com/jira/", deployment: "datacenter" }]);
+    expect(r.success && r.data).toEqual([{ id: "jira", kind: "jira", backend: "api", baseUrl: "https://jira.acme.com/jira", deployment: "datacenter" }]);
+  });
+
+  it("refuses a Jira connection without base URL, deployment, Cloud email, or over http or cli", () => {
+    expect(errors([{ id: "jira", kind: "jira", deployment: "datacenter" }])[0]).toMatch(/^0.baseUrl/);
+    expect(errors([{ id: "jira", kind: "jira", baseUrl: "https://acme.atlassian.net" }])[0]).toMatch(/^0.deployment/);
+    expect(errors([{ id: "jira", kind: "jira", baseUrl: "https://acme.atlassian.net", deployment: "cloud" }])).toEqual([
+      "0.email: Jira Cloud needs the email of the account the API token belongs to",
+    ]);
+    expect(errors([{ id: "jira", kind: "jira", baseUrl: "http://jira.acme.com", deployment: "datacenter" }])[0]).toMatch(/^0.baseUrl/);
+    expect(errors([{ id: "jira", kind: "jira", baseUrl: "https://jira.acme.com?x=1", deployment: "datacenter" }])[0]).toMatch(/^0.baseUrl/);
+    expect(errors([{ id: "jira", kind: "jira", backend: "cli", baseUrl: "https://jira.acme.com", deployment: "datacenter" }])).toEqual(["0.backend: this kind has no such backend yet"]);
+    expect(errors([{ id: "jira", kind: "jira", baseUrl: "https://jira.acme.com", deployment: "datacenter", token: "x" }])[0]).toMatch(/token/);
+  });
+
+  it("refuses two connections to one Jira", () => {
+    expect(errors([
+      { id: "a", kind: "jira", baseUrl: "https://jira.acme.com", deployment: "datacenter" },
+      { id: "b", kind: "jira", baseUrl: "https://jira.acme.com/", deployment: "datacenter" },
+    ])).toEqual(["1.baseUrl: host jira.acme.com is used twice"]);
+  });
+
+  it("never finds a Jira connection for a repository origin", () => {
+    const list = [...DEFAULT_CONNECTIONS, { id: "jira", kind: "jira", backend: "api", baseUrl: "https://acme.atlassian.net", deployment: "cloud", email: "dev@acme.test" } as const];
+    expect(connectionFor(list, "acme.atlassian.net/acme/widgets")).toBeUndefined();
   });
 });

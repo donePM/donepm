@@ -1,5 +1,6 @@
 import type { CiSource } from "./ci-source.js";
 import type { CodeHost } from "./code-host.js";
+import type { ConnectionState } from "../status/status.js";
 import type { TicketSource } from "./ticket-source.js";
 
 export type Backend = "cli" | "api";
@@ -17,6 +18,8 @@ export interface Connection {
   ticketSource?: TicketSource;
   codeHost?: CodeHost;
   ciSource?: CiSource;
+  /** Where an `api` connection stands, asked of the provider (`/myself` for Jira). Never reads out the token. */
+  health?: () => Promise<{ state: ConnectionState; detail?: string }>;
 }
 
 /** The adapters by role, looked up by the host of an origin or a URL. */

@@ -8,6 +8,8 @@ export const TOKEN_VARIABLES = [
   "GLAB_TOKEN", "GITLAB_TOKEN", "JIRA_API_TOKEN",
   // `az devops` and Atlassian's `acli` (D50).
   "AZURE_DEVOPS_EXT_PAT", "ATLASSIAN_API_TOKEN",
+  // Names Jira tools and MCP servers read a Jira token from (D51). donePM keeps its own in the Keychain.
+  "JIRA_TOKEN", "JIRA_PAT", "JIRA_PERSONAL_TOKEN", "ATLASSIAN_TOKEN",
 ] as const;
 
 /**

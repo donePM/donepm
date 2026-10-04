@@ -31,7 +31,9 @@ import { ghKnownHosts } from "./gh/known-hosts.js";
 import { detectHelpers } from "./helpers/detect.js";
 import { providersOf } from "./providers/from-config.js";
 import { connectionStatuses, readyProviders } from "./providers/connection-status.js";
-import { keychainTokens } from "./providers/keychain.js";
+import { testConnection } from "./providers/connection-test.js";
+import { fetchHttp, type HttpClient } from "./providers/http.js";
+import { keychainTokens, type TokenStore } from "./providers/keychain.js";
 import { Poller } from "./gh/poller.js";
 import { buildServer, type WorktreeChoice } from "./http/server.js";
 import { makeGuard } from "./http/guard.js";
@@ -77,6 +79,10 @@ export interface DaemonOptions {
   exec: Exec;
   /** The provider adapters (issue #138); github.com through `gh` by default. */
   providers?: Providers;
+  /** How `api` connections reach their provider; `fetch` by default. Tests pass a fake. */
+  http?: HttpClient;
+  /** API tokens of `api` connections; the macOS Keychain by default. Tests pass a fake. */
+  tokens?: TokenStore;
   ctx: Ctx;
   version: string;
   /** Overrides the configured port (tests use 0). */
@@ -137,7 +143,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const bridgeSessions = new BridgeSessions();
   let bridge: { close: () => Promise<void> } | undefined;
   const status = new StatusStore(opts.version, opts.ctx.now());
-  const providers = opts.providers ?? providersOf(connectionsOf(config), opts.exec);
+  const providerDeps = { exec: opts.exec, http: opts.http ?? fetchHttp, tokens: opts.tokens ?? keychainTokens(opts.exec) };
+  const providers = opts.providers ?? providersOf(connectionsOf(config), providerDeps);
   const boundPort = () => {
     const a = app.server.address();
     return typeof a === "object" && a ? a.port : port;
@@ -309,7 +316,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       detectHosts(opts.exec, githubHosts(providers)), ghKnownHosts(opts.exec), detectClaude(opts.exec), detectHelpers(opts.exec),
     ]);
     status.update({ ...gh, ghKnownHosts: ghKnown, claude, helpers });
-    status.update({ connections: await connectionStatuses(providers.connections, status.get(), keychainTokens(opts.exec)) });
+    status.update({ connections: await connectionStatuses(providers.connections, status.get(), providerDeps.tokens) });
   };
 
   const poller = new Poller(
@@ -384,6 +391,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       return r;
     },
     recheck,
+    tokens: providerDeps.tokens,
+    testConnection: (connection) => testConnection(connection, providerDeps),
     startItem: async (id) => track(await startItem(startDeps(), id)),
     resumeItem: async (id) => track(await resumeItem(startDeps(), id)),
     removeWorktree: (id) =>

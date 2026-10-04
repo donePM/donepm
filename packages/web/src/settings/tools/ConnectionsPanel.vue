@@ -1,26 +1,70 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, reactive, ref } from "vue";
+import { api } from "../../api/client";
+import type { ConnectionConfig, ConnectionTest } from "../../api/types";
 import IconGitHub from "../../icons/IconGitHub.vue";
 import { status } from "../../status/status";
 import { saveErrorText, saveSettings, settings } from "../store";
-import { configuredConnections, offeredHosts, restartPending, STATE_LABEL, withGitHubHost } from "./connections";
+import ApiTokenField from "./ApiTokenField.vue";
+import { configuredConnections, connectionRows, offeredHosts, restartPending, STATE_LABEL, withGitHubHost, withJira, withoutConnection, type JiraForm } from "./connections";
 
-const rows = computed(() => status.value?.connections ?? []);
+const rows = computed(() => connectionRows(status.value, settings.value));
 const offered = computed(() => offeredHosts(status.value, settings.value));
 const pending = computed(() => restartPending(status.value, settings.value));
 
 const busy = ref<string>();
 const error = ref<string>();
+const tests = reactive<Record<string, ConnectionTest | { error: string }>>({});
 
-async function enable(host: string) {
-  busy.value = host;
+async function save(key: string, connections: ConnectionConfig[]) {
+  busy.value = key;
   error.value = undefined;
   try {
-    await saveSettings({ connections: withGitHubHost(configuredConnections(settings.value), host) });
+    await saveSettings({ connections });
+    return true;
   } catch (e) {
     error.value = saveErrorText(e);
+    return false;
   } finally {
     busy.value = undefined;
+  }
+}
+
+const enable = (host: string) => save(host, withGitHubHost(configuredConnections(settings.value), host));
+const remove = (id: string) => save(`remove:${id}`, withoutConnection(configuredConnections(settings.value), id));
+
+async function test(id: string) {
+  busy.value = `test:${id}`;
+  try {
+    tests[id] = await api.testConnection(id);
+  } catch (e) {
+    tests[id] = { error: saveErrorText(e) };
+  } finally {
+    busy.value = undefined;
+  }
+}
+
+const testOk = (t: ConnectionTest | { error: string }) => "ok" in t && t.ok;
+
+function testText(t: ConnectionTest | { error: string }): string {
+  if ("error" in t) return t.error;
+  const said = [t.ok ? "works" : STATE_LABEL[t.state], t.deployment ? `Jira ${t.deployment === "cloud" ? "Cloud" : "Data Center"}` : undefined, t.detail];
+  return said.filter(Boolean).join(" · ");
+}
+
+function tokenHint(c: ConnectionConfig): string | undefined {
+  if (c.kind !== "jira") return undefined;
+  const what = c.deployment === "cloud" ? `An Atlassian API token of ${c.email ?? "the account"}.` : "A personal access token from your Jira profile.";
+  return `${what} Or from a terminal: donepm token set ${c.id}`;
+}
+
+const adding = ref(false);
+const jira = reactive<JiraForm>({ baseUrl: "https://", deployment: "cloud", email: "" });
+
+async function addJira() {
+  if (await save("jira", withJira(configuredConnections(settings.value), jira))) {
+    adding.value = false;
+    Object.assign(jira, { baseUrl: "https://", deployment: "cloud", email: "" });
   }
 }
 </script>
@@ -30,14 +74,21 @@ async function enable(host: string) {
     <h2><IconGitHub />Connections</h2>
     <p class="sub">The hosts donePM collects work from and sends drafts to. Tokens stay with gh or in the Keychain; donePM only shows whether one is set.</p>
     <p v-if="error" class="alert" role="alert">{{ error }}</p>
-    <div v-for="c in rows" :key="c.id" class="status-row">
-      <span class="dot" :class="c.state === 'ready' ? 'ok' : 'attn'" style="margin-top: 6px"></span>
+    <div v-for="r in rows" :key="r.config.id" class="status-row">
+      <span class="dot" :class="r.status?.state === 'ready' ? 'ok' : 'attn'" style="margin-top: 6px"></span>
       <div class="w">
         <div class="h">
-          {{ c.host ?? c.id }} <span class="badge muted mono">{{ c.kind }} · {{ c.backend }}</span>
-          <span class="badge" :class="c.state === 'ready' ? 'ok' : 'attn'">{{ STATE_LABEL[c.state] }}</span>
+          {{ r.host || r.config.id }} <span class="badge muted mono">{{ r.config.kind }} · {{ r.config.backend }}</span>
+          <span v-if="r.status" class="badge" :class="r.status.state === 'ready' ? 'ok' : 'attn'">{{ STATE_LABEL[r.status.state] }}</span>
+          <span v-else class="badge muted">applies after restart</span>
         </div>
-        <div class="d mono">{{ [c.id, c.detail].filter(Boolean).join(" · ") }}</div>
+        <div class="d mono">{{ [r.config.id, r.status?.detail].filter(Boolean).join(" · ") }}</div>
+        <ApiTokenField v-if="r.config.backend === 'api'" :id="r.config.id" :token-set="r.status?.tokenSet" :hint="tokenHint(r.config)" />
+        <div class="row" style="margin-top: 6px">
+          <button class="btn sm" type="button" :disabled="busy !== undefined" @click="test(r.config.id)">{{ busy === `test:${r.config.id}` ? "Testing…" : "Test" }}</button>
+          <button v-if="r.config.kind !== 'github'" class="btn sm" type="button" :disabled="busy !== undefined" @click="remove(r.config.id)">Remove</button>
+          <span v-if="tests[r.config.id]" class="help" :class="{ 'danger-text': !testOk(tests[r.config.id]!) }">{{ testText(tests[r.config.id]!) }}</span>
+        </div>
       </div>
     </div>
     <p v-if="pending" class="sub">Saved connections apply after a restart (Settings › Daemon).</p>
@@ -49,5 +100,33 @@ async function enable(host: string) {
         <button class="btn sm" type="button" :disabled="busy !== undefined" @click="enable(host)">{{ busy === host ? "Adding…" : "Use this host" }}</button>
       </div>
     </template>
+    <div class="sep"></div>
+    <button v-if="!adding" class="btn sm" type="button" @click="adding = true">Add Jira</button>
+    <form v-else class="jira" @submit.prevent="addJira">
+      <label class="field">
+        <span>Base URL</span>
+        <input v-model="jira.baseUrl" class="input mono" type="url" placeholder="https://acme.atlassian.net" required />
+      </label>
+      <label class="field">
+        <span>Deployment</span>
+        <select v-model="jira.deployment" class="select">
+          <option value="cloud">Jira Cloud (email + API token)</option>
+          <option value="datacenter">Jira Data Center (personal access token)</option>
+        </select>
+      </label>
+      <label v-if="jira.deployment === 'cloud'" class="field">
+        <span>Account email</span>
+        <input v-model="jira.email" class="input" type="email" placeholder="the account the API token belongs to" required />
+      </label>
+      <span class="help">Set the token once the connection is saved. Test checks the URL, the deployment and the token.</span>
+      <div class="row">
+        <button class="btn sm primary" type="submit" :disabled="busy !== undefined">{{ busy === "jira" ? "Saving…" : "Save" }}</button>
+        <button class="btn sm" type="button" @click="adding = false">Cancel</button>
+      </div>
+    </form>
   </section>
 </template>
+
+<style scoped>
+.jira { display: flex; flex-direction: column; gap: 8px; max-width: 420px; }
+</style>

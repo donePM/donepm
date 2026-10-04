@@ -7,7 +7,9 @@ import { parseArgs } from "node:util";
 import { exec } from "@donepm/daemon/exec";
 import { daemonUrl, fetchStatus } from "./api.js";
 import { open, status, stop, type LifecycleDeps } from "./lifecycle.js";
+import { readSecret } from "./secret.js";
 import { installService, servicePaths, uninstallService, type ServiceDeps } from "./service.js";
+import { deleteToken, setToken, type TokenDeps } from "./token.js";
 
 const USAGE = `Usage: donepm <command>
 
@@ -18,6 +20,9 @@ Commands:
   open               open the board in the browser
   install-service    start donePM now and at every login (launchd)
   uninstall-service  remove the launchd job
+  token set <id>     store the API token of a connection in the Keychain
+                     (piped on stdin, or typed at a hidden prompt)
+  token delete <id>  remove the API token of a connection
 
 Options:
   -h, --help         show this help
@@ -92,6 +97,17 @@ switch (command) {
   case "install-service":
     process.exitCode = await installService(serviceDeps());
     break;
+  case "token": {
+    const tokenDeps: TokenDeps = { url, fetch, readSecret, out: deps.out, err: deps.err };
+    const [, action, id] = positionals;
+    if (action === "set") process.exitCode = await setToken(tokenDeps, id);
+    else if (action === "delete") process.exitCode = await deleteToken(tokenDeps, id);
+    else {
+      console.error(`Unknown token command: ${action ?? ""}\n\n${USAGE}`);
+      process.exitCode = 2;
+    }
+    break;
+  }
   case "uninstall-service":
     process.exitCode = await uninstallService(serviceDeps());
     break;

@@ -12,7 +12,9 @@ import { runShim } from "./bridge/shim.js";
 import { createDaemon, type Daemon } from "./daemon.js";
 import { testCtx } from "./test-support/ctx.js";
 import { fakeExec, fixture, ok } from "./test-support/fake-exec.js";
+import { fakeHttp, json as jsonAnswer } from "./test-support/fake-http.js";
 import { fakeProcesses } from "./test-support/fake-process.js";
+import { memoryTokens } from "./test-support/fake-tokens.js";
 import { cloneWithOrigin, git } from "./test-support/git-repo.js";
 import { exec as realExec, type Exec } from "./process/exec.js";
 
@@ -404,6 +406,37 @@ describe("daemon", { timeout: 30_000 }, () => {
 
     const dropped = await get(d, "/api/settings", { method: "PUT", headers: json, body: JSON.stringify({ connections: [connections[0]] }) });
     expect(dropped.status).toBe(400);
+  });
+
+  it("keeps a Jira connection's token in the Keychain and shows only whether it is set (D51)", async () => {
+    const h = await home();
+    mkdirSync(join(h, ".config/donepm"), { recursive: true });
+    writeFileSync(join(h, ".config/donepm/config.json"), JSON.stringify({
+      sources: FIXTURE_SOURCES,
+      connections: [
+        { id: "github", kind: "github", host: "github.com" },
+        { id: "jira", kind: "jira", baseUrl: "https://acme.atlassian.net", deployment: "cloud", email: "dana@acme.com" },
+      ],
+    }));
+    const token = "ATATT3xFfGF0-synthetic";
+    const tokens = memoryTokens();
+    const http = fakeHttp({ "GET /rest/api/3/myself": jsonAnswer(fixture("jira/cloud-myself.json")) });
+    daemon = await createDaemon({
+      home: h, exec: execWith(() => fixture("gh/search-issues.json")), ctx: testCtx(), version: "0.0.0-test", port: 0,
+      publicDir: join(h, "no-ui"), spawn: fakeProcesses(), env: { PATH: "/usr/bin:/bin" }, tokens, http,
+    });
+    await daemon.start();
+    const d = daemon;
+    const jiraStatus = async () => (await get(d, "/api/status")).body.connections.find((c: any) => c.id === "jira");
+    expect(await jiraStatus()).toMatchObject({ kind: "jira", backend: "api", host: "acme.atlassian.net", tokenSet: false, state: "unauthorized" });
+    expect(http.requests).toEqual([]);
+
+    const put = await get(d, "/api/connections/jira/token", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) });
+    expect(put.body).toEqual({ id: "jira", tokenSet: true });
+    expect(tokens.tokens.get("jira")).toBe(token);
+    await waitFor(async () => expect(await jiraStatus()).toMatchObject({ tokenSet: true, state: "ready", detail: "Dana Developer" }));
+    expect(JSON.stringify((await get(d, "/api/status")).body)).not.toContain(token);
+    expect(JSON.stringify((await get(d, "/api/settings")).body)).not.toContain(token);
   });
 
   it("rejects requests from foreign origins", async () => {

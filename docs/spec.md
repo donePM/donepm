@@ -266,7 +266,8 @@ Keychain token, D8). The registry finds a role by the host of an origin or URL. 
 connection gets "no connection for <host>". GitHub through `gh` is the first adapter, and it
 implements all three roles. The rest of this section is that adapter. Status lists one entry per
 connection, `{ id, kind, backend, state, detail? }`, where `state` is one of `not_installed`,
-`not_logged_in`, `unreachable`, `unauthorized` or `ready`. `status.gh` stays as it was.
+`not_logged_in`, `unreachable`, `unauthorized` or `ready`. `status.gh` stays as it was. An `api`
+connection's entry also has `tokenSet`; without a token it is `unauthorized` and nothing is sent.
 
 ### 6.1 Detection
 
@@ -1043,6 +1044,9 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/repos/rescan` | |
 | POST | `/api/repos/clone` | `{ origin }`; clones into `<repoRoot>/<owner>/<repo>` (5). 202 `{ origin, path, result: "started" }`, the outcome arrives as `repo.*` pushes; 200 with `result: "cloned"` when a clone of the origin was at the target already; 400 for an origin donePM cannot clone; 409 while it clones, when it has a clone, or the target is occupied. A clone makes the origin managed (D46) |
 | PUT | `/api/repos/:id` | `{ managed: boolean }`; manages or stops managing the repo's origin (D46). Managing polls at once |
+| PUT | `/api/connections/:id/token` | `{ token }`: writes the `api` connection's token to the Keychain (D51); answers `{ id, tokenSet: true }`, never the token. 400 for a `cli` connection, 404 for an unknown id, 502 when the Keychain refuses |
+| DELETE | `/api/connections/:id/token` | removes it: `{ id, tokenSet: false }` |
+| POST | `/api/connections/:id/test` | checks a saved connection now, before a restart: `{ id, ok, state, detail?, tokenSet?, deployment? }` (Jira: `serverInfo`, then `/myself`) |
 | GET/PUT | `/api/settings` | PUT is partial; `sources` is replaced as a whole. A new `worktreeRoot` with item worktrees under the old one needs `?worktrees=move\|leave`, else 409 `{ worktreesAtOldRoot }` and nothing saved; with move the answer has `worktrees: { moved, skipped }` (7.1) |
 | POST | `/api/sources/test` | `{ origin, query }`; runs the query once: `{ count, issues }` (first 10) |
 | GET | `/api/status` | CLI detection (`gh`, `claude`, and `helpers` by id: installed, path, version), daemon version, pid, `startedAt`, running agents, last poll and scan, `pollErrors` (the last 5 failed polls, newest first) |
@@ -1340,6 +1344,10 @@ daemon after a crash but not after `stop`. The plist records the current `node`,
 and `PATH`, because launchd starts jobs with a bare `PATH` and the daemon needs `gh`, `git` and
 `claude`.
 
+`donepm token set <connection>` reads an `api` connection's token from stdin, or from a prompt
+that does not echo, and hands it to the daemon; `donepm token delete <connection>` removes it
+(D51). The token is never an argument.
+
 ## 14. Configuration
 
 `~/.config/donepm/config.json`. Created on first start with defaults.
@@ -1376,13 +1384,16 @@ Absent, it means one connection, github.com through `gh`:
 ```json
 "connections": [
   { "id": "github", "kind": "github", "backend": "cli", "host": "github.com" },
-  { "id": "acme", "kind": "github", "backend": "cli", "host": "github.acme.com" }
+  { "id": "acme", "kind": "github", "backend": "cli", "host": "github.acme.com" },
+  { "id": "jira", "kind": "jira", "backend": "api", "baseUrl": "https://acme.atlassian.net", "deployment": "cloud", "email": "dana@acme.com" }
 ]
 ```
 
-`id` is lower case letters, digits and dashes, and unique. `host` is unique. `kind` is `github`
-today. `backend` is `cli` or `api`, and each kind takes only the backends it has: for `github`,
-only `cli`. An `api` connection's token is in the macOS Keychain, service `donepm`, account `id`.
+`id` is lower case letters, digits and dashes, and unique. The host (`host`, or the host of
+`baseUrl`) is unique. `kind` is `github` or `jira`. `backend` is `cli` or `api`, and each kind
+takes only the backends it has: for `github`, only `cli`; for `jira`, only `api`. A `jira`
+connection has an https `baseUrl` (a context path is fine), `deployment` `cloud` or `datacenter`,
+and for `cloud` the `email` the API token belongs to (D51). An `api` connection's token is in the macOS Keychain, service `donepm`, account `id`.
 It is never in this file.
 
 `archiveAfterHours` and `deleteAfterDays` (6.8): whole numbers of 0 or more; `deleteAfterDays:
