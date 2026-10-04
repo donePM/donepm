@@ -72,6 +72,23 @@ export interface ItemView extends WorkItem {
   pr?: PrView;
   /** When the item finished: done, and its PR merged if a draft opened one (D37). Its card is muted. */
   finishedAt?: string;
+  /** No local clone, and donePM can clone it (issue #37). */
+  clone?: CloneState;
+}
+
+/** Where a clone of the item's repository lands, whether `gh repo clone` runs, and why the last one failed. */
+export interface CloneState {
+  origin: string;
+  target: string;
+  cloning?: true;
+  error?: string;
+}
+
+/** `POST /api/repos/clone`: 202 `started`, or 200 `cloned` when the clone was there already. */
+export interface CloneResult {
+  origin: string;
+  path: string;
+  result: "started" | "cloned";
 }
 
 /** `waiting`: the item sits in Needs You on the conflict; otherwise the user took it on (D36). */

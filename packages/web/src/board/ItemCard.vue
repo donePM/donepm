@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { errorText, isPublishFailure } from "../api/errors";
 import type { ItemView } from "../api/types";
 import AskPanel from "../asks/AskPanel.vue";
+import CloneButton from "./CloneButton.vue";
 import { repoOf } from "../markdown/render";
 import { diffFiles, diffStats, type DiffStats } from "../diff/files";
 import { agentElapsed, clock, usageLabel } from "../time/duration";
@@ -135,11 +136,12 @@ async function act(fn: (id: string) => Promise<void>) {
     <div v-if="item.labels.length" class="labels">
       <span v-for="l in item.labels" :key="l" class="label" :class="`tone-${labelTone(l)}`">{{ l }}</span>
     </div>
-    <div v-if="noClone" class="note">
+    <div v-if="noClone" class="note no-clone">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <circle cx="12" cy="12" r="9"></circle><path d="M12 8v4m0 4h.01"></path>
       </svg>
       No local clone<template v-if="repoRoot"> under {{ repoRoot }}</template>
+      <CloneButton v-if="item.clone" :clone="item.clone" />
     </div>
     <div v-if="closedUpstream" class="note warn">
       Closed on GitHub
@@ -343,6 +345,7 @@ h3 { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; overflow-wr
 .label.tone-feature { background: var(--blue-tint); color: var(--blue); }
 .note { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .note.warn { color: var(--amber); }
+.note.no-clone { flex-wrap: wrap; }
 .note.quiet { display: block; margin: 0; color: var(--ink-3); }
 .pr-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .merged { font-size: 12px; color: var(--ink-3); }

@@ -6,6 +6,7 @@ import { pending, resumeAgent, startAgent } from "../agents/actions";
 import AnsiText from "../ansi/AnsiText.vue";
 import { errorText } from "../api/errors";
 import AskPanel from "../asks/AskPanel.vue";
+import CloneButton from "../board/CloneButton.vue";
 import { displayId } from "../board/columns";
 import { diffFiles, diffStats } from "../diff/files";
 import DiffPanel from "../diff/DiffPanel.vue";
@@ -86,6 +87,10 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
         <span class="state" :class="`s-${detail.state}`">{{ badge }}</span>
       </nav>
       <h1>{{ detail.title }}</h1>
+      <div v-if="detail.badges.includes('no-local-clone')" class="no-clone">
+        <span>No local clone<template v-if="detail.clone">. Clone lands in <span class="mono">{{ detail.clone.target }}</span></template></span>
+        <CloneButton v-if="detail.clone" :clone="detail.clone" />
+      </div>
       <p v-if="detail.branch" class="facts mono">
         <template v-if="detail.source === 'github-pr'">reviewing </template>{{ detail.branch }} → {{ detail.baseBranch ?? detail.repo?.defaultBranch ?? "?" }}
         <template v-if="diff"> · {{ diff.commits }} {{ diff.commits === 1 ? "commit" : "commits" }}</template>
@@ -189,6 +194,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
 .state.s-needs_you, .state.s-failed { background: var(--amber-tint); color: var(--amber); }
 .state.s-running, .state.s-checking { background: var(--blue-tint); color: var(--blue); }
 h1 { margin: 12px 0 6px; font-size: 22px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.no-clone { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; color: var(--ink-3); font-size: 13px; overflow-wrap: anywhere; }
 .facts { margin: 0 0 20px; color: var(--ink-2); font-size: 13px; overflow-wrap: anywhere; }
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
 .main, .side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
