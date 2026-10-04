@@ -37,12 +37,16 @@ function apply(
   const type = typeof spec.event === "function" ? spec.event(item) : spec.event;
   const event: Event = { id: ctx.newId(), itemId: item.id, at, actor: spec.actor, type, payload };
   if (refId !== undefined) event.refId = refId;
-  return { item: { ...item, state: spec.to, updatedAt: at }, events: [event] };
+  const stateSince = spec.to === item.state ? item.stateSince : at;
+  return { item: { ...item, state: spec.to, stateSince, updatedAt: at }, events: [event] };
 }
 
-/** Ready (or failed, as retry) to running. Emits `agent.resumed` if a session already exists. */
+/**
+ * Ready (or failed, as retry) to running. Emits `agent.resumed` if a session already exists.
+ * The first start sets `startedAt`; a retry keeps it, so the card keeps its place in In Progress.
+ */
 export function start(item: WorkItem, ctx: Ctx): Transition {
-  return apply(
+  const t = apply(
     {
       name: "start",
       from: ["ready", "failed"],
@@ -53,6 +57,7 @@ export function start(item: WorkItem, ctx: Ctx): Transition {
     item,
     ctx,
   );
+  return item.startedAt === undefined ? { ...t, item: { ...t.item, startedAt: t.item.stateSince } } : t;
 }
 
 /**

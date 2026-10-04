@@ -16,7 +16,14 @@ export interface WorkItem {
   state: ItemState;
   /** Playbook name. */
   playbook: string;
+  /** `priorityTier(labels)`: 0 is the most urgent. Recomputed whenever the labels change. */
   priority: number;
+  /** When the issue was opened on GitHub. Absent on items collected before it was fetched. */
+  issueCreatedAt?: string;
+  /** When the agent first started on the item. Never moves after that, not even on retry. */
+  startedAt?: string;
+  /** When the item entered its current state. Transitions that keep the state leave it alone. */
+  stateSince: string;
   worktreePath?: string;
   branch?: string;
   /** Claude `session_id`, for `--resume`. */
