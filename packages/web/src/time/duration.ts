@@ -12,3 +12,9 @@ export function clock(ms: number): string {
 export function money(usd: number): string {
   return `$${usd.toFixed(2)}`;
 }
+
+/** How long the agent worked: closed intervals plus the one running now (spec 12.1). */
+export function agentElapsed(agent: { elapsedMs?: number; activeSince?: string }, now: number): number | undefined {
+  if (agent.elapsedMs === undefined && !agent.activeSince) return undefined;
+  return (agent.elapsedMs ?? 0) + (agent.activeSince ? Math.max(0, now - Date.parse(agent.activeSince)) : 0);
+}

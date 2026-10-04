@@ -727,6 +727,12 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
 
 - Left: list of running and recently finished agents (item title, state, elapsed, cost from
   `result.total_cost_usd`).
+- Elapsed (here and on the card) is the time the agent worked: the sum of its intervals from
+  `agent.started`, `agent.resumed`, `agent.turn_started` or `permission.answered` to
+  `agent.turn_ended`, `permission.asked`, `agent.interrupted` or `agent.failed`. Waiting on the
+  user does not count. A resume continues the sum; a fresh start (new session) begins at 0:00. The
+  view carries `agent.elapsedMs` (closed intervals) and `agent.activeSince` (only while the
+  process runs), and the UI adds the running interval live.
 - Right: transcript of the selected one, live.
 - A subagent is one collapsible line under the main agent's flow: type, description, live
   activity and elapsed time while it runs (from `task_progress`), done/failed with tool count and
