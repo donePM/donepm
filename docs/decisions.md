@@ -268,6 +268,29 @@ granting and removing are events too. A removal sets `revoked_at`; the row stays
 foreign key to the item or ask they were made on, because they outlive D37's purge; the call they
 were granted for is kept as text. Bloom offers "always" by writing Claude Code's settings.
 
+**D39. donePM reads review feedback on its own PRs, reopens the item, and answers only through
+drafts.** A PR donePM opened could collect "please rename this" for days while its card sat in
+Done (#48). The PR watch (D33, D36) already runs `gh pr view` per open PR; for a `done` item whose
+PR is open it now also reads reviews and comments with one GraphQL call, at the same poll interval,
+so there is no second clock. Feedback is a review that requests changes or comments with a body,
+its inline comments, and conversation comments, from anyone but the PR's author and never from a
+bot: the author is the user, so donePM's own replies never count as feedback, and bots (CI
+summaries, coverage, Dependabot) would reopen the item after every push. Approvals are not
+feedback. "New" means a `kind:id` no earlier `pr.feedback` recorded, so feedback that arrives while
+the agent works or CI runs is picked up once the item is done again, and nothing is reported twice.
+The **old item is reopened** (`done` → `needs_you`), not a new one made: the worktree, branch,
+session and PR are all there, and the agent remembers why it wrote the code. The user picks
+"Address with agent" (resume, reason `pr_feedback`, like D35's "Fix with agent") or "Mark done".
+Answers to reviewers are outward effects, so they are drafts like everything else (D2): `draft_push`
+takes optional `replies`, posted by the daemon right after the push, after which D35's CI wait
+applies unchanged; `draft_comment` carries only replies when no code changes, and its item goes
+straight back to `done` since nothing was pushed. Both are allowed wherever `pr` is, like
+`draft_push`. A reply's `inReplyTo` must be a thread the feedback brought in, so the agent cannot
+post onto an arbitrary comment. Each posted reply is stored at once, so a retry after a half-failed
+post never posts a reply twice. Red CI after done is not feedback; D35 owns CI. On the first poll
+after this ships, done items with open PRs that already have reviews will surface them; that is
+deliberate, they are unaddressed feedback. Bloom does not watch PRs.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

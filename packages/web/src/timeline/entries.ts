@@ -59,11 +59,14 @@ function answersText(ask: PermissionAsk | undefined, answers: unknown): string |
   return parts.length ? parts.join(" · ") : undefined;
 }
 
-function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: ReadonlySet<string>): Omit<TimelineEntry, "id" | "at"> {
+const DRAFT_NAME: Record<string, string> = { pr: "PR draft", push: "push draft", comment: "reply draft" };
+
+function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: ReadonlyMap<string, string>): Omit<TimelineEntry, "id" | "at"> {
   const p = e.payload;
   const ask = e.refId ? asks.get(e.refId) : undefined;
-  const push = e.refId !== undefined && pushDrafts.has(e.refId);
-  const draftName = push ? "push draft" : "PR draft";
+  const type = (e.refId !== undefined && draftTypes.get(e.refId)) || "pr";
+  const push = type === "push";
+  const draftName = DRAFT_NAME[type] ?? "draft";
   switch (e.type) {
     case "item.collected":
       return { tone: "system", text: "Collected from GitHub" };
@@ -84,6 +87,7 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
     case "agent.resumed":
       if (p.reason === "ci_failed") return { tone: "user", text: "You let the agent fix the failed CI" };
       if (p.reason === "pr_conflict") return { tone: "user", text: "You let the agent resolve the merge conflict" };
+      if (p.reason === "pr_feedback") return { tone: "user", text: "You let the agent address the review feedback" };
       return { tone: e.actor === "user" ? "user" : "system", text: e.actor === "user" ? "You resumed the agent" : "Agent resumed" };
     case "agent.interrupted":
       return { tone: "attention", text: "Agent interrupted", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
@@ -155,10 +159,21 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
     case "draft.rejected":
       return { tone: "user", text: `You rejected the ${draftName}`, ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
     case "draft.executed":
-      if (push) return { tone: "system", text: "Commits pushed", ...(str(p.sha) ? { code: str(p.sha)!.slice(0, 7) } : {}) };
+      if (type === "comment") return { tone: "system", text: `${replies(p.posted)} posted, done` };
+      if (push) {
+        return {
+          tone: "system",
+          text: Array.isArray(p.posted) && p.posted.length ? `Commits pushed, ${replies(p.posted)} posted` : "Commits pushed",
+          ...(str(p.sha) ? { code: str(p.sha)!.slice(0, 7) } : {}),
+        };
+      }
       return { tone: "system", text: "Pull request created", ...(str(p.url) ? { detail: str(p.url) } : {}) };
     case "draft.execution_failed":
-      return { tone: "danger", text: push ? "Pushing failed" : "Creating the pull request failed", ...(str(p.error) ? { detail: str(p.error) } : {}) };
+      return {
+        tone: "danger",
+        text: p.step === "reply" ? "Posting the replies failed" : push ? "Pushing failed" : "Creating the pull request failed",
+        ...(str(p.error) ? { detail: str(p.error) } : {}),
+      };
     case "ci.started":
       if (p.reason === "rerun") return { tone: "user", text: `You reran the failed jobs on ${prName(p.number)}` };
       return { tone: "system", text: `Waiting for CI on ${prName(p.number)}` };
@@ -179,6 +194,17 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
       return { tone: "system", text: `${prName(p.number)} can be merged again` };
     case "pr.conflict_dismissed":
       return { tone: "user", text: "You'll resolve the merge conflict yourself" };
+    case "pr.feedback": {
+      const entries = Array.isArray(p.entries) ? p.entries : [];
+      const who = [...new Set(entries.flatMap((x: unknown) => str((x as { author?: unknown } | null)?.author) ?? []))];
+      return {
+        tone: "attention",
+        text: `Review feedback on ${prName(p.number)}`,
+        ...(who.length ? { detail: `${entries.length} from ${who.map((w) => `@${w}`).join(", ")}` } : {}),
+      };
+    }
+    case "pr.feedback_dismissed":
+      return { tone: "user", text: "You marked the review feedback done" };
     case "item.pr_merged":
       return { tone: "system", text: `${prName(p.number)} merged` };
     case "worktree.removed": {
@@ -199,16 +225,22 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
 
 const withCode = (code: string | undefined) => (code ? { code } : {});
 const prName = (n: unknown) => (typeof n === "number" ? `PR #${n}` : "PR");
+const replies = (posted: unknown) => {
+  const n = Array.isArray(posted) ? posted.length : 0;
+  return n === 1 ? "1 reply" : n ? `${n} replies` : "Replies";
+};
 
 /** Events as the item detail lists them: newest first (spec §12.2). */
 export function timelineEntries(events: readonly Event[], asks: readonly PermissionAsk[]): TimelineEntry[] {
   const byId = new Map(asks.map((a) => [a.id, a]));
   // Only `draft.created` says which kind of draft; the later draft events point to it by refId.
-  const pushDrafts = new Set(events.flatMap((e) => (e.type === "draft.created" && e.payload.type === "push" && e.refId ? [e.refId] : [])));
+  const draftTypes = new Map(
+    events.flatMap((e) => (e.type === "draft.created" && e.refId && typeof e.payload.type === "string" ? [[e.refId, e.payload.type] as const] : [])),
+  );
   return events
     .map((e, i) => ({ e, i }))
     .sort((a, b) => b.e.at.localeCompare(a.e.at) || b.i - a.i)
-    .map(({ e }) => ({ id: e.id, at: e.at, ...entry(e, byId, pushDrafts) }));
+    .map(({ e }) => ({ id: e.id, at: e.at, ...entry(e, byId, draftTypes) }));
 }
 
 /** "09:41" today, "Yesterday 17:02", else "Sep 28 17:02". Local time. */

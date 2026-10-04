@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { feedbackEntries } from "@donepm/core";
 import { computed, ref } from "vue";
 import { useRoute } from "vue-router";
 import { pending, resumeAgent, startAgent } from "../agents/actions";
@@ -18,6 +19,7 @@ import { useItemDetail } from "./detail";
 import CiPanel from "./CiPanel.vue";
 import ConflictPanel from "./ConflictPanel.vue";
 import DraftPanel from "./DraftPanel.vue";
+import FeedbackPanel from "./FeedbackPanel.vue";
 import PushDraftPanel from "./PushDraftPanel.vue";
 import WorktreeBlock from "./WorktreeBlock.vue";
 
@@ -35,6 +37,7 @@ const draftCreatedAt = computed(() => {
   return e ? timeLabel(e.at, new Date(now.value)) : undefined;
 });
 const repo = computed(() => (detail.value ? repoOf(detail.value.externalId) : undefined));
+const feedback = computed(() => feedbackEntries(detail.value?.events ?? []));
 const stats = computed(() => (diff.value ? diffStats(diffFiles(diff.value.patch)) : undefined));
 
 const STATE_LABEL: Record<string, string> = {
@@ -45,13 +48,15 @@ const STATE_LABEL: Record<string, string> = {
   failed: "Failed",
   done: "Done",
 };
+const DRAFT_LABEL: Record<string, string> = { pr: "PR draft", push: "push draft", comment: "reply draft" };
 const badge = computed(() => {
   const d = detail.value;
   if (!d) return "";
   const label = STATE_LABEL[d.state] ?? d.state;
-  if (d.attention?.kind === "draft") return `${label} · ${d.attention.draftType === "push" ? "push" : "PR"} draft`;
+  if (d.attention?.kind === "draft") return `${label} · ${DRAFT_LABEL[d.attention.draftType] ?? "draft"}`;
   if (d.attention?.kind === "ci_failed") return `${label} · CI failed`;
   if (d.attention?.kind === "pr_conflict") return `${label} · merge conflict`;
+  if (d.attention?.kind === "pr_feedback") return `${label} · review feedback`;
   if (d.attention?.kind === "ask") return `${label} · permission`;
   if (d.attention?.kind === "resume") return `${label} · interrupted`;
   return label;
@@ -103,8 +108,10 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
             />
           </section>
           <PushDraftPanel
-            v-if="draft?.type === 'push' && detail.state === 'needs_you'"
+            v-if="(draft?.type === 'push' || draft?.type === 'comment') && detail.state === 'needs_you'"
             :draft="draft"
+            :feedback="feedback"
+            :repo="repo"
             :created-at="draftCreatedAt"
             :can-reject="detail.agent.running || !!detail.agentSessionId"
             :publish-error="publishError"
@@ -120,6 +127,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
             @changed="reload"
           />
           <ConflictPanel :item="detail" @changed="reload" />
+          <FeedbackPanel :item="detail" :repo="repo" @changed="reload" />
           <CiPanel :item="detail" @changed="reload" />
           <section v-if="detail.pr" class="panel" aria-labelledby="pr-h">
             <h2 id="pr-h">Pull request</h2>

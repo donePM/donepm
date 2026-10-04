@@ -11,14 +11,15 @@ In scope:
 - Board with four columns: Ready, In Progress, Needs You, Done.
 - One agent type: Claude Code, run as a child process, in a git worktree.
 - One playbook: `implement`. Playbooks are Markdown files.
-- One draft type: `pr`. The user approves it. The daemon pushes and creates the PR.
+- One draft type: `pr`. The user approves it. The daemon pushes and creates the PR. Follow-ups on
+  that PR: `push` (6.6, 6.7) and `comment` (replies to review feedback, 6.9).
 - Agent permission questions shown as cards.
 - Live agent transcript in the UI.
 - Settings: repo root, worktree root, port, CLI status.
 - Event log per work item, shown as a timeline on the card.
 - CLI: `donepm start|stop|status`.
 
-Out of scope for the MVP: Jira, GitLab, review playbook, review feedback, schedules, Dependabot,
+Out of scope for the MVP: Jira, GitLab, review playbook, schedules, Dependabot,
 log analysis, token login (only `gh` auth), multiple agents per item, agent budget, AI playbook
 selection, server sync.
 
@@ -79,13 +80,14 @@ functions. `daemon` calls them and persists the result.
 ready → running → needs_you → running → ... → checking → done
                 ↘ failed                         ↘ needs_you (CI red) → running (fix) → …
 checking | done → needs_you (PR conflicts, 6.7) → running (resolve) → … | back where it was
+done → needs_you (review feedback, 6.9) → running (address) → … | done
 ```
 
 | state | column | meaning |
 |---|---|---|
 | ready | Ready | collected, no agent yet |
 | running | In Progress | agent turn is open |
-| needs_you | Needs You | agent waits: permission question, or a draft is pending; or the PR's CI is red or it conflicts with its base |
+| needs_you | Needs You | agent waits: permission question, or a draft is pending; or the PR's CI is red, it conflicts with its base, or reviewers left feedback |
 | checking | In Progress | the PR is open and the daemon waits for its CI (6.6); no agent runs |
 | done | Done | CI of the PR passed, the PR has no CI, or the user marked it done |
 | failed | Needs You | agent exited with error; card shows stderr tail and offers retry |
@@ -95,7 +97,8 @@ Transitions are functions in `core`: `start(item)`, `agentAsked(item)`, `answere
 `draftRejected(item)`, `agentFailed(item)`, `interrupted(item)`, `resume(item)`,
 `worktreeRemoved(item)`, `ciPassed(item)`, `ciFailed(item)`, `ciRerun(item)`, `ciMarkedDone(item)`,
 `ciFix(item)`, `prConflicted(item)`, `prConflictResolved(item)`, `prConflictDismissed(item)`,
-`prConflictFix(item)`, `archived(item, finishedAt)` (only from `done`, once; sets `archivedAt`, 6.8).
+`prConflictFix(item)`, `prFeedback(item)`, `prFeedbackFix(item)`, `prFeedbackDismissed(item)`,
+`repliesPosted(item)`, `archived(item, finishedAt)` (only from `done`, once; sets `archivedAt`, 6.8).
 Invalid transitions throw.
 
 ### 4.3 Event
@@ -125,10 +128,11 @@ list or an "Always allow" grant, see 9.4), `permission.granted` and `permission.
 a started one to Done), both see 6.2, `item.pr_merged` (the item's PR was merged, the worktree
 stays) and `worktree.remove_skipped` (merged, but the worktree has uncommitted changes), both see
 6.5, `ci.started`, `ci.passed`, `ci.failed` and `ci.marked_done` (see 6.6), `pr.conflicted`,
-`pr.conflict_resolved` and `pr.conflict_dismissed` (see 6.7), `item.archived` (actor `system`,
+`pr.conflict_resolved` and `pr.conflict_dismissed` (see 6.7), `pr.feedback` and
+`pr.feedback_dismissed` (see 6.9), `item.archived` (actor `system`,
 payload `{ finishedAt }`, see 6.8). `agent.resumed` carries
 `reason: "ci_failed"` when the user let the agent fix a red CI, `reason: "pr_conflict"` when it
-resolves a merge conflict. `worktree.removed` carries `reason: "pr_merged"` and actor `system` when the poll removed it.
+resolves a merge conflict, `reason: "pr_feedback"` when it addresses review feedback. `worktree.removed` carries `reason: "pr_merged"` and actor `system` when the poll removed it.
 
 ### 4.4 Draft
 
@@ -136,11 +140,11 @@ resolves a merge conflict. `worktree.removed` carries `reason: "pr_merged"` and 
 |---|---|---|
 | id | uuid | |
 | itemId | uuid | |
-| type | `pr` \| `push` | |
-| payload | JSON | for `pr`: `{ title, body, base }`; for `push`: `{ summary, number, url, branch, commits, uncommitted }` |
+| type | `pr` \| `push` \| `comment` | |
+| payload | JSON | for `pr`: `{ title, body, base }`; for `push`: `{ summary, number, url, branch, commits, uncommitted, replies? }`; for `comment`: `{ number, url, replies }`. A reply is `{ body, inReplyTo? }` (6.9) |
 | state | `pending` \| `approved` \| `rejected` \| `executed` \| `failed` | |
 | userEdits | JSON? | the payload after user edits |
-| result | JSON? | for `pr`: `{ url, number }`; for `push`: `{ sha }` |
+| result | JSON? | for `pr`: `{ url, number }`; for `push`: `{ sha, posted? }`; for `comment`: `{ posted }`. `posted` lists `{ index, url }` per reply out, written after each one so a retry skips them |
 
 ### 4.5 PermissionAsk
 
@@ -275,7 +279,12 @@ gh pr create --repo <owner/repo> --head <branch> --base <base> --title <t> --bod
 Store the PR URL in the draft result. Add `draft.executed` and `ci.started`. Set item to `checking`.
 
 A `push` draft runs only the push (uncommitted changes are committed first, as for `pr`) and stores
-the new head as `{ sha }`; then `ci.started` again and `checking`.
+the new head as `{ sha }`; then `ci.started` again and `checking`. With `replies`, they are posted
+after the push (6.9).
+
+A `comment` draft only posts its replies (6.9): `draft.executed` with `{ posted }`, item `done`, no
+CI wait since nothing was pushed. A reply that fails stops the draft with step `reply`; approving
+again posts only the ones not out yet.
 
 ### 6.4 Assign on start
 
@@ -294,8 +303,8 @@ decides when the item is finished, 6.8), `checking`, or has a recorded conflict 
 gh pr view <number> --repo <host/owner/repo> --json state,mergedAt,mergeable,baseRefName
 ```
 
-`--repo` comes from the PR URL in the draft result. `mergeable` feeds 6.7; for the worktree only
-`MERGED` matters. A failure is logged and retried on the next poll.
+`--repo` comes from the PR URL in the draft result. `mergeable` feeds 6.7; `state: OPEN` on a `done`
+item feeds 6.9; for the worktree only `MERGED` matters. A failure is logged and retried on the next poll.
 
 - `removeWorktreeOnMerge` off → `item.pr_merged`, once.
 - On, worktree clean → removed as in 7.4, branch kept, `worktree.removed` (actor `system`, reason
@@ -374,6 +383,48 @@ clock is the daemon's `Ctx`, so tests move it.
   The daemon log records it. `deleteAfterDays: null` never deletes. An item that still has a
   worktree is kept until the user (or the merge, 6.5) removes it.
 - A failure on one item is logged; the others go on. Changed settings apply on the next poll.
+
+### 6.9 Review feedback
+
+From the same poll as 6.5 (decision D39): for an item that is `done` whose PR is `OPEN`, the daemon
+reads the PR's reviews and comments with one GraphQL call:
+
+```
+gh api graphql --hostname <host> -F owner=<o> -F name=<r> -F number=<n> -f query=<FEEDBACK_QUERY>
+```
+
+Feedback is, from people other than the PR's author (the user, so donePM's own replies never count)
+and never from bots (`__typename: Bot`):
+
+- a review in state `CHANGES_REQUESTED`, or `COMMENTED` with a body (approvals, dismissed and
+  pending reviews are not feedback);
+- every inline comment of such a review, with its path, line, diff hunk and thread (the id of the
+  thread's first comment);
+- a comment in the PR's conversation.
+
+Entries are known by `kind:id`. New feedback is what no earlier `pr.feedback` recorded; while the
+item is `running`, `checking` or `needs_you` it waits until the item is `done` again. New feedback →
+`pr.feedback { number, url, entries }`, item `needs_you`. A failed call is logged and retried next
+poll. Red CI after done is not feedback; the CI watch only runs while `checking`.
+
+The card offers:
+
+- **Address with agent** (needs a worktree and a session): resumes the session (`agent.resumed`,
+  reason `pr_feedback`) with every entry, inline ones with `path:line`, thread number and the end
+  of their diff hunk. The agent changes what is needed, commits, and calls `draft_push` with
+  `replies`; or, when nothing needs to change, `draft_comment`.
+- **Mark done**: `pr.feedback_dismissed` (actor `user`), item `done`. Those entries do not come back.
+
+A reply with `inReplyTo` answers in that inline thread; without it, it is a comment on the PR. The
+daemon posts it as the user after approval, never the agent:
+
+```
+gh pr comment <n> --repo <host/o/r> --body-file <tmp>
+gh api --hostname <host> --method POST repos/<o>/<r>/pulls/<n>/comments/<thread>/replies -F body=@<tmp> --jq .html_url
+```
+
+`inReplyTo` must be a thread from a `pr.feedback` of this item; anything else is refused when the
+draft is created, so a reply cannot land on an unrelated thread.
 
 ## 7. Worktrees
 
@@ -475,7 +526,7 @@ Frontmatter fields:
 | model | yes | passed to `--model` |
 | effort | no | passed to `--effort` |
 | permission_mode | yes | `acceptEdits` \| `plan` \| `bypassPermissions` |
-| drafts | yes | list of allowed draft types: `[pr]`; `pr` also allows `draft_push` |
+| drafts | yes | list of allowed draft types: `[pr]`; `pr` also allows `draft_push` and `draft_comment` |
 | match.source | no | source filter |
 | match.labels | no | any of these labels |
 
@@ -720,7 +771,8 @@ Tools in MVP:
 | tool | input | effect |
 |---|---|---|
 | `draft_pr` | `{ title, body }` | creates Draft `pr`, state `pending`; item → `needs_you`; returns "Draft created, the user will review it." |
-| `draft_push` | `{ summary }` | only after the item's PR exists; the daemon adds the PR, branch and the commits the PR lacks (`git log origin/<branch>..HEAD`); creates Draft `push`, item → `needs_you`. Refused without a PR, or with no commits and nothing uncommitted |
+| `draft_push` | `{ summary, replies? }` | only after the item's PR exists; the daemon adds the PR, branch and the commits the PR lacks (`git log origin/<branch>..HEAD`); creates Draft `push`, item → `needs_you`. Refused without a PR, or with no commits and nothing uncommitted. `replies`: `[{ body, inReplyTo? }]`, posted after the push (6.9) |
+| `draft_comment` | `{ replies }` | replies to review feedback without a push; only after the item's PR exists; creates Draft `comment`, item → `needs_you`. Refused without a PR, without replies, or with an `inReplyTo` that is no known thread (6.9) |
 | `whoami` | – | returns item id, branch, worktree path, repo |
 
 A tool call not allowed by the playbook returns an error result (`isError: true`) with text, not a
@@ -751,6 +803,8 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/items/:id/ci/fix` | red CI with a session; resumes the agent with the failures |
 | POST | `/api/items/:id/conflict/resolve` | waiting merge conflict with a session; fetches the base, resumes the agent (6.7). 202 |
 | POST | `/api/items/:id/conflict/dismiss` | waiting merge conflict → back where it was (6.7) |
+| POST | `/api/items/:id/feedback/address` | waiting review feedback with a worktree and session; resumes the agent with it (6.9). 202 |
+| POST | `/api/items/:id/feedback/dismiss` | waiting review feedback → `done` (6.9) |
 | POST | `/api/items/:id/dismiss` | closed upstream, not running → `done` (D32); 409 otherwise |
 | GET | `/api/worktrees/orphaned` | worktrees under the root that no item uses |
 | POST | `/api/worktrees/orphaned/remove` | `{ path }`; only paths from the orphan list |
@@ -783,7 +837,8 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
   (stderr tail, Retry / Remove worktree) or red CI (failed checks with log tails, Fix with agent /
   Rerun failed / Mark done) or a push draft (commits, Approve and push / Reject) or a merge
   conflict ("PR #45 has merge conflicts with main", the files, Resolve with agent / I'll do it
-  myself).
+  myself) or review feedback (flag "Review", "PR #45 has review feedback from @ana", Address with
+  agent / Read / Mark done) or a reply draft (flag "Reply draft").
 - In Progress card of a `checking` item: "waiting for CI", Mark done.
 - Done card: PR link, Remove worktree. With `removeWorktreeOnMerge` on, a quiet note "Worktree is
   removed when PR #45 is merged" (PR linked) until it is; "Not removed: uncommitted changes" when
@@ -821,7 +876,10 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
   "Collapse all" next to Refresh open or close every file; each is disabled when it would change
   nothing and both are hidden without files. A new diff resets the state (auto-open up to 400
   changed lines).
-- Drafts list.
+- Drafts list. A push draft with replies, and a reply draft, list each reply with what it answers
+  ("Reply to @ana on src/a.ts:12" or "Comment on the pull request") and which are posted already.
+- Review feedback waiting on the user: each review and comment with author, the file and line and
+  the end of the diff hunk for inline ones, a link to GitHub, and Address with agent / Mark done.
 - The issue body and the PR draft body render as GitHub-flavoured Markdown (headings, lists, task
   lists read-only, tables, fenced code, quotes, strikethrough, autolinks). The PR draft has Write
   and Preview tabs; Preview shows the unsaved text and is where a new draft opens.

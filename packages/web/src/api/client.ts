@@ -47,6 +47,8 @@ export const api = {
   fixCi: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/ci/fix`),
   resolveConflict: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/conflict/resolve`),
   dismissConflict: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/conflict/dismiss`),
+  addressFeedback: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/feedback/address`),
+  dismissFeedback: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/feedback/dismiss`),
   dismiss: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/dismiss`),
   transcript: (id: string, after?: string) =>
     call<TranscriptMessage[]>(

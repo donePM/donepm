@@ -23,3 +23,8 @@ Recorded with `gh` 2.102.0 on 2026-10-03.
 - `pr-checks-none.stderr`: what gh prints (exit 1) when a PR has no checks; written by hand from
   gh's source.
 - `run-view-log-failed.txt`: `gh run view 37149187747 --log-failed`, the last 25 lines per job.
+- `pr-feedback.json`: `gh api graphql -F owner=vuejs -F name=core -F number=15751 -f query=<FEEDBACK_QUERY>`
+  (`src/gh/pr-feedback.ts`) on 2026-10-04, a public PR with a review that requests changes, its
+  inline comment, and bot comments.
+- `pr-feedback-bots.json`: the same with the review nodes emptied by hand, so only the bot comments
+  remain.

@@ -137,6 +137,34 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("describes review feedback and the replies to it", () => {
+    const entries = [
+      { kind: "review", id: 1, author: "ana", body: "", url: "u", at: "t" },
+      { kind: "inline", id: 2, author: "ana", body: "x", url: "u", at: "t" },
+      { kind: "comment", id: 3, author: "bo", body: "y", url: "u", at: "t" },
+    ];
+    const events = [
+      ev("pr.feedback", { number: 7, url: "u", entries }),
+      ev("agent.resumed", { reason: "pr_feedback" }, { actor: "user" }),
+      ev("draft.created", { type: "push", title: "Push 1 commit to PR #7, reply 2 times" }, { refId: "p", actor: "agent" }),
+      ev("draft.executed", { sha: "abcdef123", posted: [{ index: 0, url: "a" }, { index: 1, url: "b" }] }, { refId: "p" }),
+      ev("draft.created", { type: "comment", title: "Reply 1 time on PR #7" }, { refId: "c", actor: "agent" }),
+      ev("draft.execution_failed", { step: "reply", error: "HTTP 403" }, { refId: "c" }),
+      ev("draft.executed", { posted: [{ index: 0, url: "a" }] }, { refId: "c" }),
+      ev("pr.feedback_dismissed", { number: 7, url: "u" }, { actor: "user" }),
+    ];
+    expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail })).reverse()).toEqual([
+      { tone: "attention", text: "Review feedback on PR #7", detail: "3 from @ana, @bo" },
+      { tone: "user", text: "You let the agent address the review feedback", detail: undefined },
+      { tone: "attention", text: "Agent created push draft", detail: "Push 1 commit to PR #7, reply 2 times" },
+      { tone: "system", text: "Commits pushed, 2 replies posted", detail: undefined },
+      { tone: "attention", text: "Agent created reply draft", detail: "Reply 1 time on PR #7" },
+      { tone: "danger", text: "Posting the replies failed", detail: "HTTP 403" },
+      { tone: "system", text: "1 reply posted, done", detail: undefined },
+      { tone: "user", text: "You marked the review feedback done", detail: undefined },
+    ]);
+  });
+
   it("describes items closed upstream", () => {
     const events = [ev("item.closed_upstream"), ev("item.dismissed", {}, { actor: "user" })];
     expect(timelineEntries(events, []).map(({ tone, text }) => ({ tone, text }))).toEqual([

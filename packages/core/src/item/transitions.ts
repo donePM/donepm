@@ -1,6 +1,7 @@
 import type { Ctx } from "../ids.js";
 import type { Event, EventActor, EventType } from "../event/types.js";
 import type { PrConflict } from "../pr/conflict.js";
+import type { FeedbackEntry, PrFeedback } from "../pr/feedback.js";
 import type { ItemState, WorkItem } from "./types.js";
 
 export interface Transition {
@@ -471,6 +472,58 @@ export function prConflictFix(item: WorkItem, ctx: Ctx): Transition {
     ctx,
     undefined,
     { reason: "pr_conflict" },
+  );
+}
+
+/**
+ * Someone reviewed the done item's open PR (decision D39): the item comes back to the user with the
+ * new feedback. `entries` are only what no earlier `pr.feedback` had.
+ */
+export function prFeedback(item: WorkItem, ctx: Ctx, payload: CiPr & { entries: FeedbackEntry[] }): Transition {
+  return apply(
+    { name: "prFeedback", from: ["done"], to: "needs_you", actor: "system", event: "pr.feedback" },
+    item,
+    ctx,
+    undefined,
+    { ...payload },
+  );
+}
+
+/** The user let the agent address the feedback: `--resume` with the feedback as the message. */
+export function prFeedbackFix(item: WorkItem, ctx: Ctx): Transition {
+  if (!item.agentSessionId) throw new InvalidTransitionError("prFeedbackFix", item.state);
+  return apply(
+    { name: "prFeedbackFix", from: ["needs_you"], to: "running", actor: "user", event: "agent.resumed" },
+    item,
+    ctx,
+    undefined,
+    { reason: "pr_feedback" },
+  );
+}
+
+/** "Mark done": the user handles the feedback, or it needs nothing. The item is done again. */
+export function prFeedbackDismissed(item: WorkItem, ctx: Ctx, feedback: PrFeedback): Transition {
+  if (!feedback.waiting) throw new InvalidTransitionError("prFeedbackDismissed", item.state);
+  return apply(
+    { name: "prFeedbackDismissed", from: ["needs_you"], to: "done", actor: "user", event: "pr.feedback_dismissed" },
+    item,
+    ctx,
+    undefined,
+    { ...feedback.pr },
+  );
+}
+
+/**
+ * The daemon posted the replies of an approved comment draft (D39). No commit changed, so there is
+ * no CI to wait for: the item is done again.
+ */
+export function repliesPosted(item: WorkItem, ctx: Ctx, draftId: string, payload: Record<string, unknown> = {}): Transition {
+  return apply(
+    { name: "repliesPosted", from: ["needs_you"], to: "done", actor: "system", event: "draft.executed" },
+    item,
+    ctx,
+    draftId,
+    payload,
   );
 }
 

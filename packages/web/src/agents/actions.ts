@@ -30,3 +30,6 @@ export const markCiDone = (id: string) => run(id, api.markCiDone);
 /** A PR that conflicts with its base (D36): let the agent merge it, or take it on yourself. */
 export const resolveConflict = (id: string) => run(id, api.resolveConflict);
 export const dismissConflict = (id: string) => run(id, api.dismissConflict);
+/** Review feedback on a done item's PR (D39): let the agent address it, or call it done. */
+export const addressFeedback = (id: string) => run(id, api.addressFeedback);
+export const dismissFeedback = (id: string) => run(id, api.dismissFeedback);

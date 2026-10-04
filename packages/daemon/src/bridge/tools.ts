@@ -1,6 +1,6 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { createPrDraft, createPushDraft, DraftError, type DraftDeps } from "../drafts/actions.js";
+import { createCommentDraft, createPrDraft, createPushDraft, DraftError, type DraftDeps } from "../drafts/actions.js";
 import type { Exec } from "../process/exec.js";
 import type { BridgeSession } from "./sessions.js";
 
@@ -16,7 +16,24 @@ interface ToolDef {
 const text = (t: string, isError = false): CallToolResult => (isError ? { content: [{ type: "text", text: t }], isError } : { content: [{ type: "text", text: t }] });
 
 const DraftPrArgs = z.object({ title: z.string().trim().min(1), body: z.string() });
-const DraftPushArgs = z.object({ summary: z.string().trim().min(1) });
+const Reply = z.object({ body: z.string().trim().min(1), inReplyTo: z.number().int().positive().optional() }).strict();
+const DraftPushArgs = z.object({ summary: z.string().trim().min(1), replies: z.array(Reply).optional() });
+const DraftCommentArgs = z.object({ replies: z.array(Reply).min(1) });
+
+const REPLIES_SCHEMA = {
+  type: "array",
+  description:
+    "Answers to review feedback, posted after the user approves. Give inReplyTo the thread number from the feedback " +
+    "to answer an inline comment; leave it out to comment on the pull request.",
+  items: {
+    type: "object",
+    properties: {
+      body: { type: "string", description: "The reply in Markdown" },
+      inReplyTo: { type: "integer", description: "Thread number of the inline comment this answers" },
+    },
+    required: ["body"],
+  },
+};
 
 /** A draft tool's answer: the draft's creation, or why there is none, as text the model reads. */
 async function drafted(create: () => unknown): Promise<CallToolResult> {
@@ -85,21 +102,44 @@ const TOOLS: ToolDef[] = [
     tool: {
       name: "draft_push",
       description:
-        "Propose pushing your new commits to this item's open pull request, e.g. after fixing a failed CI. " +
+        "Propose pushing your new commits to this item's open pull request, e.g. after fixing a failed CI or addressing review feedback. " +
         "The user reviews and pushes; you cannot push yourself. Commit your work before calling this.",
       inputSchema: {
         type: "object",
-        properties: { summary: { type: "string", description: "What the new commits change, in a sentence or two" } },
+        properties: {
+          summary: { type: "string", description: "What the new commits change, in a sentence or two" },
+          replies: REPLIES_SCHEMA,
+        },
         required: ["summary"],
       },
     },
     call: (deps, session, args) => {
       const parsed = DraftPushArgs.safeParse(args ?? {});
-      if (!parsed.success) return text("draft_push needs a non-empty `summary`.", true);
-      return drafted(() => createPushDraft(deps, session.itemId, parsed.data));
+      if (!parsed.success) return text("draft_push needs a non-empty `summary`; each reply needs a non-empty `body`.", true);
+      return drafted(() => createPushDraft(deps, session.itemId, toInput(parsed.data)));
+    },
+  },
+  {
+    // Answering reviewers on the PR the user already approved belongs to the same outward action (D39).
+    draft: "pr",
+    tool: {
+      name: "draft_comment",
+      description:
+        "Propose replies to review feedback on this item's open pull request when no code needs to change. " +
+        "The user reviews and posts them; you cannot comment yourself. If you changed code, use draft_push with replies instead.",
+      inputSchema: { type: "object", properties: { replies: REPLIES_SCHEMA }, required: ["replies"] },
+    },
+    call: (deps, session, args) => {
+      const parsed = DraftCommentArgs.safeParse(args ?? {});
+      if (!parsed.success) return text("draft_comment needs `replies`, each with a non-empty `body`.", true);
+      return drafted(() => createCommentDraft(deps, session.itemId, { replies: parsed.data.replies.map(toReply) }));
     },
   },
 ];
+
+type ReplyArgs = z.infer<typeof Reply>;
+const toReply = (r: ReplyArgs) => (r.inReplyTo === undefined ? { body: r.body } : { body: r.body, inReplyTo: r.inReplyTo });
+const toInput = (a: z.infer<typeof DraftPushArgs>) => ({ summary: a.summary, ...(a.replies ? { replies: a.replies.map(toReply) } : {}) });
 
 const allowed = (session: BridgeSession) => TOOLS.filter((t) => !t.draft || session.drafts.includes(t.draft as never));
 

@@ -47,7 +47,7 @@ import { StatusStore } from "./status/status.js";
 import { TranscriptStore } from "./transcript/store.js";
 import { failMissingWorktrees, findOrphans } from "./worktrees/reconcile.js";
 import { watchPrs } from "./prs/watch.js";
-import { dismissConflict, resolveConflict } from "./prs/actions.js";
+import { addressFeedback, dismissConflict, dismissFeedback, resolveConflict } from "./prs/actions.js";
 import { fixCi, markCiDone, rerunCi } from "./ci/actions.js";
 import { watchCi } from "./ci/watch.js";
 import { removeItemWorktree, removeOrphan } from "./worktrees/remove.js";
@@ -195,7 +195,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       };
     },
   });
-  const draftDeps = { items, repos, drafts, writer, ctx: opts.ctx };
+  const draftDeps = { items, repos, drafts, events, writer, ctx: opts.ctx };
   failInterrupted(draftDeps);
 
   const worktreeRoot = () => expandHome(config.worktreeRoot, opts.home);
@@ -289,6 +289,9 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
         id,
       ),
     dismissConflict: (id) => dismissConflict({ items, events, writer, ctx: opts.ctx }, id),
+    addressFeedback: (id) =>
+      addressFeedback({ items, events, writer, ctx: opts.ctx, resume: async (itemId, how) => track(await resumeItem(startDeps(), itemId, how)) }, id),
+    dismissFeedback: (id) => dismissFeedback({ items, events, writer, ctx: opts.ctx }, id),
     view,
     answerAsk: (id, answer) => runner.answer(id, answer),
     grants: () => grants.active(),
