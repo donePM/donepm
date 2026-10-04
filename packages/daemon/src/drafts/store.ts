@@ -1,4 +1,6 @@
-import type { Draft, DraftState, PrDraft, PrDraftPayload, PrDraftResult, PushDraftResult } from "@donepm/core";
+import type { CommentDraftResult, Draft, DraftState, PrDraft, PrDraftPayload, PrDraftResult, PushDraftResult } from "@donepm/core";
+
+export type DraftResult = PrDraftResult | PushDraftResult | CommentDraftResult;
 import type { Db } from "../db/database.js";
 
 interface DraftRow {
@@ -14,6 +16,9 @@ interface DraftRow {
 function fromRow(r: DraftRow): Draft {
   const base = { id: r.id, itemId: r.item_id, state: r.state as DraftState };
   const result: unknown = r.result === null ? undefined : JSON.parse(r.result);
+  if (r.type === "comment") {
+    return { ...base, type: "comment", payload: JSON.parse(r.payload), ...(result ? { result: result as CommentDraftResult } : {}) };
+  }
   if (r.type === "push") {
     return { ...base, type: "push", payload: JSON.parse(r.payload), ...(result ? { result: result as PushDraftResult } : {}) };
   }
@@ -63,8 +68,13 @@ export class DraftStore {
   }
 
   /** Executed: the draft's result is stored with it. */
-  setResult(id: string, result: PrDraftResult | PushDraftResult, at: string): void {
+  setResult(id: string, result: DraftResult, at: string): void {
     this.db.prepare("UPDATE drafts SET state = 'executed', result = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(result), at, id);
+  }
+
+  /** What an execution got done so far, e.g. the replies already posted, so a retry skips them (D39). */
+  setProgress(id: string, result: DraftResult, at: string): void {
+    this.db.prepare("UPDATE drafts SET result = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(result), at, id);
   }
 
   setUserEdits(id: string, edits: PrDraftPayload, at: string): void {

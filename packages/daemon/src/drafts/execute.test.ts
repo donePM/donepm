@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
-import { agentFailed, ciFailed, ciFix } from "@donepm/core";
+import { agentFailed, ciFailed, ciFix, ciPassed, prFeedback, prFeedbackFix } from "@donepm/core";
 import { describe, expect, it } from "vitest";
 import { draftStores } from "../test-support/draft-stores.js";
 import { fail, fakeExec, ok, type FakeCall } from "../test-support/fake-exec.js";
-import { createPrDraft, createPushDraft, editDraft } from "./actions.js";
+import { createCommentDraft, createPrDraft, createPushDraft, editDraft } from "./actions.js";
 import { approveDraft, ExecutionError, failInterrupted, prResult, WIP_MESSAGE } from "./execute.js";
 
 const PR_URL = "https://github.com/o/r/pull/42";
@@ -129,6 +129,70 @@ describe("approveDraft", () => {
     await expect(approveDraft(u.deps, u.draft.id)).rejects.toMatchObject({ status: 409 });
     expect(u.exec.calls).toEqual([]);
     expect(u.drafts.get(u.draft.id)!.state).toBe("pending");
+  });
+});
+
+describe("approveDraft: replies to review feedback (D39)", () => {
+  /** The PR is open, a reviewer left an inline comment (thread 41), and the agent works on it. */
+  async function addressing(routes: Parameters<typeof fakeExec>[0] = {}) {
+    const t = setup({
+      "git -C /wt/1 log": ok("c0ffee\tRename\n"),
+      "git -C /wt/1 status --porcelain --untracked-files=all": ok(""),
+      "git -C /wt/1 rev-parse HEAD": ok("c0ffee\n"),
+      ...routes,
+    });
+    await approveDraft(t.deps, t.draft.id);
+    const { writer, ctx } = t.deps;
+    const done = writer.commit(ciPassed(t.items.get("item-1")!.item, ctx));
+    const entry = { kind: "inline" as const, id: 41, author: "ana", body: "Rename", url: "u", at: "t", path: "a.ts", line: 1, thread: 41 };
+    const back = writer.commit(prFeedback(done, ctx, { number: 42, url: PR_URL, entries: [entry] }));
+    writer.commit(prFeedbackFix(writer.save({ ...back, agentSessionId: "s1" }), ctx));
+    t.exec.calls.length = 0;
+    return t;
+  }
+
+  it("pushes, then posts each reply, and waits for CI", async () => {
+    const t = await addressing({
+      "gh api": ok("https://github.com/o/r/pull/42#discussion_r50\n"),
+      "gh pr comment": ok("https://github.com/o/r/pull/42#issuecomment-51\n"),
+    });
+    const push = await createPushDraft(t.deps, "item-1", { summary: "Rename", replies: [{ body: "Renamed.", inReplyTo: 41 }, { body: "Thanks!" }] });
+    t.exec.calls.length = 0;
+    expect(await approveDraft(t.deps, push.id)).toMatchObject({
+      result: { sha: "c0ffee", posted: [{ index: 0, url: expect.stringContaining("r50") }, { index: 1, url: expect.stringContaining("comment-51") }] },
+    });
+    expect(lines(t.exec.calls).map((l) => l.split(" ").slice(0, 3).join(" "))).toEqual([
+      "git -C /wt/1", "git -C /wt/1", "git -C /wt/1", "gh api --hostname", "gh pr comment",
+    ]);
+    expect(t.state()).toBe("checking");
+  });
+
+  it("keeps what was posted when a reply fails, and a retry posts only the rest", async () => {
+    let comments = 0;
+    const t = await addressing({
+      "gh api": ok("https://github.com/o/r/pull/42#discussion_r50\n"),
+      "gh pr comment": () => (++comments === 1 ? fail("HTTP 502") : ok("https://github.com/o/r/pull/42#issuecomment-51\n")),
+    });
+    const push = await createPushDraft(t.deps, "item-1", { summary: "Rename", replies: [{ body: "Renamed.", inReplyTo: 41 }, { body: "Thanks!" }] });
+    await expect(approveDraft(t.deps, push.id)).rejects.toMatchObject({ step: "reply", message: "posting reply 2 of 2 failed: HTTP 502" });
+    expect(t.drafts.get(push.id)).toMatchObject({ state: "failed", result: { posted: [{ index: 0 }] } });
+    expect(t.state()).toBe("needs_you");
+
+    t.exec.calls.length = 0;
+    await approveDraft(t.deps, push.id);
+    expect(lines(t.exec.calls).filter((l) => l.startsWith("gh "))).toEqual([expect.stringMatching(/^gh pr comment 42 /)]);
+    expect(t.drafts.get(push.id)).toMatchObject({ state: "executed", result: { posted: [{ index: 0 }, { index: 1 }] } });
+    expect(t.state()).toBe("checking");
+  });
+
+  it("a comment draft only posts, and the item is done again", async () => {
+    const t = await addressing({ "gh api": ok("https://github.com/o/r/pull/42#discussion_r50\n") });
+    const comment = createCommentDraft(t.deps, "item-1", { replies: [{ body: "It is on purpose.", inReplyTo: 41 }] });
+    await approveDraft(t.deps, comment.id);
+    expect(lines(t.exec.calls)).toEqual([expect.stringMatching(/^gh api --hostname github\.com --method POST repos\/o\/r\/pulls\/42\/comments\/41\/replies /)]);
+    expect(t.state()).toBe("done");
+    expect(t.events.forItem("item-1").at(-1)).toMatchObject({ type: "draft.executed", refId: comment.id, payload: { posted: [{ index: 0 }] } });
+    expect(t.stopped.at(-1)).toBe("item-1");
   });
 });
 

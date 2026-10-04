@@ -5,8 +5,10 @@ import {
   draftExecutionFailed, draftRejected, interrupted, issueAssignFailed, issueAssigned, resume, start, worktreeRemoved,
   turnEnded, turnStarted, closedUpstream, ciFailed, ciFix, ciMarkedDone, ciPassed, ciRerun, dismissed, wasStarted, prMerged, worktreeRemovedOnMerge, worktreeRemoveSkipped,
   prConflicted, prConflictResolved, prConflictDismissed, prConflictFix, archived, alwaysAllowed, grantRevoked,
+  prFeedback, prFeedbackFix, prFeedbackDismissed, repliesPosted,
 } from "./transitions.js";
 import type { PrConflict } from "../pr/conflict.js";
+import type { FeedbackEntry, PrFeedback } from "../pr/feedback.js";
 import type { ItemState, WorkItem } from "./types.js";
 
 function makeCtx(): Ctx {
@@ -25,6 +27,9 @@ function item(state: ItemState, extra: Partial<WorkItem> = {}): WorkItem {
 
 const PR = { number: 5, url: "https://github.com/o/r/pull/5" };
 const conflict: PrConflict = { pr: PR, base: "main", files: ["a.ts"], from: "checking", waiting: true };
+
+const entry: FeedbackEntry = { kind: "review", id: 1, author: "rev", body: "Please rename", url: "https://github.com/o/r/pull/5#r1", at: "2026-10-03T11:00:00Z", state: "CHANGES_REQUESTED" };
+const feedback: PrFeedback = { pr: PR, entries: [entry], waiting: true };
 
 const ALL: ItemState[] = ["ready", "running", "needs_you", "checking", "done", "failed"];
 
@@ -57,6 +62,10 @@ const table: Array<{
   { name: "prConflicted", run: (i) => prConflicted(i, makeCtx(), { ...PR, base: "main", files: [] }), from: ["done", "checking"], to: "needs_you", type: "pr.conflicted", actor: "system" },
   { name: "prConflictDismissed", run: (i) => prConflictDismissed(i, makeCtx(), conflict), from: ["needs_you"], to: "checking", type: "pr.conflict_dismissed", actor: "user" },
   { name: "prConflictFix", run: (i) => prConflictFix({ ...i, agentSessionId: "sess" }, makeCtx()), from: ["needs_you"], to: "running", type: "agent.resumed", actor: "user" },
+  { name: "prFeedback", run: (i) => prFeedback(i, makeCtx(), { ...PR, entries: [entry] }), from: ["done"], to: "needs_you", type: "pr.feedback", actor: "system" },
+  { name: "prFeedbackFix", run: (i) => prFeedbackFix({ ...i, agentSessionId: "sess" }, makeCtx()), from: ["needs_you"], to: "running", type: "agent.resumed", actor: "user" },
+  { name: "prFeedbackDismissed", run: (i) => prFeedbackDismissed(i, makeCtx(), feedback), from: ["needs_you"], to: "done", type: "pr.feedback_dismissed", actor: "user" },
+  { name: "repliesPosted", run: (i) => repliesPosted(i, makeCtx(), "d-1"), from: ["needs_you"], to: "done", type: "draft.executed", actor: "system" },
 ];
 
 describe.each(table)("$name", ({ run, from, to, type, actor, name }) => {
@@ -120,6 +129,14 @@ describe("details", () => {
     expect(prConflictFix(item("needs_you", { agentSessionId: "s" }), makeCtx()).events[0]?.payload).toEqual({ reason: "pr_conflict" });
     expect(() => prConflictFix(item("needs_you"), makeCtx())).toThrow(InvalidTransitionError);
     expect(() => prConflictDismissed(item("needs_you"), makeCtx(), { ...conflict, waiting: false })).toThrow(InvalidTransitionError);
+  });
+
+  it("prFeedback carries the PR and the entries; prFeedbackFix needs a session; dismissing needs waiting feedback", () => {
+    expect(prFeedback(item("done"), makeCtx(), { ...PR, entries: [entry] }).events[0]?.payload).toEqual({ ...PR, entries: [entry] });
+    expect(prFeedbackFix(item("needs_you", { agentSessionId: "s" }), makeCtx()).events[0]?.payload).toEqual({ reason: "pr_feedback" });
+    expect(() => prFeedbackFix(item("needs_you"), makeCtx())).toThrow(InvalidTransitionError);
+    expect(() => prFeedbackDismissed(item("needs_you"), makeCtx(), { ...feedback, waiting: false })).toThrow(InvalidTransitionError);
+    expect(repliesPosted(item("needs_you"), makeCtx(), "d-9").events[0]?.refId).toBe("d-9");
   });
 
   it("prConflictResolved returns a waiting item to where it was and leaves any other where it is", () => {

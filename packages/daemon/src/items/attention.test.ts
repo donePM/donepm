@@ -94,6 +94,14 @@ describe("attentionOf", () => {
       expect(attentionOf({ ...waiting, agentAlive: true, events: [conflicted] })).toBeUndefined();
     });
 
+    it("shows review feedback the item waits on, until the agent works on it", () => {
+      const entries = [{ kind: "comment", id: 3, author: "ana", body: "Why?", url: "u", at: "t" }];
+      const fb = ev("pr.feedback", { ...pr, entries });
+      expect(attentionOf({ ...waiting, events: [ev("ci.passed"), fb] })).toEqual({ kind: "pr_feedback", pr, entries });
+      expect(attentionOf({ ...waiting, events: [fb, ev("agent.resumed", { reason: "pr_feedback" }), ev("agent.turn_ended")] })).toMatchObject({ kind: "resume" });
+      expect(attentionOf({ ...waiting, agentAlive: true, events: [fb] })).toBeUndefined();
+    });
+
     it("comes before Resume and gives way once the agent works on it", () => {
       expect(attentionOf({ ...waiting, events: [red, ev("agent.resumed", { reason: "ci_failed" }), ev("agent.turn_ended")] })).toMatchObject({ kind: "resume" });
       expect(attentionOf({ ...waiting, agentAlive: true, events: [red] })).toBeUndefined();

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { dismissConflict, dismissItem, fixCi, markCiDone, pending, removeWorktree, rerunCi, resolveConflict, resumeAgent, startAgent, stopAgent } from "../agents/actions";
+import { addressFeedback, dismissConflict, dismissFeedback, dismissItem, fixCi, markCiDone, pending, removeWorktree, rerunCi, resolveConflict, resumeAgent, startAgent, stopAgent } from "../agents/actions";
 import { api } from "../api/client";
 import { errorText, isPublishFailure } from "../api/errors";
 import type { ItemView } from "../api/types";
@@ -41,9 +41,11 @@ const flag = computed(() => {
   const a = attention.value;
   if (!a) return undefined;
   if (a.kind === "draft" && a.draftType === "push") return a.error ? "Push failed" : a.executing ? "Pushing" : "Push draft";
+  if (a.kind === "draft" && a.draftType === "comment") return a.error ? "Replies failed" : a.executing ? "Posting" : "Reply draft";
   if (a.kind === "draft") return a.error ? "PR failed" : a.executing ? "Publishing" : "PR draft";
   if (a.kind === "ci_failed") return "CI failed";
   if (a.kind === "pr_conflict") return "Conflict";
+  if (a.kind === "pr_feedback") return "Review";
   if (a.kind === "resume") return "Interrupted";
   return a.kind === "ask" ? "Permission" : "Failed";
 });
@@ -63,6 +65,10 @@ watch(
     }
   },
   { immediate: true },
+);
+
+const feedbackAuthors = computed(() =>
+  attention.value?.kind === "pr_feedback" ? [...new Set(attention.value.entries.map((e) => `@${e.author}`))].join(", ") : "",
 );
 
 /** Last lines only; the detail view shows all of it. */
@@ -190,6 +196,17 @@ async function act(fn: (id: string) => Promise<void>) {
         <button class="btn subtle" type="button" :disabled="busy" @click="act(dismissConflict)">I'll do it myself</button>
       </div>
     </template>
+    <template v-else-if="attention?.kind === 'pr_feedback'">
+      <p class="reason">
+        <a :href="attention.pr.url" target="_blank" rel="noreferrer" class="pr mono">PR #{{ attention.pr.number }}</a> has review feedback from
+        {{ feedbackAuthors }}
+      </p>
+      <div class="actions">
+        <button class="btn btn-primary" type="button" :disabled="busy || !item.agentSessionId" title="Resume the agent with the comments; it proposes a push or reply draft" @click="act(addressFeedback)">Address with agent</button>
+        <RouterLink :to="{ name: 'item', params: { id: item.id } }" class="btn">Read</RouterLink>
+        <button class="btn subtle" type="button" :disabled="busy" @click="act(dismissFeedback)">Mark done</button>
+      </div>
+    </template>
     <template v-else-if="attention?.kind === 'failed'">
       <p class="reason">{{ attention.reason }}</p>
       <pre v-if="stderrTail" class="stderr mono">{{ stderrTail }}</pre>
@@ -208,7 +225,7 @@ async function act(fn: (id: string) => Promise<void>) {
     <p v-else-if="item.pr && merge?.kind === 'pending'" class="note quiet">
       Worktree is removed when <a :href="item.pr.url" target="_blank" rel="noreferrer" class="pr mono">PR #{{ item.pr.number }}</a> is merged
     </p>
-    <div v-else-if="item.pr && attention?.kind !== 'pr_conflict'" class="pr-line">
+    <div v-else-if="item.pr && attention?.kind !== 'pr_conflict' && attention?.kind !== 'pr_feedback'" class="pr-line">
       <a :href="item.pr.url" target="_blank" rel="noreferrer" class="pr mono">PR #{{ item.pr.number }}</a>
       <span v-if="merge?.kind === 'merged'" class="merged">PR merged</span>
       <span v-else-if="merge?.kind === 'skipped'" class="note warn">Not removed: {{ merge.reason }}</span>

@@ -1,7 +1,9 @@
 import { existsSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ciPassed, draftCreated, draftExecuted, prConflictDismissed, prConflictOf, start, type WorkItem } from "@donepm/core";
+import {
+  ciPassed, draftCreated, draftExecuted, prConflictDismissed, prConflictOf, prFeedbackDismissed, prFeedbackOf, start, type WorkItem,
+} from "@donepm/core";
 import { describe, expect, it } from "vitest";
 import { openDb } from "../db/database.js";
 import { DraftStore } from "../drafts/store.js";
@@ -19,7 +21,7 @@ import { watchPrs } from "./watch.js";
 const PR = { url: "https://github.com/acme/widgets/pull/45", number: 45 };
 
 /** A done (or CI-waiting) item whose draft opened PR #45, with a real worktree; gh answers `prView`. */
-async function setup(opts: { removeOnMerge: boolean; prView?: () => string; ghFails?: boolean; checking?: boolean }) {
+async function setup(opts: { removeOnMerge: boolean; prView?: () => string; ghFails?: boolean; checking?: boolean; feedback?: () => string }) {
   const { clone } = await cloneWithOrigin({ ".donepm/setup.yml": "copy:\n  - .env.local\n" });
   const worktree = join(clone, "..", "wt-45");
   git(clone, "worktree", "add", "-q", "-b", "dp/45-fix", worktree);
@@ -49,13 +51,16 @@ async function setup(opts: { removeOnMerge: boolean; prView?: () => string; ghFa
   const gh = fakeExec({
     "gh pr view": () => (opts.ghFails ? fail("HTTP 502") : ok(opts.prView?.() ?? fixture("gh/pr-view-merged.json"))),
   });
-  const exec: Exec = (cmd, args, o) => (cmd === "gh" ? gh(cmd, args, o) : realExec(cmd, args, o));
+  // Reviews come from `gh api graphql` (D39), kept apart so `gh.calls` counts `gh pr view`.
+  const api = fakeExec({ "gh api graphql": () => ok(opts.feedback?.() ?? fixture("gh/pr-feedback-bots.json")) });
+  const exec: Exec = (cmd, args, o) =>
+    cmd === "gh" ? (args[0] === "api" ? api(cmd, args, o) : gh(cmd, args, o)) : realExec(cmd, args, o);
   const deps = {
     items, events, drafts, repos, writer, exec, ctx, log: silentLog,
     removeOnMerge: () => opts.removeOnMerge, agentActive: () => false,
   };
   const types = () => events.forItem(item.id).map((e) => e.type).slice(opts.checking ? 4 : 5);
-  return { deps, gh, clone, worktree, items, events, types, ctx, writer, item: () => items.get(item.id)!.item };
+  return { deps, gh, api, clone, worktree, items, events, types, ctx, writer, item: () => items.get(item.id)!.item };
 }
 
 describe("watchPrs: merged PRs", () => {
@@ -236,5 +241,49 @@ describe("watchPrs: conflicts", () => {
     await watchPrs(t.deps);
     expect(t.types()).toEqual(["item.pr_merged"]);
     expect(t.gh.calls).toHaveLength(2);
+  });
+});
+
+describe("watchPrs: review feedback", () => {
+  it("brings a done item with an open PR back once per new feedback, without the bots", async () => {
+    let feedback = fixture("gh/pr-feedback-bots.json");
+    const t = await setup({ removeOnMerge: false, prView: () => fixture("gh/pr-view-open.json"), feedback: () => feedback });
+    await watchPrs(t.deps);
+    expect(t.types()).toEqual([]);
+    expect(t.api.calls[0]?.args.slice(0, 10).join(" ")).toBe("api graphql --hostname github.com -F owner=acme -F name=widgets -F number=45");
+
+    feedback = fixture("gh/pr-feedback.json");
+    await watchPrs(t.deps);
+    expect(t.item().state).toBe("needs_you");
+    expect(t.types()).toEqual(["pr.feedback"]);
+    const fb = prFeedbackOf(t.events.forItem("item-1"))!;
+    expect(fb).toMatchObject({ pr: { number: 45, url: PR.url }, waiting: true });
+    expect(fb.entries.map((e) => e.kind)).toEqual(["inline", "review"]);
+
+    // Waiting on the user: no more review calls until the item is done again.
+    await watchPrs(t.deps);
+    expect(t.api.calls).toHaveLength(2);
+    t.writer.commit(prFeedbackDismissed(t.item(), t.ctx, fb));
+    await watchPrs(t.deps);
+    expect(t.item().state).toBe("done");
+    expect(t.types()).toEqual(["pr.feedback", "pr.feedback_dismissed"]);
+  });
+
+  it("asks only about open PRs of done items", async () => {
+    const checking = await setup({ removeOnMerge: false, prView: () => fixture("gh/pr-view-open.json"), checking: true, feedback: () => fixture("gh/pr-feedback.json") });
+    await watchPrs(checking.deps);
+    expect(checking.api.calls).toHaveLength(0);
+
+    const merged = await setup({ removeOnMerge: false, feedback: () => fixture("gh/pr-feedback.json") });
+    await watchPrs(merged.deps);
+    expect(merged.api.calls).toHaveLength(0);
+    expect(merged.types()).toEqual(["item.pr_merged"]);
+  });
+
+  it("changes nothing when reading the reviews fails", async () => {
+    const t = await setup({ removeOnMerge: false, prView: () => fixture("gh/pr-view-open.json"), feedback: () => "not json" });
+    await watchPrs(t.deps);
+    expect(t.types()).toEqual([]);
+    expect(t.item().state).toBe("done");
   });
 });

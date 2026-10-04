@@ -68,7 +68,7 @@ describe("bridge server", () => {
     const a = await bridge(["pr"]);
     const withPr = await client(a.path, a.token);
     expect(withPr.getServerVersion()).toMatchObject({ name: "donepm" });
-    expect((await withPr.listTools()).tools.map((t) => t.name)).toEqual(["whoami", "draft_pr", "draft_push"]);
+    expect((await withPr.listTools()).tools.map((t) => t.name)).toEqual(["whoami", "draft_pr", "draft_push", "draft_comment"]);
 
     const b = await bridge([]);
     const noPr = await client(b.path, b.token);
@@ -122,5 +122,27 @@ describe("bridge server", () => {
     ]);
     expect(b.state()).toBe("needs_you");
     expect((await c.callTool({ name: "draft_push", arguments: {} })).isError).toBe(true);
+  });
+  it("draft_comment and draft_push replies may only answer threads the feedback brought in (D39)", async () => {
+    const b = await bridge(["pr"]);
+    const c = await client(b.path, b.token);
+    expect((await c.callTool({ name: "draft_comment", arguments: { replies: [{ body: "Done" }] } })).content).toEqual([
+      { type: "text", text: "No draft was created: there is no pull request to comment on." },
+    ]);
+    b.drafts.insert({ id: "d-pr", itemId: "item-1", type: "pr", payload: { title: "Fix it", body: "", base: "main" }, state: "executed" }, "2026-10-01T00:00:00.000Z");
+    b.drafts.setResult("d-pr", { number: 7, url: "https://github.com/o/r/pull/7" }, "2026-10-01T00:00:00.000Z");
+    const entry = { kind: "inline", id: 42, author: "ana", body: "Rename", url: "u", at: "t", path: "a.ts", line: 1, thread: 41 };
+    b.events.append([{ id: "fb", itemId: "item-1", at: "2026-10-01T00:00:00.000Z", actor: "system", type: "pr.feedback", payload: { number: 7, url: "https://github.com/o/r/pull/7", entries: [entry] } }]);
+
+    const wrong = await c.callTool({ name: "draft_push", arguments: { summary: "Rename", replies: [{ body: "Done", inReplyTo: 42 }] } });
+    expect((wrong.content as any)[0].text).toMatch(/no review thread 42/);
+    expect((await c.callTool({ name: "draft_comment", arguments: { replies: [] } })).isError).toBe(true);
+
+    const res = await c.callTool({ name: "draft_comment", arguments: { replies: [{ body: "Kept it, see the test.", inReplyTo: 41 }, { body: "Thanks!" }] } });
+    expect(res.isError).toBeFalsy();
+    expect(b.drafts.pending("item-1")).toMatchObject([
+      { type: "comment", payload: { number: 7, url: "https://github.com/o/r/pull/7", replies: [{ body: "Kept it, see the test.", inReplyTo: 41 }, { body: "Thanks!" }] } },
+    ]);
+    expect(b.events.forItem("item-1").at(-1)).toMatchObject({ type: "draft.created", payload: { type: "comment", title: "Reply 2 times on PR #7" } });
   });
 });
