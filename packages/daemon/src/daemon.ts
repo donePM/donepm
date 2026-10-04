@@ -1,4 +1,4 @@
-import { executedPr, prMergeOf, type Ctx, type WorkItem } from "@donepm/core";
+import { executedPr, prConflictOf, prMergeOf, type Ctx, type PrConflict, type WorkItem } from "@donepm/core";
 import type { FastifyInstance } from "fastify";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -42,7 +42,8 @@ import { RepoStore } from "./repos/store.js";
 import { StatusStore } from "./status/status.js";
 import { TranscriptStore } from "./transcript/store.js";
 import { failMissingWorktrees, findOrphans } from "./worktrees/reconcile.js";
-import { settleMergedPrs } from "./worktrees/on-merge.js";
+import { watchPrs } from "./prs/watch.js";
+import { dismissConflict, resolveConflict } from "./prs/actions.js";
 import { fixCi, markCiDone, rerunCi } from "./ci/actions.js";
 import { watchCi } from "./ci/watch.js";
 import { removeItemWorktree, removeOrphan } from "./worktrees/remove.js";
@@ -130,7 +131,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
         drafts: itemDrafts,
         events: itemEvents,
       }),
-      pr ? { ...pr, ...prMergeOf(itemEvents) } : undefined,
+      pr ? { ...pr, ...prMergeOf(itemEvents), ...conflictView(prConflictOf(itemEvents)) } : undefined,
     );
   };
   const pushItem = (item: WorkItem) => hub.push("item.updated", view(item));
@@ -207,7 +208,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       await collectIssues({ db, exec: opts.exec, items, events, repos, status, ctx: opts.ctx, log: app.log, sources: () => config.sources, onItemUpdated: pushItem });
       if (status.get().gh?.state !== "ready") return;
       await watchCi({ items, events, writer, exec: opts.exec, ctx: opts.ctx, log: app.log });
-      await settleMergedPrs({
+      await watchPrs({
         items, events, drafts, repos, writer, exec: opts.exec, ctx: opts.ctx, log: app.log,
         removeOnMerge: () => config.removeWorktreeOnMerge,
         agentActive: (i) => runner.isRunning(i),
@@ -248,6 +249,12 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     markCiDone: (id) => markCiDone({ items, events, writer, ctx: opts.ctx, agentActive: (i) => runner.isRunning(i) }, id),
     fixCi: (id) =>
       fixCi({ items, events, writer, ctx: opts.ctx, resume: async (itemId, how) => track(await resumeItem(startDeps(), itemId, how)) }, id),
+    resolveConflict: (id) =>
+      resolveConflict(
+        { items, events, writer, repos, ctx: opts.ctx, exec: opts.exec, resume: async (itemId, how) => track(await resumeItem(startDeps(), itemId, how)) },
+        id,
+      ),
+    dismissConflict: (id) => dismissConflict({ items, events, writer, ctx: opts.ctx }, id),
     view,
     answerAsk: (id, answer) => runner.answer(id, answer),
     diff: (input) => itemDiff(opts.exec, input),
@@ -319,4 +326,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     },
     pollNow: () => poller.runNow(),
   };
+}
+
+function conflictView(c: PrConflict | undefined) {
+  return c ? { conflict: { base: c.base, files: c.files, waiting: c.waiting } } : {};
 }

@@ -1,11 +1,10 @@
 import { existsSync } from "node:fs";
 import {
-  executedPr, prMerged, prMergeOf, worktreeRemovedOnMerge, worktreeRemoveSkipped,
+  prMerged, prMergeOf, worktreeRemovedOnMerge, worktreeRemoveSkipped,
   type Ctx, type PrDraftResult, type WorkItem,
 } from "@donepm/core";
 import type { DraftStore } from "../drafts/store.js";
 import type { EventStore } from "../events/store.js";
-import { fetchPrState } from "../gh/pr-state.js";
 import type { ItemWriter } from "../items/commit.js";
 import type { ItemStore } from "../items/store.js";
 import type { Log } from "../log.js";
@@ -31,34 +30,12 @@ export interface OnMergeDeps {
 }
 
 /**
- * Part of each poll (decision D33): for every done item that still has a worktree and whose draft
- * opened a PR, ask GitHub whether the PR was merged, until it was. Merged and the user opted in:
- * remove the worktree like the button does, unless it holds uncommitted or untracked changes.
- * Otherwise record `item.pr_merged` once. Never throws; a failing item does not stop the others.
+ * A done item whose PR was merged (decision D33), called by the PR poll (`watchPrs`) once GitHub
+ * said so or the events already know. The user opted in: remove the worktree like the button does,
+ * unless it holds uncommitted or untracked changes. Otherwise record `item.pr_merged` once.
  */
-export async function settleMergedPrs(deps: OnMergeDeps): Promise<void> {
-  for (const { item } of deps.items.all()) {
-    if (item.state !== "done" || !item.worktreePath) continue;
-    const pr = executedPr(deps.drafts.forItem(item.id));
-    if (!pr) continue;
-    try {
-      await settle(deps, item, pr);
-    } catch (e) {
-      deps.log.warn({ itemId: item.id, err: e }, "checking the merged PR failed");
-    }
-  }
-}
-
-async function settle(deps: OnMergeDeps, item: WorkItem, pr: PrDraftResult): Promise<void> {
+export async function settleMerged(deps: OnMergeDeps, item: WorkItem, pr: PrDraftResult): Promise<void> {
   const known = prMergeOf(deps.events.forItem(item.id));
-  if (!known.merged) {
-    const state = await fetchPrState(deps.exec, pr);
-    if (!state.ok) {
-      deps.log.warn({ itemId: item.id, pr: pr.url, error: state.error }, "gh pr view failed");
-      return;
-    }
-    if (state.state !== "MERGED") return;
-  }
   const facts = { number: pr.number, url: pr.url };
   const markMerged = () => {
     if (!known.merged) deps.writer.commit(prMerged(itemNow(deps, item), deps.ctx, facts));

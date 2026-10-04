@@ -11,6 +11,7 @@ import type { OrphanWorktree } from "../worktrees/reconcile.js";
 import { RemoveError } from "../worktrees/remove.js";
 import { DismissError } from "../items/dismiss.js";
 import { CiActionError } from "../ci/actions.js";
+import { ConflictActionError } from "../prs/actions.js";
 import type { AskStore } from "../asks/store.js";
 import { ConfigSchema, SourceKey, type Config } from "../config/config.js";
 import { DraftError } from "../drafts/actions.js";
@@ -60,6 +61,10 @@ export interface ServerDeps {
   markCiDone: (id: string) => WorkItem;
   /** Throws CiActionError or StartError; same contract as resumeItem, with the failures as the message. */
   fixCi: (id: string) => Promise<unknown>;
+  /** Throws ConflictActionError or StartError. Fetches the base and resumes the agent on a PR's merge conflict (D36). */
+  resolveConflict: (id: string) => Promise<unknown>;
+  /** Throws ConflictActionError. "I'll do it myself": the item goes back to where it was. */
+  dismissConflict: (id: string) => WorkItem;
   /** Throws StopError when no agent process is alive. Resolves once it exited. */
   stopItem: (id: string) => Promise<void>;
   /** The item as the API shows it: clone, badges, agent. */
@@ -124,7 +129,7 @@ async function ciCall<T>(reply: FastifyReply, fn: () => Promise<T>) {
   try {
     return await fn();
   } catch (e) {
-    if (e instanceof CiActionError || e instanceof StartError) return reply.code(e.status).send({ error: e.message });
+    if (e instanceof CiActionError || e instanceof ConflictActionError || e instanceof StartError) return reply.code(e.status).send({ error: e.message });
     throw e;
   }
 }
@@ -228,6 +233,15 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const r = await ciCall(reply, () => deps.fixCi(req.params.id));
     return reply.sent ? r : reply.code(202).send(r);
   });
+
+  app.post<{ Params: { id: string } }>("/api/items/:id/conflict/resolve", async (req, reply) => {
+    const r = await ciCall(reply, () => deps.resolveConflict(req.params.id));
+    return reply.sent ? r : reply.code(202).send(r);
+  });
+
+  app.post<{ Params: { id: string } }>("/api/items/:id/conflict/dismiss", async (req, reply) =>
+    ciCall(reply, async () => deps.view(deps.dismissConflict(req.params.id))),
+  );
 
   app.post<{ Params: { id: string } }>("/api/items/:id/stop", async (req, reply) => {
     if (!deps.items.get(req.params.id)) return reply.code(404).send({ error: "item not found" });

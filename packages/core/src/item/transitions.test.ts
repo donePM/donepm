@@ -4,7 +4,9 @@ import {
   InvalidTransitionError, agentAsked, agentFailed, answered, autoAllowed, draftApproved, draftCreated, draftEdited, draftExecuted,
   draftExecutionFailed, draftRejected, interrupted, issueAssignFailed, issueAssigned, resume, start, worktreeRemoved,
   turnEnded, turnStarted, closedUpstream, ciFailed, ciFix, ciMarkedDone, ciPassed, ciRerun, dismissed, wasStarted, prMerged, worktreeRemovedOnMerge, worktreeRemoveSkipped,
+  prConflicted, prConflictResolved, prConflictDismissed, prConflictFix,
 } from "./transitions.js";
+import type { PrConflict } from "../pr/conflict.js";
 import type { ItemState, WorkItem } from "./types.js";
 
 function makeCtx(): Ctx {
@@ -20,6 +22,9 @@ function item(state: ItemState, extra: Partial<WorkItem> = {}): WorkItem {
     ...extra,
   };
 }
+
+const PR = { number: 5, url: "https://github.com/o/r/pull/5" };
+const conflict: PrConflict = { pr: PR, base: "main", files: ["a.ts"], from: "checking", waiting: true };
 
 const ALL: ItemState[] = ["ready", "running", "needs_you", "checking", "done", "failed"];
 
@@ -49,6 +54,9 @@ const table: Array<{
   { name: "ciRerun", run: (i) => ciRerun(i, makeCtx(), { number: 5, url: "u" }, ["9"]), from: ["needs_you"], to: "checking", type: "ci.started", actor: "user" },
   { name: "ciMarkedDone", run: (i) => ciMarkedDone(i, makeCtx()), from: ["checking", "needs_you"], to: "done", type: "ci.marked_done", actor: "user" },
   { name: "ciFix", run: (i) => ciFix({ ...i, agentSessionId: "sess" }, makeCtx()), from: ["needs_you"], to: "running", type: "agent.resumed", actor: "user" },
+  { name: "prConflicted", run: (i) => prConflicted(i, makeCtx(), { ...PR, base: "main", files: [] }), from: ["done", "checking"], to: "needs_you", type: "pr.conflicted", actor: "system" },
+  { name: "prConflictDismissed", run: (i) => prConflictDismissed(i, makeCtx(), conflict), from: ["needs_you"], to: "checking", type: "pr.conflict_dismissed", actor: "user" },
+  { name: "prConflictFix", run: (i) => prConflictFix({ ...i, agentSessionId: "sess" }, makeCtx()), from: ["needs_you"], to: "running", type: "agent.resumed", actor: "user" },
 ];
 
 describe.each(table)("$name", ({ run, from, to, type, actor, name }) => {
@@ -105,6 +113,21 @@ describe("details", () => {
     expect(events.map((e) => [e.type, e.id, e.refId])).toEqual([["draft.executed", "evt-1", "d-1"], ["ci.started", "evt-2", "d-1"]]);
     expect(events[1]?.payload).toEqual({ number: 7, url: "https://x/pull/7" });
     expect(() => draftExecuted(item("running"), makeCtx(), "d-1", { number: 7, url: "u" })).toThrow(/draftExecuted.*running/);
+  });
+
+  it("prConflicted remembers where the item was; prConflictFix records why it resumed and needs a session", () => {
+    expect(prConflicted(item("done"), makeCtx(), { ...PR, base: "main", files: ["a.ts"] }).events[0]?.payload).toEqual({ ...PR, base: "main", files: ["a.ts"], from: "done" });
+    expect(prConflictFix(item("needs_you", { agentSessionId: "s" }), makeCtx()).events[0]?.payload).toEqual({ reason: "pr_conflict" });
+    expect(() => prConflictFix(item("needs_you"), makeCtx())).toThrow(InvalidTransitionError);
+    expect(() => prConflictDismissed(item("needs_you"), makeCtx(), { ...conflict, waiting: false })).toThrow(InvalidTransitionError);
+  });
+
+  it("prConflictResolved returns a waiting item to where it was and leaves any other where it is", () => {
+    const back = prConflictResolved(item("needs_you"), makeCtx(), conflict);
+    expect(back.item.state).toBe("checking");
+    expect(back.events[0]).toMatchObject({ type: "pr.conflict_resolved", actor: "system", payload: PR });
+    expect(prConflictResolved(item("needs_you"), makeCtx(), { ...conflict, waiting: false }).item.state).toBe("needs_you");
+    expect(prConflictResolved(item("done"), makeCtx(), { ...conflict, waiting: false }).item.state).toBe("done");
   });
 
   it("ciRerun records the runs; ciFix records why it resumed and needs a session", () => {

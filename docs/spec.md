@@ -77,13 +77,14 @@ functions. `daemon` calls them and persists the result.
 ```
 ready → running → needs_you → running → ... → checking → done
                 ↘ failed                         ↘ needs_you (CI red) → running (fix) → …
+checking | done → needs_you (PR conflicts, 6.7) → running (resolve) → … | back where it was
 ```
 
 | state | column | meaning |
 |---|---|---|
 | ready | Ready | collected, no agent yet |
 | running | In Progress | agent turn is open |
-| needs_you | Needs You | agent waits: permission question, or a draft is pending |
+| needs_you | Needs You | agent waits: permission question, or a draft is pending; or the PR's CI is red or it conflicts with its base |
 | checking | In Progress | the PR is open and the daemon waits for its CI (6.6); no agent runs |
 | done | Done | CI of the PR passed, the PR has no CI, or the user marked it done |
 | failed | Needs You | agent exited with error; card shows stderr tail and offers retry |
@@ -92,7 +93,8 @@ Transitions are functions in `core`: `start(item)`, `agentAsked(item)`, `answere
 `draftCreated(item)`, `draftApproved(item)`, `draftExecuted(item)`, `draftExecutionFailed(item)`,
 `draftRejected(item)`, `agentFailed(item)`, `interrupted(item)`, `resume(item)`,
 `worktreeRemoved(item)`, `ciPassed(item)`, `ciFailed(item)`, `ciRerun(item)`, `ciMarkedDone(item)`,
-`ciFix(item)`.
+`ciFix(item)`, `prConflicted(item)`, `prConflictResolved(item)`, `prConflictDismissed(item)`,
+`prConflictFix(item)`.
 Invalid transitions throw.
 
 ### 4.3 Event
@@ -117,8 +119,10 @@ see 6.4), `permission.auto_allowed` (the daemon answered a WebFetch ask itself, 
 `item.closed_upstream` (a never-started item moved to Done) and `item.dismissed` (the user moved
 a started one to Done), both see 6.2, `item.pr_merged` (the item's PR was merged, the worktree
 stays) and `worktree.remove_skipped` (merged, but the worktree has uncommitted changes), both see
-6.5, `ci.started`, `ci.passed`, `ci.failed` and `ci.marked_done` (see 6.6). `agent.resumed` carries
-`reason: "ci_failed"` when the user let the agent fix a red CI. `worktree.removed` carries `reason: "pr_merged"` and actor `system` when the poll removed it.
+6.5, `ci.started`, `ci.passed`, `ci.failed` and `ci.marked_done` (see 6.6), `pr.conflicted`,
+`pr.conflict_resolved` and `pr.conflict_dismissed` (see 6.7). `agent.resumed` carries
+`reason: "ci_failed"` when the user let the agent fix a red CI, `reason: "pr_conflict"` when it
+resolves a merge conflict. `worktree.removed` carries `reason: "pr_merged"` and actor `system` when the poll removed it.
 
 ### 4.4 Draft
 
@@ -255,15 +259,16 @@ not stop the agent. The daemon runs this, never the agent (decision D28).
 
 ### 6.5 PR state
 
-Part of each poll, after the issues, and only while `gh` is ready (D33). For every `done` item
-that still has a worktree and an executed PR draft whose merge is not recorded yet:
+Part of each poll, after the CI watch, and only while `gh` is ready (D33, D36). For every item with
+an executed PR draft that is `done` with a worktree and no recorded merge, `checking`, or has a
+recorded conflict that has not ended (6.7):
 
 ```
-gh pr view <number> --repo <host/owner/repo> --json state,mergedAt
+gh pr view <number> --repo <host/owner/repo> --json state,mergedAt,mergeable,baseRefName
 ```
 
-`--repo` comes from the PR URL in the draft result. Only `MERGED` matters; a failure is logged and
-retried on the next poll.
+`--repo` comes from the PR URL in the draft result. `mergeable` feeds 6.7; for the worktree only
+`MERGED` matters. A failure is logged and retried on the next poll.
 
 - `removeWorktreeOnMerge` off → `item.pr_merged`, once.
 - On, worktree clean → removed as in 7.4, branch kept, `worktree.removed` (actor `system`, reason
@@ -302,6 +307,27 @@ every check finished.
   - **Mark done**: `ci.marked_done`, item `done`. Also offered while `checking`.
 
 A failed `gh` call is logged and retried on the next poll; the item stays `checking`.
+
+### 6.7 Merge conflicts
+
+From the same `gh pr view` as 6.5 (decision D36). Only `mergeable: CONFLICTING` counts; `UNKNOWN`
+(GitHub has not computed it yet, e.g. right after a push to the base) changes nothing.
+
+- `CONFLICTING`, item `done` or `checking`, no conflict recorded → the daemon fetches the base
+  (`git fetch origin <base>` in the main clone) and asks `git merge-tree --write-tree --name-only
+  <origin/base> <branch>` for the conflicting files (exit 1 = conflicts; none when it cannot tell).
+  `pr.conflicted { number, url, base, files, from }`, item `needs_you`. Once per conflict.
+- `MERGEABLE`, `MERGED` or `CLOSED` with a conflict recorded → `pr.conflict_resolved`. An item still
+  waiting on it goes back to `from`; anywhere else it stays.
+
+The card offers:
+
+- **Resolve with agent** (needs a session): the daemon fetches the base (the agent has no network),
+  then resumes the session (`agent.resumed`, reason `pr_conflict`) with the base and the files as
+  message. The agent merges `origin/<base>` (no rebase, so the push does not rewrite the PR), runs
+  the tests, commits, and calls `draft_push`. After the push the item waits for CI (6.6).
+- **I'll do it myself**: `pr.conflict_dismissed` (actor `user`), item back to `from`. The card shows
+  a quiet note "PR #n has merge conflicts with main" until the conflict ends.
 
 ## 7. Worktrees
 
@@ -619,6 +645,8 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/items/:id/ci/rerun` | red CI only; reruns the failed jobs (6.6) |
 | POST | `/api/items/:id/ci/done` | `checking` or red CI → `done` |
 | POST | `/api/items/:id/ci/fix` | red CI with a session; resumes the agent with the failures |
+| POST | `/api/items/:id/conflict/resolve` | waiting merge conflict with a session; fetches the base, resumes the agent (6.7). 202 |
+| POST | `/api/items/:id/conflict/dismiss` | waiting merge conflict → back where it was (6.7) |
 | POST | `/api/items/:id/dismiss` | closed upstream, not running → `done` (D32); 409 otherwise |
 | GET | `/api/worktrees/orphaned` | worktrees under the root that no item uses |
 | POST | `/api/worktrees/orphaned/remove` | `{ path }`; only paths from the orphan list |
@@ -648,11 +676,14 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
 - Needs You card: shows what is needed: permission question (tool name, input, Allow / Deny) or
   draft (title, body editable, diff of branch vs base, Approve / Reject with reason) or failure
   (stderr tail, Retry / Remove worktree) or red CI (failed checks with log tails, Fix with agent /
-  Rerun failed / Mark done) or a push draft (commits, Approve and push / Reject).
+  Rerun failed / Mark done) or a push draft (commits, Approve and push / Reject) or a merge
+  conflict ("PR #45 has merge conflicts with main", the files, Resolve with agent / I'll do it
+  myself).
 - In Progress card of a `checking` item: "waiting for CI", Mark done.
 - Done card: PR link, Remove worktree. With `removeWorktreeOnMerge` on, a quiet note "Worktree is
   removed when PR #45 is merged" (PR linked) until it is; "Not removed: uncommitted changes" when
-  the poll kept it (6.5). After the merge: "PR merged".
+  the poll kept it (6.5). After the merge: "PR merged". A conflict the user took on: quiet note
+  "PR #45 has merge conflicts with main" until GitHub reports it mergeable (6.7).
 - Card of an item closed upstream: note "Closed on GitHub"; on a started, not running item a
   Dismiss button next to it (6.2).
 - Sort: one fixed order per column, the same inside every repo lane, so cards do not jump. Ties

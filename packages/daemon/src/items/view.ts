@@ -28,7 +28,11 @@ export interface ItemView extends WorkItem {
   pr?: PrView;
 }
 
-export type PrView = PrDraftResult & PrMerge;
+export type PrView = PrDraftResult &
+  PrMerge & {
+    /** The PR conflicts with its base (D36). `waiting`: the item sits in Needs You on it. */
+    conflict?: { base: string; files: string[]; waiting: boolean };
+  };
 
 export function toItemView(
   item: WorkItem,

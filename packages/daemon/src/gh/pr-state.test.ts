@@ -6,13 +6,17 @@ const pr = { url: "https://github.com/Acme/Widgets/pull/45", number: 45 };
 
 describe("fetchPrState", () => {
   it("reads a merged PR from recorded gh output", async () => {
-    const exec = fakeExec({ "gh pr view 45 --repo github.com/Acme/Widgets --json state,mergedAt": ok(fixture("gh/pr-view-merged.json")) });
-    expect(await fetchPrState(exec, pr)).toEqual({ ok: true, state: "MERGED", mergedAt: "2026-10-04T08:12:31Z" });
+    const exec = fakeExec({ "gh pr view 45 --repo github.com/Acme/Widgets --json state,mergedAt,mergeable,baseRefName": ok(fixture("gh/pr-view-merged.json")) });
+    expect(await fetchPrState(exec, pr)).toEqual({
+      ok: true, state: "MERGED", mergedAt: "2026-10-04T08:37:33Z", mergeable: "UNKNOWN", baseRefName: "main",
+    });
   });
 
-  it("reads an open PR", async () => {
-    const exec = fakeExec({ "gh pr view": ok(fixture("gh/pr-view-open.json")) });
-    expect(await fetchPrState(exec, pr)).toEqual({ ok: true, state: "OPEN", mergedAt: null });
+  it("reads an open PR, and whether it conflicts with its base", async () => {
+    const open = fakeExec({ "gh pr view": ok(fixture("gh/pr-view-open.json")) });
+    expect(await fetchPrState(open, pr)).toEqual({ ok: true, state: "OPEN", mergedAt: null, mergeable: "MERGEABLE", baseRefName: "main" });
+    const conflicting = fakeExec({ "gh pr view": ok(fixture("gh/pr-view-conflicting.json")) });
+    expect(await fetchPrState(conflicting, pr)).toMatchObject({ mergeable: "CONFLICTING" });
   });
 
   it("reports gh failures and unexpected output", async () => {

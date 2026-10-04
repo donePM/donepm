@@ -4,7 +4,7 @@ import { parseJson } from "./issues.js";
 import { PrStateSchema } from "./schema.js";
 
 export type PrState =
-  | { ok: true; state: "OPEN" | "CLOSED" | "MERGED"; mergedAt: string | null }
+  | { ok: true; state: "OPEN" | "CLOSED" | "MERGED"; mergedAt: string | null; mergeable?: string; baseRefName?: string }
   | { ok: false; error: string };
 
 /** `host/owner/repo` from a pull request URL such as `https://github.com/owner/repo/pull/45`. */
@@ -15,13 +15,13 @@ export function prRepository(url: string): string | undefined {
 }
 
 /**
- * The state of a pull request a donePM draft opened (spec 6.4). Only merged or not for now; review
- * comments and checks come later.
+ * The state of a pull request a donePM draft opened (spec 6.5): merged or not, and whether it can
+ * still be merged into its base (D36). Checks come from `gh pr checks` (D35).
  */
 export async function fetchPrState(exec: Exec, pr: PrDraftResult): Promise<PrState> {
   const repository = prRepository(pr.url);
   if (!repository) return { ok: false, error: `not a pull request URL: ${pr.url}` };
-  const r = await exec("gh", ["pr", "view", String(pr.number), "--repo", repository, "--json", "state,mergedAt"]);
+  const r = await exec("gh", ["pr", "view", String(pr.number), "--repo", repository, "--json", "state,mergedAt,mergeable,baseRefName"]);
   if (r.code !== 0) return { ok: false, error: r.stderr.trim() || `gh exited with ${r.code}` };
   const parsed = parseJson(PrStateSchema, r.stdout);
   return parsed.ok ? { ok: true, ...parsed.value } : { ok: false, error: parsed.error };

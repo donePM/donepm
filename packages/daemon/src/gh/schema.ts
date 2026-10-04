@@ -29,7 +29,13 @@ export const ListIssuesSchema = z.array(ListIssueSchema);
 export const IssueStateSchema = z.object({ state: z.enum(["OPEN", "CLOSED"]) });
 
 /** `gh pr view <n> --json state,mergedAt`. */
-export const PrStateSchema = z.object({ state: z.enum(["OPEN", "CLOSED", "MERGED"]), mergedAt: z.string().nullable() });
+export const PrStateSchema = z.object({
+  state: z.enum(["OPEN", "CLOSED", "MERGED"]),
+  mergedAt: z.string().nullable(),
+  /** `MERGEABLE`, `CONFLICTING` or `UNKNOWN` (GitHub has not computed it yet). */
+  mergeable: z.string().optional(),
+  baseRefName: z.string().optional(),
+});
 
 export function toSourceIssue(i: z.infer<typeof ListIssueSchema>, repository: string): SourceIssue {
   return {

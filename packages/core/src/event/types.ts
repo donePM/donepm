@@ -29,6 +29,9 @@ export const EVENT_TYPES = [
   "ci.passed",
   "ci.failed",
   "ci.marked_done",
+  "pr.conflicted",
+  "pr.conflict_resolved",
+  "pr.conflict_dismissed",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

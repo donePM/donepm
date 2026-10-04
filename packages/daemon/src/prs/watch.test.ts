@@ -1,7 +1,7 @@
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ciPassed, draftCreated, draftExecuted, start, type WorkItem } from "@donepm/core";
+import { ciPassed, draftCreated, draftExecuted, prConflictDismissed, prConflictOf, start, type WorkItem } from "@donepm/core";
 import { describe, expect, it } from "vitest";
 import { openDb } from "../db/database.js";
 import { DraftStore } from "../drafts/store.js";
@@ -14,12 +14,12 @@ import { RepoStore } from "../repos/store.js";
 import { testCtx } from "../test-support/ctx.js";
 import { fail, fakeExec, fixture, ok } from "../test-support/fake-exec.js";
 import { cloneWithOrigin, git } from "../test-support/git-repo.js";
-import { settleMergedPrs } from "./on-merge.js";
+import { watchPrs } from "./watch.js";
 
 const PR = { url: "https://github.com/acme/widgets/pull/45", number: 45 };
 
-/** A done item whose draft opened PR #45, with a real worktree; gh answers `prView`. */
-async function setup(opts: { removeOnMerge: boolean; prView?: () => string; ghFails?: boolean }) {
+/** A done (or CI-waiting) item whose draft opened PR #45, with a real worktree; gh answers `prView`. */
+async function setup(opts: { removeOnMerge: boolean; prView?: () => string; ghFails?: boolean; checking?: boolean }) {
   const { clone } = await cloneWithOrigin({ ".donepm/setup.yml": "copy:\n  - .env.local\n" });
   const worktree = join(clone, "..", "wt-45");
   git(clone, "worktree", "add", "-q", "-b", "dp/45-fix", worktree);
@@ -44,7 +44,7 @@ async function setup(opts: { removeOnMerge: boolean; prView?: () => string; ghFa
   drafts.setState("d-1", "executed", ctx.now());
   drafts.setResult("d-1", PR, ctx.now());
   current = writer.commit(draftExecuted(current, ctx, "d-1", PR, { ...PR }));
-  writer.commit(ciPassed(current, ctx, { checks: 1 }));
+  if (!opts.checking) writer.commit(ciPassed(current, ctx, { checks: 1 }));
 
   const gh = fakeExec({
     "gh pr view": () => (opts.ghFails ? fail("HTTP 502") : ok(opts.prView?.() ?? fixture("gh/pr-view-merged.json"))),
@@ -54,25 +54,25 @@ async function setup(opts: { removeOnMerge: boolean; prView?: () => string; ghFa
     items, events, drafts, repos, writer, exec, ctx, log: silentLog,
     removeOnMerge: () => opts.removeOnMerge, agentActive: () => false,
   };
-  const types = () => events.forItem(item.id).map((e) => e.type).slice(5);
-  return { deps, gh, clone, worktree, items, events, types, item: () => items.get(item.id)!.item };
+  const types = () => events.forItem(item.id).map((e) => e.type).slice(opts.checking ? 4 : 5);
+  return { deps, gh, clone, worktree, items, events, types, ctx, writer, item: () => items.get(item.id)!.item };
 }
 
-describe("settleMergedPrs", () => {
+describe("watchPrs: merged PRs", () => {
   it("removes a clean worktree once the PR is merged, keeping the branch", async () => {
     let view = fixture("gh/pr-view-open.json");
     const t = await setup({ removeOnMerge: true, prView: () => view });
     await writeFile(join(t.worktree, ".env.local"), "SECRET=1\n");
 
-    await settleMergedPrs(t.deps);
+    await watchPrs(t.deps);
     expect(t.types()).toEqual([]);
     expect(existsSync(t.worktree)).toBe(true);
 
     view = fixture("gh/pr-view-merged.json");
-    await settleMergedPrs(t.deps);
+    await watchPrs(t.deps);
     expect(t.gh.calls.map((c) => c.args.join(" "))).toEqual([
-      "pr view 45 --repo github.com/acme/widgets --json state,mergedAt",
-      "pr view 45 --repo github.com/acme/widgets --json state,mergedAt",
+      "pr view 45 --repo github.com/acme/widgets --json state,mergedAt,mergeable,baseRefName",
+      "pr view 45 --repo github.com/acme/widgets --json state,mergedAt,mergeable,baseRefName",
     ]);
     expect(existsSync(t.worktree)).toBe(false);
     expect(git(t.clone, "branch", "--list", "dp/45-fix")).toContain("dp/45-fix");
@@ -83,7 +83,7 @@ describe("settleMergedPrs", () => {
       payload: { reason: "pr_merged", number: 45, url: PR.url, path: t.worktree, branch: "dp/45-fix" },
     });
 
-    await settleMergedPrs(t.deps);
+    await watchPrs(t.deps);
     expect(t.gh.calls).toHaveLength(2);
   });
 
@@ -91,8 +91,8 @@ describe("settleMergedPrs", () => {
     const t = await setup({ removeOnMerge: true });
     await writeFile(join(t.worktree, "notes.md"), "draft\n");
 
-    await settleMergedPrs(t.deps);
-    await settleMergedPrs(t.deps);
+    await watchPrs(t.deps);
+    await watchPrs(t.deps);
     expect(existsSync(t.worktree)).toBe(true);
     expect(t.types()).toEqual(["item.pr_merged", "worktree.remove_skipped"]);
     expect(t.events.forItem("item-1").at(-1)).toMatchObject({
@@ -103,15 +103,15 @@ describe("settleMergedPrs", () => {
 
     git(t.worktree, "add", "-A");
     git(t.worktree, "commit", "-q", "-m", "notes");
-    await settleMergedPrs(t.deps);
+    await watchPrs(t.deps);
     expect(existsSync(t.worktree)).toBe(false);
     expect(t.types()).toEqual(["item.pr_merged", "worktree.remove_skipped", "worktree.removed"]);
   });
 
   it("only records the merge when the setting is off", async () => {
     const t = await setup({ removeOnMerge: false });
-    await settleMergedPrs(t.deps);
-    await settleMergedPrs(t.deps);
+    await watchPrs(t.deps);
+    await watchPrs(t.deps);
     expect(existsSync(t.worktree)).toBe(true);
     expect(t.item().worktreePath).toBe(t.worktree);
     expect(t.types()).toEqual(["item.pr_merged"]);
@@ -120,8 +120,8 @@ describe("settleMergedPrs", () => {
 
   it("removes a worktree whose merge it already recorded once the user turns the setting on", async () => {
     const t = await setup({ removeOnMerge: false });
-    await settleMergedPrs(t.deps);
-    await settleMergedPrs({ ...t.deps, removeOnMerge: () => true });
+    await watchPrs(t.deps);
+    await watchPrs({ ...t.deps, removeOnMerge: () => true });
     expect(existsSync(t.worktree)).toBe(false);
     expect(t.types()).toEqual(["item.pr_merged", "worktree.removed"]);
     expect(t.gh.calls).toHaveLength(1);
@@ -129,13 +129,94 @@ describe("settleMergedPrs", () => {
 
   it("leaves everything alone when gh fails or the agent runs", async () => {
     const failing = await setup({ removeOnMerge: true, ghFails: true });
-    await settleMergedPrs(failing.deps);
+    await watchPrs(failing.deps);
     expect(failing.types()).toEqual([]);
     expect(existsSync(failing.worktree)).toBe(true);
 
     const running = await setup({ removeOnMerge: true });
-    await settleMergedPrs({ ...running.deps, agentActive: () => true });
+    await watchPrs({ ...running.deps, agentActive: () => true });
     expect(existsSync(running.worktree)).toBe(true);
     expect(running.types()).toEqual(["item.pr_merged"]);
+  });
+});
+
+describe("watchPrs: conflicts", () => {
+  /** The branch and `main` both change README.md, so the PR conflicts for real. */
+  function conflict(t: Awaited<ReturnType<typeof setup>>) {
+    writeFileSync(join(t.worktree, "README.md"), "branch\n");
+    git(t.worktree, "commit", "-q", "-am", "branch");
+    writeFileSync(join(t.clone, "README.md"), "main\n");
+    git(t.clone, "commit", "-q", "-am", "main");
+    git(t.clone, "push", "-q", "origin", "main");
+  }
+
+  it("brings a done item back with the conflicting files once, and returns it when GitHub reports it mergeable", async () => {
+    let view = fixture("gh/pr-view-conflicting.json");
+    const t = await setup({ removeOnMerge: true, prView: () => view });
+    conflict(t);
+
+    await watchPrs(t.deps);
+    await watchPrs(t.deps);
+    expect(t.item().state).toBe("needs_you");
+    expect(t.types()).toEqual(["pr.conflicted"]);
+    expect(t.events.forItem("item-1").at(-1)).toMatchObject({
+      actor: "system", payload: { number: 45, url: PR.url, base: "main", files: ["README.md"], from: "done" },
+    });
+
+    view = fixture("gh/pr-view-unknown.json");
+    await watchPrs(t.deps);
+    expect(t.item().state).toBe("needs_you");
+
+    view = fixture("gh/pr-view-open.json");
+    await watchPrs(t.deps);
+    expect(t.item().state).toBe("done");
+    expect(t.types()).toEqual(["pr.conflicted", "pr.conflict_resolved"]);
+    // The worktree stays: the PR is open, not merged.
+    expect(existsSync(t.worktree)).toBe(true);
+  });
+
+  it("brings a CI-waiting item back and returns it to the CI wait", async () => {
+    let view = fixture("gh/pr-view-conflicting.json");
+    const t = await setup({ removeOnMerge: false, prView: () => view, checking: true });
+    await watchPrs(t.deps);
+    expect(t.item().state).toBe("needs_you");
+    expect(prConflictOf(t.events.forItem("item-1"))).toMatchObject({ from: "checking", waiting: true, files: [] });
+
+    view = fixture("gh/pr-view-open.json");
+    await watchPrs(t.deps);
+    expect(t.item().state).toBe("checking");
+  });
+
+  it("after I'll do it myself, keeps the item where it was and clears the note once resolved", async () => {
+    let view = fixture("gh/pr-view-conflicting.json");
+    const t = await setup({ removeOnMerge: false, prView: () => view });
+    await watchPrs(t.deps);
+    t.writer.commit(prConflictDismissed(t.item(), t.ctx, prConflictOf(t.events.forItem("item-1"))!));
+    expect(t.item().state).toBe("done");
+
+    await watchPrs(t.deps);
+    expect(t.types()).toEqual(["pr.conflicted", "pr.conflict_dismissed"]);
+
+    view = fixture("gh/pr-view-merged.json");
+    await watchPrs(t.deps);
+    expect(t.item().state).toBe("done");
+    expect(t.types()).toEqual(["pr.conflicted", "pr.conflict_dismissed", "pr.conflict_resolved", "item.pr_merged"]);
+    expect(prConflictOf(t.events.forItem("item-1"))).toBeUndefined();
+  });
+
+  it("keeps asking about a conflict after the user removed the worktree", async () => {
+    let view = fixture("gh/pr-view-conflicting.json");
+    const t = await setup({ removeOnMerge: false, prView: () => view });
+    await watchPrs(t.deps);
+    t.writer.commit(prConflictDismissed(t.item(), t.ctx, prConflictOf(t.events.forItem("item-1"))!));
+    const { worktreePath: _, ...rest } = t.item();
+    t.writer.save(rest);
+
+    view = fixture("gh/pr-view-open.json");
+    await watchPrs(t.deps);
+    expect(t.types()).toEqual(["pr.conflicted", "pr.conflict_dismissed", "pr.conflict_resolved"]);
+    await watchPrs(t.deps);
+    // Resolved, done and without a worktree: nothing left to ask.
+    expect(t.gh.calls).toHaveLength(2);
   });
 });

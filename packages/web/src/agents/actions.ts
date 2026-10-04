@@ -27,3 +27,6 @@ export const dismissItem = (id: string) => run(id, api.dismiss);
 export const rerunCi = (id: string) => run(id, api.rerunCi);
 export const fixCi = (id: string) => run(id, api.fixCi);
 export const markCiDone = (id: string) => run(id, api.markCiDone);
+/** A PR that conflicts with its base (D36): let the agent merge it, or take it on yourself. */
+export const resolveConflict = (id: string) => run(id, api.resolveConflict);
+export const dismissConflict = (id: string) => run(id, api.dismissConflict);

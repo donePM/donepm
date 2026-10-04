@@ -103,6 +103,23 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("describes merge conflicts", () => {
+    const events = [
+      ev("pr.conflicted", { number: 7, url: "u", base: "main", files: ["a.ts", "b.ts"], from: "done" }),
+      ev("agent.resumed", { reason: "pr_conflict" }, { actor: "user" }),
+      ev("pr.conflicted", { number: 7, url: "u", base: "main", files: [], from: "checking" }),
+      ev("pr.conflict_dismissed", { number: 7, url: "u" }, { actor: "user" }),
+      ev("pr.conflict_resolved", { number: 7, url: "u" }),
+    ];
+    expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail })).reverse()).toEqual([
+      { tone: "attention", text: "PR #7 has merge conflicts with main", detail: "a.ts, b.ts" },
+      { tone: "user", text: "You let the agent resolve the merge conflict", detail: undefined },
+      { tone: "attention", text: "PR #7 has merge conflicts with main", detail: undefined },
+      { tone: "user", text: "You'll resolve the merge conflict yourself", detail: undefined },
+      { tone: "system", text: "PR #7 can be merged again", detail: undefined },
+    ]);
+  });
+
   it("describes items closed upstream", () => {
     const events = [ev("item.closed_upstream"), ev("item.dismissed", {}, { actor: "user" })];
     expect(timelineEntries(events, []).map(({ tone, text }) => ({ tone, text }))).toEqual([
