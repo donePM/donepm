@@ -23,12 +23,38 @@ export function sandboxSettings(home: string | undefined, readOnly = false) {
     // A read-only agent (D42) works on code nobody vetted: a sandboxed command still asks.
     autoAllowBashIfSandboxed: !readOnly,
     allowUnsandboxedCommands: false,
-    // Writes outside the worktree fail inside the sandbox; build tools keep their caches here.
-    ...(home ? { filesystem: { allowWrite: CACHE_DIRS.map((d) => join(home, d)) } } : {}),
+    filesystem: {
+      // Writes outside the worktree fail inside the sandbox; build tools keep their caches here.
+      ...(home ? { allowWrite: CACHE_DIRS.map((d) => join(home, d)) } : {}),
+      denyRead: keychainDirs(home),
+    },
   };
 }
 
 const CACHE_DIRS = ["Library/Caches", ".cache", ".npm"] as const;
+
+/**
+ * The user's Keychain files (issue #170, D50). The login keychain trusts `/usr/bin/security` for
+ * the items it created (donePM's tokens, the one `gh` keeps), so the deny rules alone do not stop
+ * `/usr/bin/security find-generic-password -w`. The Security framework reads these files in the
+ * calling process, so denying the read inside the sandbox makes every lookup from a sandboxed
+ * command come back "not found": `security` by any path, a copy of it, a script calling the
+ * framework, `osascript`'s `do shell script`. Verified with `sandbox-exec` against a profile shaped
+ * like Claude Code's. `~` is expanded by Claude Code; the absolute path covers an agent whose
+ * `HOME` differs from the daemon's view of it.
+ */
+export function keychainDirs(home: string | undefined): string[] {
+  const dirs = ["~/Library/Keychains"];
+  if (home) dirs.push(join(home, "Library/Keychains"));
+  return dirs;
+}
+
+/**
+ * The Read, Grep and Glob tools do not run in the Bash sandbox: these rules keep them out of the
+ * Keychain files too (an encrypted file, but it should not leave the machine). Claude Code also
+ * merges `Read(…)` denies into the sandbox's `denyRead`.
+ */
+export const KEYCHAIN_READ_DENY_RULES = ["Read(~/Library/Keychains/**)"] as const;
 
 export interface ArgvInput {
   playbook: Pick<Playbook, "model" | "effort" | "permissionMode" | "readOnly">;
@@ -41,9 +67,10 @@ export interface ArgvInput {
 
 /** The `permissions` an agent starts with: allowed without a question, and always denied (D42 adds to both). */
 export function permissionRules(readOnly: boolean): { allow: string[]; deny: string[] } {
+  const deny = [...DENY_RULES, ...KEYCHAIN_READ_DENY_RULES];
   return readOnly
-    ? { allow: [...ALLOW_RULES, ...READ_ONLY_ALLOW_RULES], deny: [...DENY_RULES, ...READ_ONLY_DENY_RULES] }
-    : { allow: [...ALLOW_RULES], deny: [...DENY_RULES] };
+    ? { allow: [...ALLOW_RULES, ...READ_ONLY_ALLOW_RULES], deny: [...deny, ...READ_ONLY_DENY_RULES] }
+    : { allow: [...ALLOW_RULES], deny };
 }
 
 /** Arguments for `claude` (spec 9.1, Bloom PROTOCOL.md "How Bloom invokes it"). */

@@ -830,7 +830,10 @@ Notes:
   `PATH` to a filtered copy without the directories that contain them. Also add deny rules via
   `--settings` for `Bash(gh *)`, `Bash(git push*)`. Both together.
 - The same `--settings` enables the Bash sandbox (D27): `enabled`, `autoAllowBashIfSandboxed`,
-  `allowUnsandboxedCommands: false`, and `filesystem.allowWrite` for the user's cache directories.
+  `allowUnsandboxedCommands: false`, `filesystem.allowWrite` for the user's cache directories, and
+  `filesystem.denyRead` for `~/Library/Keychains` (D50, #170). The permissions also deny
+  `Read(~/Library/Keychains/**)` and, as defence in depth only, `security` spelled out by path or
+  behind `env`, `command`, `exec` or `xcrun`.
   A network connection from Bash arrives as a `can_use_tool` ask with `tool_name`
   `SandboxNetworkAccess` and input `{ host }`; the UI shows it as "Network access".
   `GH_CONFIG_DIR` and `GLAB_CONFIG_DIR` point at an empty directory under the data dir.

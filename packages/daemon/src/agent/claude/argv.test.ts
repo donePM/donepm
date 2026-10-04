@@ -3,6 +3,15 @@ import { askAnswerLine, claudeArgv, userTurnLine } from "./argv.js";
 
 const playbook = { model: "opus", permissionMode: "acceptEdits" as const };
 
+const BASE_DENY = [
+  "Bash(gh *)", "Bash(glab *)", "Bash(jira *)", "Bash(az *)", "Bash(acli *)", "Bash(security *)", "Bash(git push*)",
+  "Bash(/usr/bin/security *)", "Bash(env security *)", "Bash(env /usr/bin/security *)", "Bash(/usr/bin/env security *)",
+  "Bash(/usr/bin/env /usr/bin/security *)", "Bash(command security *)", "Bash(exec security *)", "Bash(xcrun security *)",
+  "Read(~/Library/Keychains/**)",
+];
+
+const settingsOf = (args: string[]) => JSON.parse(args[args.indexOf("--settings") + 1]!);
+
 describe("claudeArgv", () => {
   it("builds the spec 9.1 argv", () => {
     expect(claudeArgv({ playbook })).toEqual([
@@ -20,14 +29,47 @@ describe("claudeArgv", () => {
 
   it("denies forge commands and sandboxes Bash with no way out (D27)", () => {
     const args = claudeArgv({ playbook, home: "/Users/x" });
-    expect(JSON.parse(args[args.indexOf("--settings") + 1]!)).toEqual({
-      permissions: { allow: ["mcp__donepm"], deny: ["Bash(gh *)", "Bash(glab *)", "Bash(jira *)", "Bash(az *)", "Bash(acli *)", "Bash(security *)", "Bash(git push*)"] },
+    expect(settingsOf(args)).toEqual({
+      permissions: { allow: ["mcp__donepm"], deny: BASE_DENY },
       sandbox: {
         enabled: true,
         autoAllowBashIfSandboxed: true,
         allowUnsandboxedCommands: false,
-        filesystem: { allowWrite: ["/Users/x/Library/Caches", "/Users/x/.cache", "/Users/x/.npm"] },
+        filesystem: {
+          allowWrite: ["/Users/x/Library/Caches", "/Users/x/.cache", "/Users/x/.npm"],
+          denyRead: ["~/Library/Keychains", "/Users/x/Library/Keychains"],
+        },
       },
+    });
+  });
+
+  describe("keeps the agent out of the Keychain (issue #170, D50)", () => {
+    it("denies reading the Keychain files in the sandbox, for every playbook, with or without a home", () => {
+      for (const p of [playbook, { ...playbook, readOnly: true }]) {
+        expect(settingsOf(claudeArgv({ playbook: p, home: "/Users/x" })).sandbox.filesystem.denyRead)
+          .toEqual(["~/Library/Keychains", "/Users/x/Library/Keychains"]);
+        expect(settingsOf(claudeArgv({ playbook: p })).sandbox.filesystem).toEqual({ denyRead: ["~/Library/Keychains"] });
+      }
+    });
+
+    it("keeps the sandbox closed: no setting that would re-open the Keychain or its services", () => {
+      const { sandbox } = settingsOf(claudeArgv({ playbook, home: "/Users/x" }));
+      expect(sandbox.allowUnsandboxedCommands).toBe(false);
+      expect(sandbox.filesystem.allowRead).toBeUndefined();
+      expect(sandbox.network).toBeUndefined();
+      expect(sandbox.allowAppleEvents).toBeUndefined();
+      expect(sandbox.enableWeakerNestedSandbox).toBeUndefined();
+    });
+
+    it("denies the Read tools the Keychain files, since they run outside the sandbox", () => {
+      expect(settingsOf(claudeArgv({ playbook })).permissions.deny).toContain("Read(~/Library/Keychains/**)");
+    });
+
+    it("denies `security` spelled out by path or behind a launcher, as defence in depth", () => {
+      const { deny } = settingsOf(claudeArgv({ playbook })).permissions;
+      for (const rule of ["Bash(security *)", "Bash(/usr/bin/security *)", "Bash(/usr/bin/env security *)", "Bash(env security *)"]) {
+        expect(deny).toContain(rule);
+      }
     });
   });
 
@@ -58,7 +100,7 @@ describe("claudeArgv", () => {
     expect(settings.permissions).toEqual({
       allow: ["mcp__donepm", "Bash(git diff *)", "Bash(git log *)", "Bash(git show *)"],
       deny: [
-        "Bash(gh *)", "Bash(glab *)", "Bash(jira *)", "Bash(az *)", "Bash(acli *)", "Bash(security *)", "Bash(git push*)",
+        ...BASE_DENY,
         "Edit", "Write", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch",
       ],
     });

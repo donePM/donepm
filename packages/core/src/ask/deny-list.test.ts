@@ -19,6 +19,22 @@ describe("DENY_RULES", () => {
     }
   });
 
+  it("covers `security` spelled out by path or behind a launcher (issue #170, defence in depth)", () => {
+    for (const c of [
+      "security find-generic-password -s donepm -a github -w",
+      "/usr/bin/security find-generic-password -s donepm -w",
+      "env security dump-keychain",
+      "/usr/bin/env security find-internet-password -s github.com -w",
+      "/usr/bin/env /usr/bin/security find-generic-password -w",
+      "command security find-generic-password -w",
+      "exec security find-generic-password -w",
+      "xcrun security find-generic-password -w",
+    ]) {
+      expect(denied(c), c).toBe(true);
+    }
+    expect(denied("securityscan .")).toBe(false);
+  });
+
   it("covers every git push, where the Git Credential Manager would hand over an Azure DevOps login", () => {
     for (const c of [
       "git push",
