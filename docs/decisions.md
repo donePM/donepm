@@ -409,6 +409,23 @@ them back as they were; items that are running, `needs_you`, or hold an open ask
 visible, because hiding them would hide work waiting on the user. Start refuses an item of an
 unmanaged repo (409); a resume of an already started item is not blocked.
 
+**D47. Pull requests assigned to the user are reviewed, not taken over; Dependabot's included.**
+Issue #98 planned a Dependabot-only source (`gh pr list --author app/dependabot` per repo) and a
+playbook that fixes, pushes to and merges the update. The user's intent is broader and stricter: a
+pull request assigned to them, by Dependabot or by a colleague, is work like an issue, and the work
+is a review. Changes the user wants are review comments for whoever opened it; donePM never pushes
+to someone else's branch, so the four-eyes principle holds and the author stays the author. Hence:
+the poll adds `gh search prs --assignee=@me` (one call, like the review request search, D40),
+merged with it by `externalId`; Dependabot PRs come in when Dependabot assigns the user
+(`assignees` in `dependabot.yml`), with no per-repo call and no `schedules` table, since Dependabot
+already runs on its own schedule. Items keep the PR's `author`, and the card says `PR · dependabot`.
+The playbook stays `review` (D43): comments go out only as drafts the user approves. A merge
+conflict is reported on the card and answered with a comment draft (for Dependabot `@dependabot
+rebase`), not resolved by the agent. Once the user's own review approved the PR, its checks pass
+and it is mergeable, the card offers Merge; the click is the user's approval, like Clone (#37). A
+per-item "merge automatically" checkbox, defaulting to a per-repo setting that is off, lets the
+daemon merge as soon as those three hold; turning it on is the approval given in advance (D2).
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

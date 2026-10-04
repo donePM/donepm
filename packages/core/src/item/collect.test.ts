@@ -50,6 +50,12 @@ describe("collect", () => {
     expect(collect(pr, makeCtx(), { playbook: "custom" }).item.playbook).toBe("custom");
   });
 
+  it("keeps who opened a pull request (D47)", () => {
+    const pr = { ...issue, number: 9, source: "github-pr" as const, author: "dependabot[bot]" };
+    expect(collect(pr, makeCtx()).item.author).toBe("dependabot[bot]");
+    expect(collect(issue, makeCtx()).item).not.toHaveProperty("author");
+  });
+
   it("leaves repoId absent without a local clone", () => {
     expect(collect(issue, makeCtx()).item).not.toHaveProperty("repoId");
   });
@@ -116,6 +122,13 @@ describe("refresh", () => {
     const r = refresh(item, { ...issue, body: "Other", url: "https://github.com/acme/widgets/issues/7", labels: ["x", "bug"] }, makeCtx());
     expect(r?.item).toMatchObject({ body: "Other", labels: ["x", "bug"] });
     expect(r?.events).toEqual([]);
+  });
+
+  it("fills in the author of a pull request silently (D47)", () => {
+    const r = refresh(existing({ source: "github-pr" }), { ...issue, source: "github-pr", author: "octo" }, makeCtx());
+    expect(r?.item.author).toBe("octo");
+    expect(r?.events).toEqual([]);
+    expect(refresh(existing({ author: "octo" }), issue, makeCtx())).toBeUndefined();
   });
 
   it("fills in issueCreatedAt on an item collected without it", () => {

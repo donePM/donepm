@@ -215,4 +215,6 @@ export const MIGRATIONS: readonly Migration[] = [
   // A reviewed pull request's base branch (issue #48, D41): its diff and prompt compare against it
   // instead of the repository's default branch.
   `ALTER TABLE items ADD COLUMN base_branch TEXT;`,
+  // Who opened a pull request item (D47): Dependabot, a colleague.
+  `ALTER TABLE items ADD COLUMN author TEXT;`,
 ];

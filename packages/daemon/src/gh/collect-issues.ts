@@ -13,7 +13,7 @@ import type { SourcePollStatus, StatusStore } from "../status/status.js";
 import { detectGh } from "./detect.js";
 import { withPriorityFields } from "./issue-fields.js";
 import { fetchAssignedIssues, fetchIssueState, fetchQueryIssues, type FetchResult } from "./issues.js";
-import { fetchReviewRequests } from "./review-requests.js";
+import { fetchPullRequests } from "./pull-requests.js";
 import type { FetchedIssue } from "./schema.js";
 
 export interface CollectDeps {
@@ -34,7 +34,7 @@ const RAW_LOG_LIMIT = 10_000;
 
 /**
  * One poll cycle (spec 6.2): the default search (assigned to me), the pull requests that ask for
- * the user's review (issue #48, D40), and one query per repository that has its own (issue #32),
+ * the user's review (issue #48, D40) or are assigned to them (issue #98, D47), and one query per repository that has its own (issue #32),
  * merged by `externalId`. A failing source does not stop the others.
  * Only managed repositories (D46) are polled with their own query, and only their issues are kept
  * from the searches; the others found there are counted for Settings' discovered list.
@@ -54,11 +54,12 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
 
     const sourceConfig = deps.sources();
     const managed = managedOrigins(sourceConfig);
-    // The two searches are one call each however many repositories there are, and they find the
+    // The searches are one call each however many repositories there are, and they find the
     // repositories to offer; an unmanaged repository costs no call of its own.
     const fetched: Array<{ origin?: string; label?: string; result: FetchResult }> = [
       { result: await fetchAssignedIssues(exec, () => repos.all().map((r) => r.originUrl).filter((origin) => managed.has(origin))) },
-      { label: "review requests", result: await fetchReviewRequests(exec) },
+      { label: "review requests", result: await fetchPullRequests(exec, "--review-requested=@me") },
+      { label: "assigned pull requests", result: await fetchPullRequests(exec, "--assignee=@me") },
     ];
     for (const [origin, source] of Object.entries(sourceConfig)) {
       if (source.query && managed.has(origin)) fetched.push({ origin, result: await fetchQueryIssues(exec, origin, source.query) });
@@ -67,13 +68,13 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
     const issues: FetchedIssue[] = [];
     const errors: string[] = [];
     const sources: Record<string, SourcePollStatus> = {};
-    const discovered: Record<string, number> = {};
+    const discovered = new Map<string, Set<number>>();
     for (const { origin, label, result } of fetched) {
       if (result.ok) {
         for (const issue of result.issues) {
           const from = issueOrigin(issue);
           if (managed.has(from)) issues.push(issue);
-          else if (!repos.byOrigin(from)) discovered[from] = (discovered[from] ?? 0) + 1;
+          else if (!repos.byOrigin(from)) discovered.set(from, (discovered.get(from) ?? new Set()).add(issue.number));
         }
         if (origin) sources[origin] = { ok: true, issues: result.issues.length };
         continue;
@@ -121,7 +122,7 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
         ...(errors.length < fetched.length ? { issues: count } : {}),
         ...(errors.length ? { error: errors.join("; ") } : {}),
         ...(Object.keys(sources).length ? { sources } : {}),
-        ...(Object.keys(discovered).length ? { discovered } : {}),
+        ...(discovered.size ? { discovered: Object.fromEntries([...discovered].map(([origin, numbers]) => [origin, numbers.size])) } : {}),
       },
     });
   } catch (e) {

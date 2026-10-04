@@ -1,4 +1,7 @@
-/** An issue to work on, or someone else's pull request that asks for the user's review (D40). */
+/**
+ * An issue to work on, or someone else's pull request that is assigned to the user or asks for their
+ * review (D40, D47).
+ */
 export type ItemSource = "github-issue" | "github-pr";
 
 /** `checking`: the PR is open and its CI runs; no agent runs (decision D35). */
@@ -15,6 +18,8 @@ export interface WorkItem {
   title: string;
   body: string;
   labels: string[];
+  /** Login of whoever opened the pull request (`dependabot[bot]`, a colleague); pull requests only (D47). */
+  author?: string;
   state: ItemState;
   /** Playbook name. */
   playbook: string;

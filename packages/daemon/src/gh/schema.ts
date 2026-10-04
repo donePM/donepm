@@ -24,6 +24,15 @@ export const SearchIssueSchema = z.object({
 });
 export const SearchIssuesSchema = z.array(SearchIssueSchema);
 
+/**
+ * One entry of `gh search prs --json number,title,body,createdAt,labels,repository,url,author`.
+ * A deleted account's pull request has no author.
+ */
+export const SearchPrSchema = SearchIssueSchema.extend({
+  author: z.object({ login: z.string().min(1) }).passthrough().nullable().optional(),
+});
+export const SearchPrsSchema = z.array(SearchPrSchema);
+
 /** One entry of `gh issue list --json id,number,title,body,createdAt,labels,url` (no repository field). */
 export const ListIssueSchema = z.object(IssueFields);
 export const ListIssuesSchema = z.array(ListIssueSchema);

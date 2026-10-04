@@ -14,8 +14,10 @@ export interface SourceIssue {
   labels: string[];
   /** When the issue was opened, ISO 8601. */
   createdAt: string;
-  /** `github-pr` for a pull request that asks for the user's review (D40); an issue otherwise. */
+  /** `github-pr` for a pull request assigned to the user or asking for their review (D40, D47). */
   source?: ItemSource;
+  /** Login of whoever opened the pull request (D47). */
+  author?: string;
   /** The option of GitHub's "Priority" issue field (D45), when the issue has one set. */
   priorityField?: string;
   /**
@@ -43,7 +45,7 @@ export function externalIdOf(issue: Pick<SourceIssue, "repository" | "number">):
   return `${issue.repository}#${issue.number}`;
 }
 
-/** A newly seen issue (or pull request to review) becomes a `ready` item plus its `item.collected` event. */
+/** A newly seen issue (or pull request) becomes a `ready` item plus its `item.collected` event. */
 export function collect(
   issue: SourceIssue,
   ctx: Ctx,
@@ -68,6 +70,7 @@ export function collect(
     updatedAt: at,
   };
   if (opts.repoId !== undefined) item.repoId = opts.repoId;
+  if (issue.author !== undefined) item.author = issue.author;
   const event: Event = {
     id: ctx.newId(),
     itemId: item.id,
@@ -101,7 +104,7 @@ const sameSet = (a: readonly string[], b: readonly string[]): boolean =>
  * else the labels (D45); when the fields could not be read it stays. State is never touched.
  *
  * A changed priority, title or label set is recorded as one `item.refreshed` event (actor `system`)
- * naming only what changed. Body, URL and label order change silently: they are noise in a timeline.
+ * naming only what changed. Body, URL, author and label order change silently: they are noise in a timeline.
  */
 export function refresh(item: WorkItem, issue: SourceIssue, ctx: Ctx): Collected | undefined {
   const priority = issue.priorityUnread ? item.priority : issuePriority(issue);
@@ -114,6 +117,7 @@ export function refresh(item: WorkItem, issue: SourceIssue, ctx: Ctx): Collected
     !sameLabels ||
     item.priority !== priority ||
     item.issueCreatedAt !== issue.createdAt ||
+    (issue.author !== undefined && item.author !== issue.author) ||
     item.closedUpstream === true;
   if (!changed) return undefined;
   const at = ctx.now();
@@ -127,6 +131,7 @@ export function refresh(item: WorkItem, issue: SourceIssue, ctx: Ctx): Collected
     issueCreatedAt: issue.createdAt,
     updatedAt: at,
   };
+  if (issue.author !== undefined) next.author = issue.author;
   delete next.closedUpstream;
 
   const changes: RefreshedChanges = {};
