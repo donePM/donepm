@@ -11,7 +11,7 @@ describe("database", () => {
   it("migrates an empty database to the latest version", () => {
     const db = openDb(":memory:");
     expect(schemaVersion(db)).toBe(MIGRATIONS.length);
-    expect(tables(db)).toEqual(["asks", "drafts", "events", "items", "repos", "tombstones", "transcript"]);
+    expect(tables(db)).toEqual(["asks", "drafts", "events", "items", "permission_grants", "repos", "tombstones", "transcript"]);
   });
 
   it("is idempotent", () => {

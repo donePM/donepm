@@ -1,4 +1,4 @@
-import { askFlags, parseRules, sessionRules, type PermissionRule, type TranscriptKind } from "@donepm/core";
+import { askFlags, parseRules, sessionRules, type AskFlags, type PermissionRule, type TranscriptKind } from "@donepm/core";
 
 /** One stdout line of `claude -p --output-format stream-json`, decoded as far as donePM needs it. */
 export type Decoded =
@@ -11,9 +11,13 @@ export type Decoded =
   /**
    * `control_request/can_use_tool`: the CLI holds the turn until it gets an answer. `rules` are the
    * suggested allow rules "Allow for this run" may grant (`sessionRules`): only the asked tool's,
-   * none when the request says to suppress them.
+   * none when the request says to suppress them. `suggested` and `flags` are what the CLI sent, for
+   * matching "Always allow" grants (D38).
    */
-  | { type: "ask"; requestId: string; toolName: string; input: unknown; rules: PermissionRule[]; reason?: string; raw: unknown }
+  | {
+      type: "ask"; requestId: string; toolName: string; input: unknown; rules: PermissionRule[];
+      suggested: PermissionRule[]; flags: AskFlags; reason?: string; raw: unknown;
+    }
   /** Last line of a turn. */
   | { type: "result"; sessionId: string | undefined; isError: boolean; subtype: string | undefined; raw: unknown }
   /** Not JSON, e.g. a line cut off by a crash. Skipped. */
@@ -56,9 +60,11 @@ export function decodeLine(line: string): Decoded {
       const requestId = str(msg.request_id);
       if (isObject(req) && req.subtype === "can_use_tool" && requestId) {
         const toolName = str(req.tool_name) ?? "unknown";
-        const rules = sessionRules(toolName, suggestedRules(req.permission_suggestions), askFlags(req));
+        const suggested = suggestedRules(req.permission_suggestions);
+        const flags = askFlags(req);
+        const rules = sessionRules(toolName, suggested, flags);
         const reason = str(req.decision_reason);
-        return { type: "ask", requestId, toolName, input: req.input ?? {}, rules, ...(reason ? { reason } : {}), raw };
+        return { type: "ask", requestId, toolName, input: req.input ?? {}, rules, suggested, flags, ...(reason ? { reason } : {}), raw };
       }
       break;
     }

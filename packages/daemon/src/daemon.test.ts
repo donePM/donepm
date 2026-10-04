@@ -586,6 +586,39 @@ describe("daemon", { timeout: 30_000 }, () => {
     expect((await get(d, "/api/asks/nope/answer", { method: "POST", headers: { "content-type": "application/json" }, body: "{\"behavior\":\"allow\"}" })).status).toBe(404);
   });
 
+  it("always allows per repository over HTTP, lists the grant and removes it", async () => {
+    const spawn = fakeProcesses();
+    const d = await start(await homeWithHistory(), undefined, undefined, spawn);
+    const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
+    await get(d, `/api/items/${item.id}/start`, { method: "POST" });
+    await waitFor(() => expect(spawn.spawned).toHaveLength(1));
+    const ask = (id: string) => ({
+      type: "control_request", request_id: id,
+      request: {
+        subtype: "can_use_tool", tool_name: "Bash", input: { command: "pnpm test" },
+        permission_suggestions: [{ type: "addRules", behavior: "allow", destination: "localSettings", rules: [{ toolName: "Bash", ruleContent: "pnpm test *" }] }],
+      },
+    });
+    spawn.last().emit(ask("r1"));
+    const [first] = (await get(d, `/api/items/${item.id}`)).body.asks;
+    const json = { method: "POST", headers: { "content-type": "application/json" } };
+    expect((await get(d, `/api/asks/${first.id}/answer`, { ...json, body: JSON.stringify({ behavior: "allow", scope: "always" }) })).body).toEqual({ ok: true });
+
+    const grants = (await get(d, "/api/grants")).body;
+    expect(grants).toMatchObject([{ repo: "github.com/acme/widgets", toolName: "Bash", ruleContent: "pnpm test *", call: "Bash: pnpm test", useCount: 0 }]);
+    spawn.last().emit(ask("r2"));
+    expect(spawn.last().sent().at(-1).response).toMatchObject({ request_id: "r2", response: { behavior: "allow" } });
+    expect((await get(d, "/api/grants")).body[0].useCount).toBe(1);
+
+    expect((await get(d, `/api/grants/${grants[0].id}/revoke`, { method: "POST" })).body.revokedAt).toEqual(expect.any(String));
+    expect((await get(d, `/api/grants/${grants[0].id}/revoke`, { method: "POST" })).status).toBe(404);
+    expect((await get(d, "/api/grants")).body).toEqual([]);
+    spawn.last().emit(ask("r3"));
+    const detail = (await get(d, `/api/items/${item.id}`)).body;
+    expect(detail.state).toBe("needs_you");
+    expect(detail.events.map((e: any) => e.type)).toContain("permission.grant_revoked");
+  });
+
   it("approving a draft commits leftovers, opens the PR and waits for CI", async () => {
     vi.stubEnv("GIT_AUTHOR_NAME", "t");
     vi.stubEnv("GIT_AUTHOR_EMAIL", "t@t");

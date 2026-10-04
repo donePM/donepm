@@ -192,4 +192,24 @@ export const MIGRATIONS: readonly Migration[] = [
     );
     `,
   },
+  // "Always allow" per repository (issue #72, D38). `repo` is the normalised origin, so a rescan or a
+  // second clone keeps the grants. A removal sets revoked_at; the row stays for the events. ask_id and
+  // item_id carry no foreign key: a grant outlives the retention purge of the item it was granted on,
+  // so `call` keeps the words of that call.
+  `
+  CREATE TABLE permission_grants (
+    id           TEXT PRIMARY KEY,
+    repo         TEXT NOT NULL,
+    tool_name    TEXT NOT NULL,
+    rule_content TEXT,
+    created_at   TEXT NOT NULL,
+    ask_id       TEXT NOT NULL,
+    item_id      TEXT NOT NULL,
+    call         TEXT NOT NULL DEFAULT '',
+    use_count    INTEGER NOT NULL DEFAULT 0,
+    last_used_at TEXT,
+    revoked_at   TEXT
+  );
+  CREATE INDEX permission_grants_repo ON permission_grants (repo) WHERE revoked_at IS NULL;
+  `,
 ];

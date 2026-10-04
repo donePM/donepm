@@ -4,6 +4,7 @@ import { computed, ref } from "vue";
 import { api } from "../api/client";
 import { errorText } from "../api/errors";
 import type { PermissionRule } from "../api/types";
+import type { RepoRef } from "../markdown/render";
 import AskInput from "./AskInput.vue";
 import { grantText, grantWords } from "./grant";
 import QuestionDialog from "./QuestionDialog.vue";
@@ -18,6 +19,8 @@ const props = defineProps<{
   reason?: string;
   /** The item's worktree: a Bash cwd there goes without saying. */
   worktree?: string;
+  /** The item's repository: "Always allow" grants the rules there (D38). */
+  repo?: RepoRef;
 }>();
 const emit = defineEmits<{ answered: [] }>();
 
@@ -31,6 +34,8 @@ const label = computed(() => (network.value ? "Network access" : props.toolName)
 const grant = computed(() => grantText(props.rules ?? []));
 /** The same rules, shown under the buttons before the user presses (issue #71). */
 const grantShown = computed(() => grantWords(props.rules ?? []));
+/** `owner/repo` for "Always allow in …"; no button without a repository. */
+const repoName = computed(() => (props.repo ? `${props.repo.owner}/${props.repo.name}` : undefined));
 
 /** AskUserQuestion: Allow alone is no answer; the user answers in a dialog or declines (spec 9.4). */
 const questions = computed(() => (isQuestionTool(props.toolName) ? questionsOf(props.input) : []));
@@ -41,7 +46,7 @@ const message = ref("");
 const busy = ref(false);
 const error = ref<string>();
 
-async function answer(behavior: "allow" | "deny", scope?: "run", answers?: Answers, interrupt = false) {
+async function answer(behavior: "allow" | "deny", scope?: "run" | "always", answers?: Answers, interrupt = false) {
   busy.value = true;
   error.value = undefined;
   try {
@@ -95,6 +100,16 @@ async function answer(behavior: "allow" | "deny", scope?: "run", answers?: Answe
       <button v-if="grant" class="btn" type="button" :disabled="busy" :title="`Also allows ${grant} until this run ends`" @click="answer('allow', 'run')">
         Allow for this run
       </button>
+      <button
+        v-if="grant && repoName"
+        class="btn"
+        type="button"
+        :disabled="busy"
+        :title="`Allows ${grant} in every run in ${repoName}, until you remove it in Settings`"
+        @click="answer('allow', 'always')"
+      >
+        Always allow in {{ repoName }}
+      </button>
       <button class="btn" type="button" :disabled="busy" @click="answer('deny')">Deny</button>
       <button class="btn" type="button" :disabled="busy" @click="denying = true">Deny and say why…</button>
     </div>
@@ -102,7 +117,7 @@ async function answer(behavior: "allow" | "deny", scope?: "run", answers?: Answe
       "Allow for this run" also allows
       <template v-for="(w, i) in grantShown" :key="i"
         >{{ i ? ", " : " " }}{{ w.text }}<template v-if="w.pattern"> <code class="mono">{{ w.pattern }}</code></template></template
-      > for the rest of this run.
+      > for the rest of this run<template v-if="repoName">; "Always allow" in every run in {{ repoName }}, until you remove it in Settings</template>.
     </p>
     <p v-if="error && !asking" class="alert" role="alert">{{ error }}</p>
     <QuestionDialog

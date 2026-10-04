@@ -118,7 +118,9 @@ Event types in MVP: `item.collected`, `item.playbook_changed`, `agent.started`, 
 `agent.turn_started`, `agent.turn_ended`, `agent.failed`, `permission.asked`, `permission.answered`, `draft.created`,
 `draft.edited`, `draft.approved`, `draft.rejected`, `draft.executed`, `draft.execution_failed`,
 `agent.interrupted`, `worktree.removed`, `item.assigned`, `item.assign_failed` (assign on start,
-see 6.4), `permission.auto_allowed` (the daemon answered a WebFetch ask itself, see 9.4),
+see 6.4), `permission.auto_allowed` (the daemon answered an ask itself: a WebFetch host on the
+list or an "Always allow" grant, see 9.4), `permission.granted` and `permission.grant_revoked`
+(an "Always allow" grant was added or removed, see 9.4),
 `item.closed_upstream` (a never-started item moved to Done) and `item.dismissed` (the user moved
 a started one to Done), both see 6.2, `item.pr_merged` (the item's PR was merged, the worktree
 stays) and `worktree.remove_skipped` (merged, but the worktree has uncommitted changes), both see
@@ -150,6 +152,19 @@ resolves a merge conflict. `worktree.removed` carries `reason: "pr_merged"` and 
 | toolName | string |
 | input | JSON |
 | state | `pending` \| `allowed` \| `denied` \| `expired` (pending when the daemon restarted) |
+
+### 4.5a PermissionGrant ("Always allow", D38)
+
+| field | type | notes |
+|---|---|---|
+| id | uuid | |
+| repo | string | normalised origin, `github.com/owner/repo`; every clone shares it |
+| toolName, ruleContent | string, string? | the rule as Claude Code suggested it |
+| createdAt | ISO time | |
+| askId, itemId | uuid | the ask it was granted on; no foreign key, a grant outlives the purge (6.8) |
+| call | string | that ask's call in words, e.g. `Bash: pnpm test` |
+| useCount, lastUsedAt | int, ISO time? | asks it answered |
+| revokedAt | ISO time? | set by Remove; the row stays, it no longer matches |
 
 ### 4.6 Repo
 
@@ -598,6 +613,27 @@ session:
 `destination` is always `session`, whatever the suggestion said. The `permission.answered` event
 payload is `{ behavior, rules }`, with `rules` empty for a one-time answer.
 
+"Always allow in <owner/repo>" (D38). A third button, shown whenever "Allow for this run" is, stores
+the same rules as grants of the item's repository (`permission_grants`, 4.5a) and answers this ask
+with a **plain** allow, no `updatedPermissions`. The hint under the buttons adds "; "Always allow"
+in every run in <owner/repo>, until you remove it in Settings". The `permission.answered` payload is
+`{ behavior: "allow", rules: [], interrupt: false, always: [{ grantId, repo, toolName, ruleContent? }] }`,
+and each new grant gets a `permission.granted` event (actor `user`, refId the grant, payload the
+grant plus `askId`). A rule the repo already has is not stored twice. The daemon refuses the scope
+for an ask without rules or with a blocked one (409).
+
+On every new ask the daemon reads the repo's active grants and answers by itself when
+`matchGrants` (core) says so: Claude Code suggested at least one allow rule for the asked tool, none
+of them is blocked, each equals an active grant exactly (tool name and rule content, as suggested),
+neither flag is set, and the tool is not `AskUserQuestion`. A stored grant on the block list never
+matches. The answer is a plain allow; the item stays `running`; the ask is stored as `allowed` with
+the outcome reason "always allowed in <owner/repo>: `Bash(pnpm test *)`"; the grants' `useCount`
+and `lastUsedAt` go up; a `permission.auto_allowed` event (actor `system`, payload `{ toolName,
+repo, grants: [{ grantId, toolName, ruleContent? }] }`) records it. Because the CLI never got a
+session rule, it asks again next time, so removing a grant applies at once, also in a run already
+going: the next matching ask goes to the user. Remove records `permission.grant_revoked` on the item
+the grant was made on, if that item still exists.
+
 Showing an ask. The ask panel shows the tool's whole input, never cut: Bash the full command (plus
 `description`, plus `cwd` when it is not the worktree), Write/Edit/MultiEdit the path and the
 diff, WebFetch the URL, the sandbox's network ask the host, anything else the input as JSON. The
@@ -702,7 +738,9 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/items/:id/start` | create worktree, run setup, start agent |
 | POST | `/api/items/:id/playbook` | `{ name }` |
 | GET | `/api/items/:id/transcript?after=<id>` | paged transcript |
-| POST | `/api/asks/:id/answer` | `{ behavior: allow\|deny, scope?: run, answers?, message? }` |
+| POST | `/api/asks/:id/answer` | `{ behavior: allow\|deny, scope?: run\|always, answers?, message? }` |
+| GET | `/api/grants` | active "Always allow" grants of every repo (4.5a) |
+| POST | `/api/grants/:id/revoke` | sets `revokedAt`; 404 for a missing or removed grant |
 | POST | `/api/drafts/:id/edit` | `{ payload }` |
 | POST | `/api/drafts/:id/approve` | executes |
 | POST | `/api/drafts/:id/reject` | `{ reason }`; reason is sent to the agent as next message. Without a live process (e.g. after a restart) the session is resumed with `--resume` and the reason as its first message |
@@ -829,6 +867,10 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
   refine it there and paste it back) and the assign-on-start checkbox. A failed query shows on its
   row.
 - Web access: the hosts the agent may read with WebFetch without asking (9.4), one per line.
+- Always allowed (D38): the active grants, grouped by repo (`owner/repo`). Each row shows the rule
+  in plain words ("Bash commands matching `pnpm test *`"), the raw rule (`Bash(pnpm test *)`), when
+  it was granted, how often and when it was last used, the call it was granted for, and Remove.
+  Remove hides the row and stops it matching at once, also for running agents.
 
 ### 12.5 Archive
 

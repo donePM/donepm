@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { Draft, PrDraftPayload, WorkItem } from "@donepm/core";
+import type { Draft, PermissionGrant, PrDraftPayload, WorkItem } from "@donepm/core";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { z } from "zod";
@@ -12,6 +12,7 @@ import { RemoveError } from "../worktrees/remove.js";
 import { DismissError } from "../items/dismiss.js";
 import { CiActionError } from "../ci/actions.js";
 import { ConflictActionError } from "../prs/actions.js";
+import { GrantError } from "../asks/revoke.js";
 import type { AskStore } from "../asks/store.js";
 import { ConfigSchema, SourceKey, type Config } from "../config/config.js";
 import { DraftError } from "../drafts/actions.js";
@@ -85,6 +86,10 @@ export interface ServerDeps {
   openPath: (path: string, target: OpenTarget) => Promise<void>;
   /** Throws AskError. */
   answerAsk: (id: string, answer: AskAnswer) => void;
+  /** "Always allow" grants in force, every repository (D38). */
+  grants: () => PermissionGrant[];
+  /** Throws GrantError (404 for a missing or removed grant). The grant stops matching at once. */
+  revokeGrant: (id: string) => PermissionGrant;
   /** Runs a repository query once, for the Test button in Settings (issue #32). */
   testSource: (origin: string, query: string) => Promise<FetchResult>;
   /** Built web UI (`packages/web` builds into it). Served at `/` when it exists. */
@@ -94,10 +99,11 @@ export interface ServerDeps {
 }
 
 const AskAnswerSchema = z.discriminatedUnion("behavior", [
-  // `scope: "run"` also grants the rules the CLI suggested for the rest of the run.
+  // `scope: "run"` also grants the rules the CLI suggested for the rest of the run; `"always"` stores
+  // them as grants of the item's repository (D38).
   z.object({
     behavior: z.literal("allow"),
-    scope: z.literal("run").optional(),
+    scope: z.enum(["run", "always"]).optional(),
     answers: z.record(z.string(), z.string()).optional(),
   }).strict(),
   z.object({ behavior: z.literal("deny"), message: z.string().optional(), interrupt: z.boolean().optional() }).strict(),
@@ -291,7 +297,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   app.post<{ Params: { id: string } }>("/api/asks/:id/answer", async (req, reply) => {
     const answer = AskAnswerSchema.safeParse(req.body ?? {});
-    if (!answer.success) return reply.code(400).send({ error: "body must be {behavior: allow, scope?: run, answers?} or {behavior: deny, message?, interrupt?}" });
+    if (!answer.success) return reply.code(400).send({ error: "body must be {behavior: allow, scope?: run|always, answers?} or {behavior: deny, message?, interrupt?}" });
     try {
       deps.answerAsk(req.params.id, answer.data);
     } catch (e) {
@@ -299,6 +305,17 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       throw e;
     }
     return { ok: true };
+  });
+
+  app.get("/api/grants", async () => deps.grants());
+
+  app.post<{ Params: { id: string } }>("/api/grants/:id/revoke", async (req, reply) => {
+    try {
+      return deps.revokeGrant(req.params.id);
+    } catch (e) {
+      if (e instanceof GrantError) return reply.code(e.status).send({ error: e.message });
+      throw e;
+    }
   });
 
   app.post<{ Params: { id: string } }>("/api/drafts/:id/edit", async (req, reply) => {

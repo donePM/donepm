@@ -1,7 +1,8 @@
 import {
-  agentAsked, agentFailed, answered, askDeniedBySystem, interrupted, answeredInput, checkAnswers, isQuestionTool, questionsOf, type Answers, autoAllowed, isRuleOfferable, matchingDomain, webFetchHost, toolSummary, turnEnded, turnStarted,
+  agentAsked, agentFailed, alwaysAllowed, answered, askDeniedBySystem, matchGrants, rawRule, repoName, type AskFlags, type GrantRef, interrupted, answeredInput, checkAnswers, isQuestionTool, questionsOf, type Answers, autoAllowed, isRuleOfferable, matchingDomain, webFetchHost, toolSummary, turnEnded, turnStarted,
   type Ctx, type PermissionRule, type Playbook, type TranscriptKind, type WorkItem,
 } from "@donepm/core";
+import type { GrantStore } from "../asks/grants.js";
 import type { AskStore } from "../asks/store.js";
 import type { ItemStore } from "../items/store.js";
 import type { ItemWriter } from "../items/commit.js";
@@ -40,6 +41,8 @@ export interface RunnerDeps {
   mcp?: (item: WorkItem, playbook: Playbook) => { configPath: string; close: () => void };
   /** Hosts whose WebFetch asks the daemon allows itself (D31). Absent or empty: every one asks. */
   webFetchDomains?: () => readonly string[];
+  /** "Always allow" grants per repository (D38). Absent: every ask goes to the user. */
+  grants?: GrantStore;
 }
 
 export interface LaunchInput {
@@ -181,7 +184,7 @@ export class AgentRunner {
   /** Answer a pending permission question (spec 9.4). */
   answer(
     askId: string,
-    answer: { behavior: "allow"; scope?: "run"; answers?: Answers } | { behavior: "deny"; message?: string; interrupt?: boolean },
+    answer: { behavior: "allow"; scope?: "run" | "always"; answers?: Answers } | { behavior: "deny"; message?: string; interrupt?: boolean },
   ): void {
     const ask = this.deps.asks.get(askId);
     if (!ask) throw new AskError(404, "ask not found");
@@ -193,6 +196,14 @@ export class AgentRunner {
     // check again because a blocked grant must never reach the CLI.
     const granted = answer.behavior === "allow" && answer.scope === "run" ? ask.rules : [];
     if (!granted.every(isRuleOfferable)) throw new AskError(409, "this ask has a rule that may not be granted");
+    // "Always allow" (D38) answers with a plain allow: the CLI keeps asking, and the daemon answers
+    // from the grants, so removing one in Settings applies to this run too.
+    const always = answer.behavior === "allow" && answer.scope === "always";
+    if (always) {
+      if (!this.deps.grants) throw new AskError(409, "always allow is not available");
+      if (ask.rules.length === 0) throw new AskError(409, "this ask has no rule to always allow");
+      if (!ask.rules.every(isRuleOfferable)) throw new AskError(409, "this ask has a rule that may not be granted");
+    }
 
     // AskUserQuestion: Allow alone tells the agent "the user did not answer". Answers go in the input.
     let input = ask.input;
@@ -220,11 +231,33 @@ export class AgentRunner {
     this.deps.asks.setState(ask.id, answer.behavior === "allow" ? "allowed" : "denied", at);
     this.store(session, "raw", JSON.parse(line));
 
+    const grants = always ? this.grant(ask.itemId, ask.id, ask.rules, `${ask.toolName}: ${toolSummary(ask.toolName, ask.input)}`, at) : [];
+
     const item = this.item(ask.itemId);
     if (item.state === "needs_you") {
       const others = this.deps.asks.pending(ask.itemId).length > 0;
+      if (always) {
+        this.deps.writer.commit(alwaysAllowed(item, this.deps.ctx, ask.id, grants, others));
+        return;
+      }
       this.deps.writer.commit(answered(item, this.deps.ctx, ask.id, { behavior: answer.behavior, rules: granted, interrupt: answer.behavior === "deny" && answer.interrupt === true, ...(answers ? { answers } : {}) }, others));
     }
+  }
+
+  /** Store a grant per rule for the item's repository; rules it already has are skipped. */
+  private grant(itemId: string, askId: string, rules: readonly PermissionRule[], call: string, at: string): GrantRef[] {
+    const repo = this.repoOf(itemId);
+    return rules.flatMap((rule) => {
+      const g = this.deps.grants!.add({ id: this.deps.ctx.newId(), repo, rule, askId, itemId, call }, at);
+      return g ? [{ id: g.id, repo: g.repo, toolName: g.toolName, ...(g.ruleContent !== undefined ? { ruleContent: g.ruleContent } : {}) }] : [];
+    });
+  }
+
+  /** The normalised origin of the item's repository: grants belong to it, not to one clone. */
+  private repoOf(itemId: string): string {
+    const stored = this.deps.items.get(itemId);
+    if (!stored) throw new Error(`item ${itemId} not found`);
+    return stored.originUrl;
   }
 
   /**
@@ -317,7 +350,7 @@ export class AgentRunner {
         return;
       case "ask":
         this.store(session, "raw", d.raw);
-        this.onAsk(session, d.requestId, d.toolName, d.input, d.rules, d.reason);
+        this.onAsk(session, d.requestId, d.toolName, d.input, d.rules, d.reason, d.suggested, d.flags);
         return;
       case "result":
         this.store(session, "result", d.raw);
@@ -342,9 +375,13 @@ export class AgentRunner {
     }
   }
 
-  private onAsk(session: Session, requestId: string, toolName: string, input: unknown, rules: PermissionRule[], reason?: string): void {
+  private onAsk(
+    session: Session, requestId: string, toolName: string, input: unknown, rules: PermissionRule[], reason?: string,
+    suggested: PermissionRule[] = [], flags: AskFlags = { suppressAlwaysAllowRule: false, requiresUserInteraction: false },
+  ): void {
     const at = this.deps.ctx.now();
     if (this.autoAllow(session, requestId, toolName, input, at)) return;
+    if (this.allowByGrant(session, requestId, toolName, input, suggested, flags, at)) return;
     const ask = {
       id: this.deps.ctx.newId(), itemId: session.itemId, requestId, toolName, input, state: "pending" as const, rules, ...(reason ? { reason } : {}),
     };
@@ -373,6 +410,35 @@ export class AgentRunner {
     const ask = { id: this.deps.ctx.newId(), itemId: session.itemId, requestId, toolName, input, state: "allowed" as const, rules: [] };
     this.deps.asks.insert(ask, at);
     this.deps.writer.commit(autoAllowed(item, this.deps.ctx, ask.id, { toolName, host, domain }));
+    return true;
+  }
+
+  /**
+   * An ask whose every suggested rule has an "Always allow" grant in the item's repository is
+   * answered with a plain allow (D38). The grants are read on every ask, so a removal in Settings
+   * applies to a running agent from its next ask on.
+   */
+  private allowByGrant(
+    session: Session, requestId: string, toolName: string, input: unknown, suggested: PermissionRule[], flags: AskFlags, at: string,
+  ): boolean {
+    if (!this.deps.grants || !session.proc || session.closing) return false;
+    const repo = this.repoOf(session.itemId);
+    const grants = matchGrants(toolName, suggested, flags, this.deps.grants.active(repo));
+    if (!grants) return false;
+    const item = this.item(session.itemId);
+    if (item.state !== "running" && item.state !== "needs_you") return false;
+
+    const line = askAnswerLine(requestId, { behavior: "allow", input });
+    session.proc.write(line);
+    this.store(session, "raw", JSON.parse(line));
+    const reason = `always allowed in ${repoName(repo)}: ${grants.map(rawRule).join(", ")}`;
+    const ask = { id: this.deps.ctx.newId(), itemId: session.itemId, requestId, toolName, input, state: "pending" as const, rules: [] };
+    this.deps.asks.insert(ask, at);
+    this.deps.asks.setState(ask.id, "allowed", at, reason);
+    this.deps.grants.used(grants.map((g) => g.id), at);
+    this.deps.writer.commit(autoAllowed(item, this.deps.ctx, ask.id, {
+      toolName, repo, grants: grants.map((g) => ({ grantId: g.id, toolName: g.toolName, ...(g.ruleContent !== undefined ? { ruleContent: g.ruleContent } : {}) })),
+    }));
     return true;
   }
 

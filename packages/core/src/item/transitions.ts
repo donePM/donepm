@@ -529,6 +529,51 @@ export function archived(item: WorkItem, ctx: Ctx, finishedAt: string): Transiti
   return { ...t, item: { ...t.item, archivedAt: t.events[0]!.at } };
 }
 
+/** A grant as its events carry it (decision D38). */
+export interface GrantRef {
+  id: string;
+  repo: string;
+  toolName: string;
+  ruleContent?: string;
+}
+
+const grantPayload = (g: GrantRef) => ({
+  grantId: g.id, repo: g.repo, toolName: g.toolName, ...(g.ruleContent !== undefined ? { ruleContent: g.ruleContent } : {}),
+});
+
+/**
+ * "Always allow in <repo>" (decision D38): the user's allow, as `answered`, plus one
+ * `permission.granted` per new grant. A rule the repository already had needs no new grant.
+ */
+export function alwaysAllowed(
+  item: WorkItem,
+  ctx: Ctx,
+  askId: string,
+  grants: readonly GrantRef[],
+  othersPending = false,
+): Transition {
+  const t = answered(item, ctx, askId, { behavior: "allow", rules: [], always: grants.map(grantPayload) }, othersPending);
+  const at = t.events[0]!.at;
+  const granted: Event[] = grants.map((g) => ({
+    id: ctx.newId(), itemId: item.id, at, actor: "user", type: "permission.granted", payload: { ...grantPayload(g), askId }, refId: g.id,
+  }));
+  return { ...t, events: [...t.events, ...granted] };
+}
+
+/**
+ * The user removed a grant in Settings. Recorded on the item it was granted on; the item keeps its
+ * state, whatever it is now.
+ */
+export function grantRevoked(item: WorkItem, ctx: Ctx, grant: GrantRef): Transition {
+  return apply(
+    { name: "grantRevoked", from: ALL_STATES, to: item.state, actor: "user", event: "permission.grant_revoked" },
+    item,
+    ctx,
+    grant.id,
+    grantPayload(grant),
+  );
+}
+
 /** Work an agent may have left: a worktree or a session. Such an item is never closed for the user. */
 export function wasStarted(item: WorkItem): boolean {
   return item.worktreePath !== undefined || item.agentSessionId !== undefined;

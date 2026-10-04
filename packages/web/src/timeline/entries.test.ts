@@ -47,6 +47,23 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("shows always allow, its grant, the answers it gave and its removal (D38)", () => {
+    const later: PermissionAsk = { ...ask, id: "a2", input: { command: "pnpm test core" } };
+    const g = { grantId: "g1", repo: "github.com/o/r", toolName: "Bash", ruleContent: "pnpm test *" };
+    const events = [
+      ev("permission.answered", { behavior: "allow", rules: [], always: [g] }, { refId: "a1", actor: "user" }),
+      ev("permission.granted", { ...g, askId: "a1" }, { refId: "g1", actor: "user" }),
+      ev("permission.auto_allowed", { toolName: "Bash", repo: "github.com/o/r", grants: [{ grantId: "g1", toolName: "Bash", ruleContent: "pnpm test *" }] }, { refId: "a2" }),
+      ev("permission.grant_revoked", g, { refId: "g1", actor: "user" }),
+    ];
+    expect(timelineEntries(events, [ask, later]).map(({ tone, text, code, detail }) => ({ tone, text, code, detail }))).toEqual([
+      { tone: "user", text: "You removed from Always allowed in o/r", code: "Bash(pnpm test *)", detail: undefined },
+      { tone: "system", text: "Always allowed in o/r", code: "Bash: pnpm test core", detail: "Bash(pnpm test *) is in Settings → Always allowed" },
+      { tone: "user", text: "Added to Always allowed in o/r", code: "Bash(pnpm test *)", detail: undefined },
+      { tone: "user", text: "You always allowed", code: "Bash: composer test", detail: undefined },
+    ]);
+  });
+
   it("keeps a multi-line command whole in the tooltip", () => {
     const long: PermissionAsk = { ...ask, input: { command: "pnpm build \\\n  && pnpm test" } };
     const [asked] = timelineEntries([ev("permission.asked", { toolName: "Bash" }, { refId: "a1", actor: "agent" })], [long]);
