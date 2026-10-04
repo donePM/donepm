@@ -4,13 +4,12 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
-import type { DraftDeps } from "../drafts/actions.js";
 import type { Log } from "../log.js";
 import { BRIDGE_PROTOCOL, type Hello, type Welcome } from "./protocol.js";
 import type { BridgeSession, BridgeSessions } from "./sessions.js";
-import { callTool, listTools } from "./tools.js";
+import { callTool, listTools, type ToolDeps } from "./tools.js";
 
-export interface BridgeServerDeps extends DraftDeps {
+export interface BridgeServerDeps extends ToolDeps {
   sessions: BridgeSessions;
   log: Log;
   version: string;

@@ -23,3 +23,7 @@ export const resumeAgent = (id: string) => run(id, api.resume);
 export const removeWorktree = (id: string) => run(id, api.removeWorktree);
 /** Moves an item whose issue was closed upstream to Done (D32). The worktree stays. */
 export const dismissItem = (id: string) => run(id, api.dismiss);
+/** Red CI (D35): rerun the failed jobs, let the agent fix it, or call it done anyway. */
+export const rerunCi = (id: string) => run(id, api.rerunCi);
+export const fixCi = (id: string) => run(id, api.fixCi);
+export const markCiDone = (id: string) => run(id, api.markCiDone);

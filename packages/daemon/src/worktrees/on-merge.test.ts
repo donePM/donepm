@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { draftCreated, draftExecuted, start, type WorkItem } from "@donepm/core";
+import { ciPassed, draftCreated, draftExecuted, start, type WorkItem } from "@donepm/core";
 import { describe, expect, it } from "vitest";
 import { openDb } from "../db/database.js";
 import { DraftStore } from "../drafts/store.js";
@@ -43,7 +43,8 @@ async function setup(opts: { removeOnMerge: boolean; prView?: () => string; ghFa
   current = writer.commit(draftCreated(current, ctx, "d-1"));
   drafts.setState("d-1", "executed", ctx.now());
   drafts.setResult("d-1", PR, ctx.now());
-  writer.commit(draftExecuted(current, ctx, "d-1", { ...PR }));
+  current = writer.commit(draftExecuted(current, ctx, "d-1", PR, { ...PR }));
+  writer.commit(ciPassed(current, ctx, { checks: 1 }));
 
   const gh = fakeExec({
     "gh pr view": () => (opts.ghFails ? fail("HTTP 502") : ok(opts.prView?.() ?? fixture("gh/pr-view-merged.json"))),
@@ -53,7 +54,7 @@ async function setup(opts: { removeOnMerge: boolean; prView?: () => string; ghFa
     items, events, drafts, repos, writer, exec, ctx, log: silentLog,
     removeOnMerge: () => opts.removeOnMerge, agentActive: () => false,
   };
-  const types = () => events.forItem(item.id).map((e) => e.type).slice(3);
+  const types = () => events.forItem(item.id).map((e) => e.type).slice(5);
   return { deps, gh, clone, worktree, items, events, types, item: () => items.get(item.id)!.item };
 }
 

@@ -3,7 +3,7 @@ import type { Ctx } from "../ids.js";
 import {
   InvalidTransitionError, agentAsked, agentFailed, answered, autoAllowed, draftApproved, draftCreated, draftEdited, draftExecuted,
   draftExecutionFailed, draftRejected, interrupted, issueAssignFailed, issueAssigned, resume, start, worktreeRemoved,
-  turnEnded, turnStarted, closedUpstream, dismissed, wasStarted, prMerged, worktreeRemovedOnMerge, worktreeRemoveSkipped,
+  turnEnded, turnStarted, closedUpstream, ciFailed, ciFix, ciMarkedDone, ciPassed, ciRerun, dismissed, wasStarted, prMerged, worktreeRemovedOnMerge, worktreeRemoveSkipped,
 } from "./transitions.js";
 import type { ItemState, WorkItem } from "./types.js";
 
@@ -21,7 +21,7 @@ function item(state: ItemState, extra: Partial<WorkItem> = {}): WorkItem {
   };
 }
 
-const ALL: ItemState[] = ["ready", "running", "needs_you", "done", "failed"];
+const ALL: ItemState[] = ["ready", "running", "needs_you", "checking", "done", "failed"];
 
 const table: Array<{
   name: string;
@@ -39,12 +39,16 @@ const table: Array<{
   { name: "draftCreated", run: (i) => draftCreated(i, makeCtx(), "d-1"), from: ["running"], to: "needs_you", type: "draft.created", actor: "agent" },
   { name: "draftEdited", run: (i) => draftEdited(i, makeCtx(), "d-1"), from: ["needs_you"], to: "needs_you", type: "draft.edited", actor: "user" },
   { name: "draftApproved", run: (i) => draftApproved(i, makeCtx(), "d-1"), from: ["needs_you"], to: "needs_you", type: "draft.approved", actor: "user" },
-  { name: "draftExecuted", run: (i) => draftExecuted(i, makeCtx(), "d-1", { url: "u", number: 1 }), from: ["needs_you"], to: "done", type: "draft.executed", actor: "system" },
   { name: "draftExecutionFailed", run: (i) => draftExecutionFailed(i, makeCtx(), "d-1", { step: "push" }), from: ["needs_you"], to: "needs_you", type: "draft.execution_failed", actor: "system" },
   { name: "draftRejected", run: (i) => draftRejected(i, makeCtx(), "d-1", "nope"), from: ["needs_you"], to: "running", type: "draft.rejected", actor: "user" },
   { name: "interrupted", run: (i) => interrupted(i, makeCtx(), "daemon restarted"), from: ["running", "needs_you"], to: "needs_you", type: "agent.interrupted", actor: "system" },
   { name: "resume", run: (i) => resume({ ...i, agentSessionId: "sess" }, makeCtx()), from: ["needs_you"], to: "running", type: "agent.resumed", actor: "user" },
   { name: "agentFailed", run: (i) => agentFailed(i, makeCtx(), "boom"), from: ["running", "needs_you"], to: "failed", type: "agent.failed", actor: "system" },
+  { name: "ciPassed", run: (i) => ciPassed(i, makeCtx(), { checks: 4 }), from: ["checking"], to: "done", type: "ci.passed", actor: "system" },
+  { name: "ciFailed", run: (i) => ciFailed(i, makeCtx(), { failed: [] }), from: ["checking"], to: "needs_you", type: "ci.failed", actor: "system" },
+  { name: "ciRerun", run: (i) => ciRerun(i, makeCtx(), { number: 5, url: "u" }, ["9"]), from: ["needs_you"], to: "checking", type: "ci.started", actor: "user" },
+  { name: "ciMarkedDone", run: (i) => ciMarkedDone(i, makeCtx()), from: ["checking", "needs_you"], to: "done", type: "ci.marked_done", actor: "user" },
+  { name: "ciFix", run: (i) => ciFix({ ...i, agentSessionId: "sess" }, makeCtx()), from: ["needs_you"], to: "running", type: "agent.resumed", actor: "user" },
 ];
 
 describe.each(table)("$name", ({ run, from, to, type, actor, name }) => {
@@ -95,6 +99,20 @@ describe("details", () => {
     expect(interrupted(item("running"), makeCtx(), "daemon restarted").events[0]?.payload).toEqual({ reason: "daemon restarted" });
   });
 
+  it("draftExecuted waits for CI: draft.executed, then ci.started with the PR", () => {
+    const { item: after, events } = draftExecuted(item("needs_you"), makeCtx(), "d-1", { number: 7, url: "https://x/pull/7" }, { url: "https://x/pull/7", number: 7 });
+    expect(after.state).toBe("checking");
+    expect(events.map((e) => [e.type, e.id, e.refId])).toEqual([["draft.executed", "evt-1", "d-1"], ["ci.started", "evt-2", "d-1"]]);
+    expect(events[1]?.payload).toEqual({ number: 7, url: "https://x/pull/7" });
+    expect(() => draftExecuted(item("running"), makeCtx(), "d-1", { number: 7, url: "u" })).toThrow(/draftExecuted.*running/);
+  });
+
+  it("ciRerun records the runs; ciFix records why it resumed and needs a session", () => {
+    expect(ciRerun(item("needs_you"), makeCtx(), { number: 5, url: "u" }, ["1", "2"]).events[0]?.payload).toEqual({ number: 5, url: "u", reason: "rerun", runs: ["1", "2"] });
+    expect(ciFix(item("needs_you", { agentSessionId: "s" }), makeCtx()).events[0]?.payload).toEqual({ reason: "ci_failed" });
+    expect(() => ciFix(item("needs_you"), makeCtx())).toThrow(InvalidTransitionError);
+  });
+
   it("resume needs a session", () => {
     expect(() => resume(item("needs_you"), makeCtx())).toThrow(InvalidTransitionError);
   });
@@ -127,7 +145,8 @@ describe("startedAt and stateSince", () => {
   });
 
   it("sets stateSince when the item enters done and keeps it on later updates", () => {
-    const done = draftExecuted(item("needs_you"), at("2026-10-03T10:00:00.000Z"), "d-1").item;
+    const checking = draftExecuted(item("needs_you"), at("2026-10-03T09:00:00.000Z"), "d-1", { number: 1, url: "u" }).item;
+    const done = ciPassed(checking, at("2026-10-03T10:00:00.000Z")).item;
     expect(done.stateSince).toBe("2026-10-03T10:00:00.000Z");
     const removed = worktreeRemoved({ ...done, worktreePath: "/wt/1" }, at("2026-10-04T09:00:00.000Z")).item;
     expect(removed).toMatchObject({ stateSince: "2026-10-03T10:00:00.000Z", updatedAt: "2026-10-04T09:00:00.000Z" });

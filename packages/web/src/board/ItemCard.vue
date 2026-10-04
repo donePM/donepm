@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { dismissItem, pending, removeWorktree, resumeAgent, startAgent, stopAgent } from "../agents/actions";
+import { dismissItem, fixCi, markCiDone, pending, removeWorktree, rerunCi, resumeAgent, startAgent, stopAgent } from "../agents/actions";
 import { api } from "../api/client";
 import { errorText, isPublishFailure } from "../api/errors";
 import type { ItemView } from "../api/types";
@@ -35,15 +35,17 @@ const attention = computed(() => props.item.attention);
 const flag = computed(() => {
   const a = attention.value;
   if (!a) return undefined;
+  if (a.kind === "draft" && a.draftType === "push") return a.error ? "Push failed" : a.executing ? "Pushing" : "Push draft";
   if (a.kind === "draft") return a.error ? "PR failed" : a.executing ? "Publishing" : "PR draft";
+  if (a.kind === "ci_failed") return "CI failed";
   if (a.kind === "resume") return "Interrupted";
   return a.kind === "ask" ? "Permission" : "Failed";
 });
 
-/** `+84 −12 · 5 files · 2 commits` for a pending draft, loaded once per draft. */
+/** `+84 −12 · 5 files · 2 commits` for a pending PR draft, loaded once per draft. A push draft's title says it all. */
 const draftStats = ref<DiffStats & { commits: number }>();
 watch(
-  () => (attention.value?.kind === "draft" ? attention.value.draftId : undefined),
+  () => (attention.value?.kind === "draft" && attention.value.draftType === "pr" ? attention.value.draftId : undefined),
   async (draftId) => {
     draftStats.value = undefined;
     if (!draftId) return;
@@ -101,6 +103,7 @@ async function act(fn: (id: string) => Promise<void>) {
         :aria-label="hideRepo ? displayId(item.externalId) : undefined"
       >{{ hideRepo ? shortId(item.externalId) : displayId(item.externalId) }}</a>
       <span v-if="item.state === 'running'" class="live"><span class="dot dot-ok" aria-hidden="true"></span>running<template v-if="elapsed"> · {{ elapsed }}</template></span>
+      <span v-else-if="item.state === 'checking'" class="live"><span class="dot dot-off" aria-hidden="true"></span>waiting for CI</span>
       <span v-else-if="flag" class="flag">{{ flag }}</span>
       <span v-else-if="column === 'needs_you' && !noClone" class="playbook" title="Playbook">{{ item.playbook }}</span>
     </div>
@@ -155,6 +158,18 @@ async function act(fn: (id: string) => Promise<void>) {
         <RouterLink :to="{ name: 'item', params: { id: item.id } }" class="btn" :class="{ 'btn-amber': !attention.error }">Review draft</RouterLink>
       </div>
     </template>
+    <template v-else-if="attention?.kind === 'ci_failed'">
+      <ul class="checks mono">
+        <li v-for="c in attention.failed" :key="c.name">
+          <a v-if="c.link" :href="c.link" target="_blank" rel="noreferrer">{{ c.name }}</a><template v-else>{{ c.name }}</template>
+        </li>
+      </ul>
+      <div class="actions">
+        <button class="btn btn-primary" type="button" :disabled="busy || !item.agentSessionId" title="Resume the agent with the failed checks and their logs" @click="act(fixCi)">Fix with agent</button>
+        <button v-if="attention.runs.length" class="btn" type="button" :disabled="busy" title="gh run rerun --failed" @click="act(rerunCi)">Rerun failed</button>
+        <button class="btn subtle" type="button" :disabled="busy" @click="act(markCiDone)">Mark done</button>
+      </div>
+    </template>
     <template v-else-if="attention?.kind === 'failed'">
       <p class="reason">{{ attention.reason }}</p>
       <pre v-if="stderrTail" class="stderr mono">{{ stderrTail }}</pre>
@@ -186,6 +201,9 @@ async function act(fn: (id: string) => Promise<void>) {
     <div v-else-if="item.state === 'running' || (item.agent.running && column === 'needs_you' && attention?.kind !== 'draft')" class="actions">
       <RouterLink :to="{ name: 'agent', params: { id: item.id } }" class="btn">Transcript</RouterLink>
       <button v-if="item.agent.running" class="btn stop" type="button" :disabled="busy" @click="act(stopAgent)">Stop</button>
+    </div>
+    <div v-if="item.state === 'checking'" class="actions">
+      <button class="btn subtle" type="button" :disabled="busy" title="Stop waiting for CI and move to Done" @click="act(markCiDone)">Mark done</button>
     </div>
     <div v-if="removable" class="actions">
       <button class="btn subtle" type="button" :disabled="busy" title="git worktree remove; the branch is kept" @click="act(removeWorktree)">Remove worktree</button>
@@ -229,6 +247,8 @@ h3 { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; overflow-wr
 .pr { font-size: 12px; color: var(--blue); text-decoration: none; }
 .pr:hover { text-decoration: underline; }
 .reason { margin: 0; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+.checks { margin: 0; padding-left: 16px; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
+.checks a { color: inherit; }
 .stderr {
   margin: 0;
   padding: 8px 10px;

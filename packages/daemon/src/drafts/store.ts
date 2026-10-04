@@ -1,4 +1,4 @@
-import type { Draft, DraftState, DraftType } from "@donepm/core";
+import type { Draft, DraftState, PrDraft, PrDraftPayload, PrDraftResult, PushDraftResult } from "@donepm/core";
 import type { Db } from "../db/database.js";
 
 interface DraftRow {
@@ -12,15 +12,14 @@ interface DraftRow {
 }
 
 function fromRow(r: DraftRow): Draft {
-  const d: Draft = {
-    id: r.id,
-    itemId: r.item_id,
-    type: r.type as DraftType,
-    payload: JSON.parse(r.payload) as Draft["payload"],
-    state: r.state as DraftState,
-  };
-  if (r.user_edits !== null) d.userEdits = JSON.parse(r.user_edits) as Draft["payload"];
-  if (r.result !== null) d.result = JSON.parse(r.result) as NonNullable<Draft["result"]>;
+  const base = { id: r.id, itemId: r.item_id, state: r.state as DraftState };
+  const result: unknown = r.result === null ? undefined : JSON.parse(r.result);
+  if (r.type === "push") {
+    return { ...base, type: "push", payload: JSON.parse(r.payload), ...(result ? { result: result as PushDraftResult } : {}) };
+  }
+  const d: PrDraft = { ...base, type: "pr", payload: JSON.parse(r.payload) as PrDraftPayload };
+  if (r.user_edits !== null) d.userEdits = JSON.parse(r.user_edits) as PrDraftPayload;
+  if (result) d.result = result as PrDraftResult;
   return d;
 }
 
@@ -53,7 +52,7 @@ export class DraftStore {
       )
       .run(
         draft.id, draft.itemId, draft.type, JSON.stringify(draft.payload), draft.state,
-        draft.userEdits ? JSON.stringify(draft.userEdits) : null,
+        draft.type === "pr" && draft.userEdits ? JSON.stringify(draft.userEdits) : null,
         draft.result ? JSON.stringify(draft.result) : null,
         at, at,
       );
@@ -64,11 +63,11 @@ export class DraftStore {
   }
 
   /** Executed: the draft's result is stored with it. */
-  setResult(id: string, result: NonNullable<Draft["result"]>, at: string): void {
+  setResult(id: string, result: PrDraftResult | PushDraftResult, at: string): void {
     this.db.prepare("UPDATE drafts SET state = 'executed', result = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(result), at, id);
   }
 
-  setUserEdits(id: string, edits: Draft["payload"], at: string): void {
+  setUserEdits(id: string, edits: PrDraftPayload, at: string): void {
     this.db.prepare("UPDATE drafts SET user_edits = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(edits), at, id);
   }
 }

@@ -1,11 +1,13 @@
 import {
-  draftCreated, draftEdited, draftRejected,
-  type Ctx, type Draft, type PrDraftPayload, type WorkItem,
+  draftCreated, draftEdited, draftRejected, executedPr, pushTitle,
+  type Ctx, type Draft, type DraftCommit, type DraftType, type PrDraft, type PrDraftPayload, type PushDraft, type WorkItem,
 } from "@donepm/core";
 import type { ResumeHow } from "../agent/start.js";
 import type { ItemWriter } from "../items/commit.js";
 import type { ItemStore } from "../items/store.js";
+import type { Exec } from "../process/exec.js";
 import type { RepoStore } from "../repos/store.js";
+import { setupCopies } from "../worktrees/setup.js";
 import type { DraftStore } from "./store.js";
 
 export class DraftError extends Error {
@@ -28,15 +30,14 @@ export interface DraftDeps {
 
 /** `draft_pr` (spec 10): a pending PR draft against the repo's default branch; the item waits for the user. */
 export function createPrDraft(deps: DraftDeps, itemId: string, input: { title: string; body: string }): Draft {
-  const item = itemOf(deps, itemId);
-  if (item.state !== "running") throw new DraftError(409, `the item is ${item.state}, a draft can only be made while the agent is working`);
-  if (deps.drafts.pending(itemId).length > 0) {
-    throw new DraftError(409, "a draft is already waiting for the user's review; wait for their answer");
+  const item = draftableItem(deps, itemId);
+  if (executedPr(deps.drafts.forItem(itemId))) {
+    throw new DraftError(409, "the pull request is already open; call draft_push to add commits to it");
   }
   const repo = item.repoId ? deps.repos.get(item.repoId) : undefined;
   if (!repo) throw new DraftError(409, "the item has no local clone");
 
-  const draft: Draft = {
+  const draft: PrDraft = {
     id: deps.ctx.newId(),
     itemId,
     type: "pr",
@@ -48,9 +49,61 @@ export function createPrDraft(deps: DraftDeps, itemId: string, input: { title: s
   return draft;
 }
 
-/** The user changed a pending draft. Edits are kept beside the agent's payload. */
+/**
+ * `draft_push` (decision D35): the agent's new commits on the item's branch, for the PR its PR
+ * draft opened. The daemon lists the commits the remote branch lacks; uncommitted changes are
+ * committed when the push runs, as with a PR draft. Nothing new is an error the agent reads.
+ */
+export async function createPushDraft(deps: DraftDeps & { exec: Exec }, itemId: string, input: { summary: string }): Promise<Draft> {
+  const item = draftableItem(deps, itemId);
+  const pr = executedPr(deps.drafts.forItem(itemId));
+  if (!pr) throw new DraftError(409, "there is no pull request yet; call draft_pr instead");
+  if (!item.worktreePath || !item.branch) throw new DraftError(409, "the item has no worktree");
+  const { commits, uncommitted } = await unpushed(deps.exec, item.worktreePath, item.branch);
+  if (commits.length === 0 && !uncommitted) throw new DraftError(409, "nothing to push: commit your changes first");
+
+  const draft: PushDraft = {
+    id: deps.ctx.newId(),
+    itemId,
+    type: "push",
+    payload: { summary: input.summary, number: pr.number, url: pr.url, branch: item.branch, commits, uncommitted },
+    state: "pending",
+  };
+  // Re-read: git ran meanwhile and the agent may have ended its turn.
+  const current = draftableItem(deps, itemId);
+  deps.drafts.insert(draft, deps.ctx.now());
+  deps.writer.commit(draftCreated(current, deps.ctx, draft.id, { type: "push", title: pushTitle(draft.payload) }));
+  return draft;
+}
+
+/** Commits on HEAD the remote branch lacks, oldest first, and whether changes are uncommitted. */
+async function unpushed(exec: Exec, worktree: string, branch: string): Promise<{ commits: DraftCommit[]; uncommitted: boolean }> {
+  const git = (...args: string[]) => exec("git", ["-C", worktree, ...args]);
+  const log = await git("log", "--reverse", "--format=%H%x09%s", `refs/remotes/origin/${branch}..HEAD`);
+  if (log.code !== 0) throw new DraftError(409, `cannot list the new commits: ${log.stderr.trim() || `git log exited with ${log.code}`}`);
+  const commits = log.stdout.split("\n").flatMap((line) => {
+    const [sha, ...subject] = line.split("\t");
+    return sha ? [{ sha, subject: subject.join("\t") }] : [];
+  });
+  const status = await git("status", "--porcelain", "--untracked-files=all");
+  const copies = new Set(await setupCopies(worktree));
+  const uncommitted = status.stdout.split("\n").some((l) => l.trim() && !copies.has(l.slice(3)));
+  return { commits, uncommitted };
+}
+
+function draftableItem(deps: DraftDeps, itemId: string): WorkItem {
+  const item = itemOf(deps, itemId);
+  if (item.state !== "running") throw new DraftError(409, `the item is ${item.state}, a draft can only be made while the agent is working`);
+  if (deps.drafts.pending(itemId).length > 0) {
+    throw new DraftError(409, "a draft is already waiting for the user's review; wait for their answer");
+  }
+  return item;
+}
+
+/** The user changed a pending PR draft. Edits are kept beside the agent's payload. */
 export function editDraft(deps: DraftDeps, draftId: string, edits: Partial<PrDraftPayload>): Draft {
   const draft = pendingDraft(deps, draftId);
+  if (draft.type !== "pr") throw new DraftError(409, "only a pull request draft can be edited");
   const item = itemOf(deps, draft.itemId);
   const userEdits = { ...(draft.userEdits ?? draft.payload), ...edits };
   // Transition first: it throws while the item is not waiting on the user.
@@ -75,7 +128,7 @@ export interface RejectDeps extends DraftDeps {
 export async function rejectDraft(deps: RejectDeps, draftId: string, reason: string | undefined): Promise<Draft> {
   const draft = pendingDraft(deps, draftId);
   const item = itemOf(deps, draft.itemId);
-  const message = rejectionMessage(reason);
+  const message = rejectionMessage(reason, draft.type);
   const transition = (current: WorkItem, ctx: Ctx) => {
     const t = draftRejected(current, ctx, draft.id, reason);
     deps.drafts.setState(draft.id, "rejected", ctx.now());
@@ -90,9 +143,9 @@ export async function rejectDraft(deps: RejectDeps, draftId: string, reason: str
   return { ...draft, state: "rejected" };
 }
 
-export function rejectionMessage(reason: string | undefined): string {
-  const head = "The user rejected your pull request draft.";
-  const tail = "Revise the work and call draft_pr again when it is ready.";
+export function rejectionMessage(reason: string | undefined, type: DraftType = "pr"): string {
+  const head = type === "pr" ? "The user rejected your pull request draft." : "The user rejected your push draft.";
+  const tail = `Revise the work and call ${type === "pr" ? "draft_pr" : "draft_push"} again when it is ready.`;
   return reason ? `${head}\n\nTheir reason:\n${reason}\n\n${tail}` : `${head}\n\n${tail}`;
 }
 

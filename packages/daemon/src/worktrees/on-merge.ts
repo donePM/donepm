@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import {
-  prMerged, prMergeOf, worktreeRemovedOnMerge, worktreeRemoveSkipped,
+  executedPr, prMerged, prMergeOf, worktreeRemovedOnMerge, worktreeRemoveSkipped,
   type Ctx, type PrDraftResult, type WorkItem,
 } from "@donepm/core";
 import type { DraftStore } from "../drafts/store.js";
@@ -39,7 +39,7 @@ export interface OnMergeDeps {
 export async function settleMergedPrs(deps: OnMergeDeps): Promise<void> {
   for (const { item } of deps.items.all()) {
     if (item.state !== "done" || !item.worktreePath) continue;
-    const pr = deps.drafts.forItem(item.id).findLast((d) => d.state === "executed")?.result;
+    const pr = executedPr(deps.drafts.forItem(item.id));
     if (!pr) continue;
     try {
       await settle(deps, item, pr);

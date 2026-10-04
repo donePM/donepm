@@ -1,18 +1,33 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { createPrDraft, DraftError, type DraftDeps } from "../drafts/actions.js";
+import { createPrDraft, createPushDraft, DraftError, type DraftDeps } from "../drafts/actions.js";
+import type { Exec } from "../process/exec.js";
 import type { BridgeSession } from "./sessions.js";
+
+export type ToolDeps = DraftDeps & { exec: Exec };
 
 interface ToolDef {
   tool: Tool;
   /** The playbook must allow this draft type; tools without one are always there. */
   draft?: string;
-  call: (deps: DraftDeps, session: BridgeSession, args: unknown) => CallToolResult;
+  call: (deps: ToolDeps, session: BridgeSession, args: unknown) => CallToolResult | Promise<CallToolResult>;
 }
 
 const text = (t: string, isError = false): CallToolResult => (isError ? { content: [{ type: "text", text: t }], isError } : { content: [{ type: "text", text: t }] });
 
 const DraftPrArgs = z.object({ title: z.string().trim().min(1), body: z.string() });
+const DraftPushArgs = z.object({ summary: z.string().trim().min(1) });
+
+/** A draft tool's answer: the draft's creation, or why there is none, as text the model reads. */
+async function drafted(create: () => unknown): Promise<CallToolResult> {
+  try {
+    await create();
+  } catch (e) {
+    if (e instanceof DraftError) return text(`No draft was created: ${e.message}.`, true);
+    throw e;
+  }
+  return text("Draft created, the user will review it.");
+}
 
 const TOOLS: ToolDef[] = [
   {
@@ -61,13 +76,27 @@ const TOOLS: ToolDef[] = [
     call: (deps, session, args) => {
       const parsed = DraftPrArgs.safeParse(args ?? {});
       if (!parsed.success) return text("draft_pr needs a non-empty `title` and a `body`.", true);
-      try {
-        createPrDraft(deps, session.itemId, parsed.data);
-      } catch (e) {
-        if (e instanceof DraftError) return text(`No draft was created: ${e.message}.`, true);
-        throw e;
-      }
-      return text("Draft created, the user will review it.");
+      return drafted(() => createPrDraft(deps, session.itemId, parsed.data));
+    },
+  },
+  {
+    // Pushing more commits to the PR the user already approved is part of the same outward action.
+    draft: "pr",
+    tool: {
+      name: "draft_push",
+      description:
+        "Propose pushing your new commits to this item's open pull request, e.g. after fixing a failed CI. " +
+        "The user reviews and pushes; you cannot push yourself. Commit your work before calling this.",
+      inputSchema: {
+        type: "object",
+        properties: { summary: { type: "string", description: "What the new commits change, in a sentence or two" } },
+        required: ["summary"],
+      },
+    },
+    call: (deps, session, args) => {
+      const parsed = DraftPushArgs.safeParse(args ?? {});
+      if (!parsed.success) return text("draft_push needs a non-empty `summary`.", true);
+      return drafted(() => createPushDraft(deps, session.itemId, parsed.data));
     },
   },
 ];
@@ -83,7 +112,7 @@ export function listTools(session: BridgeSession): Tool[] {
  * Run a tool. A tool the playbook does not allow answers exactly like an unknown one, as an
  * error result the model reads, never a JSON-RPC error (Bloom BRIDGE.md §3).
  */
-export function callTool(deps: DraftDeps, session: BridgeSession, name: string, args: unknown): CallToolResult {
+export async function callTool(deps: ToolDeps, session: BridgeSession, name: string, args: unknown): Promise<CallToolResult> {
   const def = allowed(session).find((t) => t.tool.name === name);
   if (!def) return text(`Unknown tool "${name}". Available: ${listTools(session).map((t) => t.name).join(", ")}.`, true);
   return def.call(deps, session, args);

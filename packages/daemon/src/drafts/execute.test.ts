@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
-import { agentFailed } from "@donepm/core";
+import { agentFailed, ciFailed, ciFix } from "@donepm/core";
 import { describe, expect, it } from "vitest";
 import { draftStores } from "../test-support/draft-stores.js";
 import { fail, fakeExec, ok, type FakeCall } from "../test-support/fake-exec.js";
-import { createPrDraft, editDraft } from "./actions.js";
+import { createPrDraft, createPushDraft, editDraft } from "./actions.js";
 import { approveDraft, ExecutionError, failInterrupted, prResult, WIP_MESSAGE } from "./execute.js";
 
 const PR_URL = "https://github.com/o/r/pull/42";
@@ -29,7 +29,7 @@ function setup(routes: Parameters<typeof fakeExec>[0] = {}) {
 const lines = (calls: FakeCall[]) => calls.map((c) => [c.cmd, ...c.args].join(" "));
 
 describe("approveDraft", () => {
-  it("pushes, opens the PR with the user's edits and moves the item to done", async () => {
+  it("pushes, opens the PR with the user's edits and waits for CI", async () => {
     const t = setup();
     editDraft(t.deps, t.draft.id, { title: "Better title", body: "Edited body" });
 
@@ -43,10 +43,35 @@ describe("approveDraft", () => {
       expect.stringMatching(/^gh pr create --repo github\.com\/o\/r --head dp\/1-fix-it --base main --title Better title --body-file \S+body\.md$/),
     ]);
     expect(t.body()).toBe("Edited body");
-    expect(t.state()).toBe("done");
-    expect(t.types().slice(-2)).toEqual(["draft.approved", "draft.executed"]);
-    expect(t.events.forItem("item-1").at(-1)).toMatchObject({ actor: "system", refId: t.draft.id, payload: { url: PR_URL, number: 42 } });
+    expect(t.state()).toBe("checking");
+    expect(t.types().slice(-3)).toEqual(["draft.approved", "draft.executed", "ci.started"]);
+    expect(t.events.forItem("item-1").at(-2)).toMatchObject({ actor: "system", refId: t.draft.id, payload: { url: PR_URL, number: 42 } });
+    expect(t.events.forItem("item-1").at(-1)).toMatchObject({ refId: t.draft.id, payload: { url: PR_URL, number: 42 } });
     expect(t.stopped).toEqual(["item-1"]);
+  });
+
+  it("pushes a push draft's commits to the open PR and waits for CI again", async () => {
+    const t = setup({
+      "git -C /wt/1 log": ok("c0ffee\tFix the test\n"),
+      "git -C /wt/1 status --porcelain --untracked-files=all": ok(""),
+      "git -C /wt/1 rev-parse HEAD": ok("c0ffee\n"),
+    });
+    await approveDraft(t.deps, t.draft.id);
+    // CI went red and the user let the agent fix it.
+    const { writer, ctx } = t.deps;
+    const red = writer.commit(ciFailed(t.items.get("item-1")!.item, ctx, { number: 42, url: PR_URL, failed: [{ name: "test" }], logs: [] }));
+    writer.commit(ciFix(writer.save({ ...red, agentSessionId: "s1" }), ctx));
+    const push = await createPushDraft(t.deps, "item-1", { summary: "Fix the test" });
+    t.exec.calls.length = 0;
+
+    expect(await approveDraft(t.deps, push.id)).toMatchObject({ state: "executed", result: { sha: "c0ffee" } });
+    expect(lines(t.exec.calls)).toEqual([
+      "git -C /wt/1 status --porcelain",
+      "git -C /wt/1 push --set-upstream origin dp/1-fix-it",
+      "git -C /wt/1 rev-parse HEAD",
+    ]);
+    expect(t.state()).toBe("checking");
+    expect(t.events.forItem("item-1").at(-1)).toMatchObject({ type: "ci.started", refId: push.id, payload: { number: 42, url: PR_URL } });
   });
 
   it("commits what the agent left uncommitted before pushing (D25)", async () => {
@@ -84,7 +109,7 @@ describe("approveDraft", () => {
     expect(t.stopped).toEqual([]);
 
     await approveDraft(t.deps, t.draft.id);
-    expect(t.state()).toBe("done");
+    expect(t.state()).toBe("checking");
   });
 
   it("fails when gh prints no pull request URL", async () => {
@@ -116,7 +141,7 @@ describe("failInterrupted", () => {
     expect(t.events.forItem("item-1").at(-1)).toMatchObject({ type: "draft.execution_failed", refId: t.draft.id });
     expect(t.state()).toBe("needs_you");
     await approveDraft(t.deps, t.draft.id);
-    expect(t.state()).toBe("done");
+    expect(t.state()).toBe("checking");
   });
 });
 
