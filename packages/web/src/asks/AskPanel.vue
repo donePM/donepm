@@ -39,7 +39,7 @@ const message = ref("");
 const busy = ref(false);
 const error = ref<string>();
 
-async function answer(behavior: "allow" | "deny", scope?: "run", answers?: Answers) {
+async function answer(behavior: "allow" | "deny", scope?: "run", answers?: Answers, interrupt = false) {
   busy.value = true;
   error.value = undefined;
   try {
@@ -48,7 +48,7 @@ async function answer(behavior: "allow" | "deny", scope?: "run", answers?: Answe
       props.askId,
       behavior === "allow"
         ? { behavior, ...(scope ? { scope } : {}), ...(answers ? { answers } : {}) }
-        : msg ? { behavior, message: msg } : { behavior },
+        : { behavior, ...(msg ? { message: msg } : {}), ...(interrupt ? { interrupt } : {}) },
     );
     asking.value = false;
     emit("answered");
@@ -77,9 +77,10 @@ async function answer(behavior: "allow" | "deny", scope?: "run", answers?: Answe
     </p>
     <form v-if="denying" class="deny" @submit.prevent="answer('deny')">
       <label class="sr-only" :for="`deny-${askId}`">Message to the agent</label>
-      <textarea :id="`deny-${askId}`" v-model="message" class="textarea" rows="2" placeholder="Why not, or what to do instead (optional)"></textarea>
+      <textarea :id="`deny-${askId}`" v-model="message" class="textarea" rows="2" placeholder="The agent reads this."></textarea>
       <div class="buttons">
         <button class="btn btn-danger" type="submit" :disabled="busy">{{ questions.length ? "Decline" : "Deny" }}</button>
+        <button v-if="!questions.length" class="btn btn-danger" type="button" :disabled="busy" title="Ends the agent's turn; you write the next message" @click="answer('deny', undefined, undefined, true)">Deny and stop</button>
         <button class="btn" type="button" :disabled="busy" @click="denying = false">Cancel</button>
       </div>
     </form>
@@ -92,7 +93,8 @@ async function answer(behavior: "allow" | "deny", scope?: "run", answers?: Answe
       <button v-if="grant" class="btn" type="button" :disabled="busy" :title="`Also allows ${grant} until this run ends`" @click="answer('allow', 'run')">
         Allow for this run
       </button>
-      <button class="btn" type="button" :disabled="busy" @click="denying = true">Deny…</button>
+      <button class="btn" type="button" :disabled="busy" @click="answer('deny')">Deny</button>
+      <button class="btn" type="button" :disabled="busy" @click="denying = true">Deny and say why…</button>
     </div>
     <p v-if="grant && !denying" class="hint">For this run also allows: <span class="mono">{{ grant }}</span></p>
     <p v-if="error && !asking" class="alert" role="alert">{{ error }}</p>

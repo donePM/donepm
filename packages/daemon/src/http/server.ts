@@ -100,7 +100,7 @@ const AskAnswerSchema = z.discriminatedUnion("behavior", [
     scope: z.literal("run").optional(),
     answers: z.record(z.string(), z.string()).optional(),
   }).strict(),
-  z.object({ behavior: z.literal("deny"), message: z.string().optional() }).strict(),
+  z.object({ behavior: z.literal("deny"), message: z.string().optional(), interrupt: z.boolean().optional() }).strict(),
 ]);
 export type AskAnswer = z.infer<typeof AskAnswerSchema>;
 
@@ -288,7 +288,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   app.post<{ Params: { id: string } }>("/api/asks/:id/answer", async (req, reply) => {
     const answer = AskAnswerSchema.safeParse(req.body ?? {});
-    if (!answer.success) return reply.code(400).send({ error: "body must be {behavior: allow, scope?: run, answers?} or {behavior: deny, message?}" });
+    if (!answer.success) return reply.code(400).send({ error: "body must be {behavior: allow, scope?: run, answers?} or {behavior: deny, message?, interrupt?}" });
     try {
       deps.answerAsk(req.params.id, answer.data);
     } catch (e) {
