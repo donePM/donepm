@@ -37,6 +37,11 @@ describe("parsePlaybook", () => {
     expect(p.body).toBe("Hello {{ title }}\n");
   });
 
+  it("reads the agent a playbook names (#136)", () => {
+    expect(parsePlaybook(valid("agent: claude-code\n")).agent).toBe("claude-code");
+    expect(parsePlaybook(valid())).not.toHaveProperty("agent");
+  });
+
   it("parses match.labels", () => {
     expect(parsePlaybook(valid("match:\n  labels: [bug, urgent]\n")).match).toEqual({ labels: ["bug", "urgent"] });
   });
@@ -58,6 +63,7 @@ describe("parsePlaybook", () => {
     ["unclosed frontmatter", "---\nname: a\n", /closing/],
     ["read_only drafting a PR", "---\nname: a\nmodel: o\npermission_mode: default\nread_only: true\ndrafts: [pr]\n---\nx", /read_only playbook cannot draft pull requests/],
     ["read_only accepting edits", "---\nname: a\nmodel: o\npermission_mode: acceptEdits\nread_only: true\ndrafts: [review]\n---\nx", /permission_mode: default/],
+    ["unknown agent", valid("agent: robot\n"), /agent/],
     ["empty body", "---\nname: a\nmodel: o\npermission_mode: plan\ndrafts: [pr]\n---\n  \n", /body/],
   ])("fails: %s", (_n, src, re) => {
     expect(() => parsePlaybook(src)).toThrow(PlaybookParseError);

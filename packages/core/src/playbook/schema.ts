@@ -1,13 +1,17 @@
 import { z } from "zod";
+import { PERMISSION_MODES, playbookProblems } from "../agent/capabilities.js";
+import { AGENT_KINDS, DEFAULT_AGENT, type AgentKind } from "../agent/kind.js";
 
 const nonEmpty = z.string().trim().min(1);
 
 export const PlaybookFrontmatterSchema = z
   .object({
     name: nonEmpty.regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/, "name may contain letters, digits, '-' and '_'"),
+    /** The agent that runs it (issue #136); absent: whatever the item or its repository chose. */
+    agent: z.enum(AGENT_KINDS).optional(),
     model: nonEmpty,
     effort: nonEmpty.optional(),
-    permission_mode: z.enum(["default", "acceptEdits", "plan", "bypassPermissions"]),
+    permission_mode: z.enum(PERMISSION_MODES),
     /**
      * The agent only reads (D42): no file edits, no web access, Bash only for `git diff`, `git log`
      * and `git show` without a question. For reviewing code the user did not write.
@@ -24,6 +28,12 @@ export const PlaybookFrontmatterSchema = z
   })
   .strict()
   .superRefine((fm, ctx) => {
+    // Checked against the named agent, or Claude Code's when it names none; a different agent chosen
+    // when the item starts is checked again then.
+    const settings = { permissionMode: fm.permission_mode, ...(fm.effort ? { effort: fm.effort } : {}) };
+    for (const message of playbookProblems(settings, fm.agent ?? DEFAULT_AGENT)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["agent"], message });
+    }
     if (!fm.read_only) return;
     if (fm.drafts.includes("pr")) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["drafts"], message: "a read_only playbook cannot draft pull requests" });
@@ -37,6 +47,8 @@ export type PlaybookFrontmatter = z.infer<typeof PlaybookFrontmatterSchema>;
 
 export interface Playbook {
   name: string;
+  /** `agent` in the frontmatter (issue #136). */
+  agent?: AgentKind;
   model: string;
   effort?: string;
   permissionMode: PlaybookFrontmatter["permission_mode"];

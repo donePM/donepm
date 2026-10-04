@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { addUsage, usageFromPayload, usageFromResult } from "./usage.js";
+import { usageFromResult } from "./usage.js";
 
 describe("usageFromResult", () => {
   it("maps Claude Code usage with cache counted into the input", () => {
@@ -20,14 +20,5 @@ describe("usageFromResult", () => {
   it("copes with missing fields and unknown shapes", () => {
     expect(usageFromResult({ output_tokens: 5 })).toEqual({ inputTokens: 0, outputTokens: 5, cacheReadInputTokens: 0, cacheWriteInputTokens: 0 });
     for (const bad of [undefined, null, "x", 3, []]) expect(usageFromResult(bad)).toBeUndefined();
-  });
-});
-
-describe("usageFromPayload and addUsage", () => {
-  it("reads a stored payload and adds two", () => {
-    const a = { inputTokens: 10, outputTokens: 2, cacheReadInputTokens: 4, cacheWriteInputTokens: 1 };
-    expect(usageFromPayload(a)).toEqual(a);
-    expect(usageFromPayload({ inputTokens: "x" })).toBeUndefined();
-    expect(addUsage(a, a)).toEqual({ inputTokens: 20, outputTokens: 4, cacheReadInputTokens: 8, cacheWriteInputTokens: 2 });
   });
 });

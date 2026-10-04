@@ -1,5 +1,4 @@
-import type { Event } from "@donepm/core";
-import { addUsage, usageFromPayload, type TokenUsage } from "../agent/usage.js";
+import { addUsage, usageFromPayload, type Event, type TokenUsage } from "@donepm/core";
 
 /** What the board and the Agents view show about an item's agent, derived from its events. */
 export interface AgentHistory {

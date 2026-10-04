@@ -6,6 +6,7 @@ import {
   turnEnded, turnStarted, closedUpstream, ciFailed, ciFix, ciMarkedDone, ciPassed, ciRerun, dismissed, wasStarted, prMerged, worktreeRemovedOnMerge, worktreeRemoveSkipped,
   prConflicted, prConflictResolved, prConflictDismissed, prConflictFix, archived, alwaysAllowed, grantRevoked,
   prFeedback, prFeedbackFix, prFeedbackDismissed, repliesPosted, reviewPosted, reviewedPrMerged, playbookChanged, PlaybookNotAllowedError,
+  agentKindChanged,
 } from "./transitions.js";
 import type { PrConflict } from "../pr/conflict.js";
 import type { FeedbackEntry, PrFeedback } from "../pr/feedback.js";
@@ -414,5 +415,40 @@ describe("playbookChanged", () => {
 
   it("throws once the item was started", () => {
     expect(() => playbookChanged(item("ready", { startedAt: "2026-10-02T00:00:00.000Z" }), makeCtx(), "review", ["review"])).toThrow(InvalidTransitionError);
+  });
+});
+
+describe("agent kind (#136)", () => {
+  const other = "other" as unknown as "claude-code";
+
+  it("start fixes the agent kind on the item", () => {
+    expect(start(item("ready"), makeCtx()).item.agentKind).toBe("claude-code");
+    expect(start(item("ready"), makeCtx(), other).item.agentKind).toBe(other);
+  });
+
+  it("start keeps a kind already chosen", () => {
+    expect(start(item("ready", { agentKind: "claude-code" }), makeCtx(), other).item.agentKind).toBe("claude-code");
+  });
+
+  it("start reads a session from before #136 as Claude Code's", () => {
+    expect(start(item("failed", { agentSessionId: "s1" }), makeCtx(), other).item.agentKind).toBe("claude-code");
+  });
+
+  it.each(["ready", "failed"] as const)("agentKindChanged from %s drops the session and records it", (state) => {
+    const t = agentKindChanged(item(state, { agentKind: "claude-code", agentSessionId: "s1" }), makeCtx(), other);
+    expect(t.item.state).toBe(state);
+    expect(t.item.agentKind).toBe(other);
+    expect(t.item).not.toHaveProperty("agentSessionId");
+    expect(t.events).toHaveLength(1);
+    expect(t.events[0]).toMatchObject({ type: "agent.kind_changed", actor: "user", payload: { from: "claude-code", to: other, droppedSession: "s1" } });
+  });
+
+  it("agentKindChanged to the same kind changes nothing", () => {
+    const it0 = item("ready", { agentKind: "claude-code", agentSessionId: "s1" });
+    expect(agentKindChanged(it0, makeCtx(), "claude-code")).toEqual({ item: it0, events: [] });
+  });
+
+  it.each(["running", "needs_you", "checking", "done"] as const)("agentKindChanged throws from %s", (state) => {
+    expect(() => agentKindChanged(item(state), makeCtx(), other)).toThrow(InvalidTransitionError);
   });
 });

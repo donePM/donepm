@@ -223,4 +223,7 @@ export const MIGRATIONS: readonly Migration[] = [
   `ALTER TABLE items ADD COLUMN auto_merge INTEGER;`,
   // Auto-merge held after a refusal that passes (issue #146, D47), as JSON `{ head, mergeState }`.
   `ALTER TABLE items ADD COLUMN auto_merge_held TEXT;`,
+  // The coding agent an item runs with (issue #136, D49), fixed once it has a session. NULL: not started
+  // yet, or started before there was a choice, which was Claude Code.
+  `ALTER TABLE items ADD COLUMN agent_kind TEXT;`,
 ];
