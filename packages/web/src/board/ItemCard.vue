@@ -14,6 +14,7 @@ import { columnOf, displayId, labelTone, shortId } from "./columns";
 import { isFinished } from "./finished";
 import { mergeNote } from "./merge-note";
 import { priorityBadge } from "./priority-badge";
+import { prKind } from "./pr-kind";
 
 /**
  * `hideRepo`: the lane already names the repo, so the id shows only the number.
@@ -22,8 +23,8 @@ import { priorityBadge } from "./priority-badge";
 const props = defineProps<{ item: ItemView; repoRoot?: string; now: number; hideRepo?: boolean; removeOnMerge?: boolean }>();
 
 const noClone = computed(() => props.item.badges.includes("no-local-clone"));
-/** Someone else's pull request that asks for the user's review (D40). */
-const reviewing = computed(() => props.item.source === "github-pr");
+/** Someone else's pull request, assigned to the user or asking for their review (D40, D47). */
+const pr = computed(() => prKind(props.item));
 const closedUpstream = computed(() => props.item.badges.includes("closed-upstream"));
 const priority = computed(() => priorityBadge(props.item.priority));
 /** A started item stays when its issue closes upstream; the user moves it to Done (D32). */
@@ -127,7 +128,7 @@ async function act(fn: (id: string) => Promise<void>) {
         :aria-label="hideRepo ? displayId(item.externalId) : undefined"
       >{{ hideRepo ? shortId(item.externalId) : displayId(item.externalId) }}</a>
       <span v-if="priority" class="prio" :class="`prio-${priority.tone}`" :title="priority.title">{{ priority.text }}</span>
-      <span v-if="reviewing" class="kind" title="A pull request that asks for your review">PR review</span>
+      <span v-if="pr" class="kind" :title="pr.title">{{ pr.text }}</span>
       <span v-if="item.state === 'running'" class="live"><span class="dot dot-ok" aria-hidden="true"></span>running<template v-if="elapsed"> · {{ elapsed }}</template></span>
       <span v-else-if="item.state === 'checking'" class="live"><CiPendingDot />waiting for CI</span>
       <span v-else-if="flag" class="flag">{{ flag }}</span>

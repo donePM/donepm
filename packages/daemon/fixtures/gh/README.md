@@ -9,10 +9,12 @@ Recorded with `gh` 2.102.0 on 2026-10-03.
 - `createdAt` was added to both later (issue #64) with made-up timestamps in the recorded format.
 - `issue-view-*.json`: `gh issue view <n> --repo <r> --json state`. `issue-view-merged-pr.json` is
   what it answers for a merged pull request (`MERGED`, D40).
-- `search-prs.json`: `gh search prs --repo vuejs/core --state=open --json number,title,body,createdAt,labels,repository,url --limit 2`
-  on 2026-10-04, two public PRs. donePM asks with `--review-requested=@me` instead, which answers
-  in the same shape; the recording account had no open review requests. `search-prs-empty.json`
-  is an empty answer.
+- `search-prs.json`: `gh search prs --repo vuejs/core --state=open --json number,title,body,createdAt,labels,repository,url,author --limit 2`
+  on 2026-10-04, two public PRs. donePM asks with `--review-requested=@me` and `--assignee=@me`
+  instead, which answer in the same shape; the recording account had no open review requests.
+  `search-prs-empty.json` is an empty answer.
+- `search-prs-dependabot.json`: the same fields for `--repo donePM/donepm --author app/dependabot
+  --limit 2` on 2026-10-04: Dependabot's PRs #88 and #87, author `dependabot[bot]` (D47).
 - `pr-view-*.json`: `gh pr view <n> --repo <r> --json state,mergedAt,mergeable,baseRefName`.
   `pr-view-merged.json` is PR #81 of this repository (2026-10-04); a merged PR reports `UNKNOWN`.
   `open`, `conflicting` and `unknown` are written by hand in the same shape, since no open PR

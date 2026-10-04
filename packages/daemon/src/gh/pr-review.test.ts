@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { fail, fakeExec, fixture, ok, type FakeCall } from "../test-support/fake-exec.js";
 import { postReview } from "./pr-review.js";
-import { fetchReviewRequests } from "./review-requests.js";
+import { fetchPullRequests } from "./pull-requests.js";
 
 const review = {
   number: 7,
@@ -55,16 +55,29 @@ describe("postReview (D43)", () => {
   });
 });
 
-describe("fetchReviewRequests (D40)", () => {
+describe("fetchPullRequests (D40, D47)", () => {
   it("searches open pull requests that request the user's review", async () => {
     const exec = fakeExec({ "gh search prs": ok(fixture("gh/search-prs.json")) });
-    const r = await fetchReviewRequests(exec);
+    const r = await fetchPullRequests(exec, "--review-requested=@me");
     expect(exec.calls[0]!.args.slice(0, 4)).toEqual(["search", "prs", "--review-requested=@me", "--state=open"]);
     expect(r.ok && r.issues.length > 0 && r.issues.every((i) => i.source === "github-pr")).toBe(true);
   });
 
-  it("fails on a gh error and treats an old gh without the command as no requests", async () => {
-    expect(await fetchReviewRequests(fakeExec({ "gh search prs": fail("HTTP 502") }))).toMatchObject({ ok: false, error: "HTTP 502" });
-    expect(await fetchReviewRequests(fakeExec({ "gh search prs": fail("unknown command \"search\" for \"gh\"") }))).toEqual({ ok: true, issues: [] });
+  it("searches pull requests assigned to the user and keeps their author", async () => {
+    const exec = fakeExec({ "gh search prs": ok(fixture("gh/search-prs-dependabot.json")) });
+    const r = await fetchPullRequests(exec, "--assignee=@me");
+    expect(exec.calls[0]!.args.slice(0, 4)).toEqual(["search", "prs", "--assignee=@me", "--state=open"]);
+    expect(r.ok && r.issues.map((i) => [i.number, i.author])).toEqual([[88, "dependabot[bot]"], [87, "dependabot[bot]"]]);
+  });
+
+  it("takes a pull request without an author (a deleted account)", async () => {
+    const [pr] = JSON.parse(fixture("gh/search-prs.json")) as Array<Record<string, unknown>>;
+    const r = await fetchPullRequests(fakeExec({ "gh search prs": ok(JSON.stringify([{ ...pr, author: null }])) }), "--assignee=@me");
+    expect(r.ok && r.issues[0]).not.toHaveProperty("author");
+  });
+
+  it("fails on a gh error and treats an old gh without the command as no pull requests", async () => {
+    expect(await fetchPullRequests(fakeExec({ "gh search prs": fail("HTTP 502") }), "--assignee=@me")).toMatchObject({ ok: false, error: "HTTP 502" });
+    expect(await fetchPullRequests(fakeExec({ "gh search prs": fail("unknown command \"search\" for \"gh\"") }), "--assignee=@me")).toEqual({ ok: true, issues: [] });
   });
 });

@@ -236,16 +236,16 @@ describe("collectIssues", () => {
       await collectIssues(deps);
       const rows = deps.items.all().map((s) => [s.item.externalId, s.item.source, s.item.playbook, s.originUrl].join(" "));
       expect(rows.sort()).toEqual([
-        "vuejs/core#15757 github-pr review github.com/vuejs/core",
         "vuejs/core#15766 github-pr review github.com/vuejs/core",
+        "vuejs/core#15767 github-pr review github.com/vuejs/core",
       ]);
-      expect(exec.calls.find((c) => c.args[1] === "prs")!.args).toContain("--review-requested=@me");
-      expect(deps.status.get().lastPoll).toMatchObject({ ok: true, issues: 2 });
+      expect(exec.calls.filter((c) => c.args[1] === "prs").map((c) => c.args[2])).toEqual(["--review-requested=@me", "--assignee=@me"]);
+      expect(deps.items.byExternalId("vuejs/core#15766")!.item.author).toBe("edison1105");
     });
 
     it("keeps the issues and skips missing checks when the review request search fails", async () => {
       let out = fixture("gh/search-issues.json");
-      const exec = fakeExec({ ...ready, "gh search issues": () => ok(out), "gh search prs": fail("HTTP 502") });
+      const exec = fakeExec({ ...ready, "gh search issues": () => ok(out), "gh search prs --review-requested=@me": fail("HTTP 502") });
       const { deps } = setup(exec);
       await collectIssues(deps);
       expect(deps.items.all()).toHaveLength(4);
@@ -291,7 +291,47 @@ describe("collectIssues", () => {
       out = fixture("gh/search-prs-empty.json");
       await collectIssues(deps);
       expect(deps.items.byExternalId("vuejs/core#15766")!.item).toMatchObject({ state: "done", closedUpstream: true });
-      expect(deps.items.byExternalId("vuejs/core#15757")!.item).toMatchObject({ state: "ready" });
+      expect(deps.items.byExternalId("vuejs/core#15767")!.item).toMatchObject({ state: "ready" });
+    });
+  });
+
+  describe("assigned pull requests (D47)", () => {
+    it("collects pull requests assigned to the user, Dependabot's included, with their author", async () => {
+      const exec = fakeExec({
+        ...ready,
+        "gh search issues": ok(fixture("gh/search-issues-empty.json")),
+        "gh search prs --review-requested=@me": ok(fixture("gh/search-prs-empty.json")),
+        "gh search prs --assignee=@me": ok(fixture("gh/search-prs-dependabot.json")),
+      });
+      const { deps } = setup(exec, silentLog, { "github.com/donepm/donepm": { assignOnStart: false, managed: true } });
+      await collectIssues(deps);
+      const rows = deps.items.all().map((s) => [s.item.externalId, s.item.source, s.item.author].join(" "));
+      expect(rows.sort()).toEqual(["donePM/donepm#87 github-pr dependabot[bot]", "donePM/donepm#88 github-pr dependabot[bot]"]);
+    });
+
+    it("keeps one item for a pull request that is assigned and asks for review", async () => {
+      const exec = fakeExec({
+        ...ready,
+        "gh search issues": ok(fixture("gh/search-issues-empty.json")),
+        "gh search prs": ok(fixture("gh/search-prs.json")),
+      });
+      const { deps, pushed } = setup(exec);
+      await collectIssues(deps);
+      expect(deps.items.all()).toHaveLength(2);
+      expect(pushed).toHaveLength(2);
+    });
+
+    it("keeps the rest when the assigned search fails, and checks nothing for closing", async () => {
+      const exec = fakeExec({
+        ...ready,
+        "gh search issues": ok(fixture("gh/search-issues.json")),
+        "gh search prs --review-requested=@me": ok(fixture("gh/search-prs-empty.json")),
+        "gh search prs --assignee=@me": fail("HTTP 502"),
+      });
+      const { deps } = setup(exec);
+      await collectIssues(deps);
+      expect(deps.items.all()).toHaveLength(4);
+      expect(deps.status.get().lastPoll).toMatchObject({ ok: false, error: "assigned pull requests: HTTP 502" });
     });
   });
 

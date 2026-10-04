@@ -259,8 +259,12 @@ On start and on Settings open:
   ```
   gh search prs --review-requested=@me --state=open --json number,title,body,createdAt,labels,repository,url
   ```
-  Each becomes a `github-pr` item with playbook `review`. Without `gh search prs` there are no
-  review requests, not an error. A closed or merged PR is found like a closed issue: `gh issue view
+  and the pull requests assigned to the user (D47), Dependabot's included, also with `author`:
+  ```
+  gh search prs --assignee=@me --state=open --json number,title,body,createdAt,labels,repository,url,author
+  ```
+  Each becomes a `github-pr` item with playbook `review` and the PR's `author` login; a PR found by
+  both searches is one item. Without `gh search prs` there are no pull requests, not an error. A closed or merged PR is found like a closed issue: `gh issue view
   --json state` answers `MERGED` for a merged PR, which counts as closed.
 - Validate output with a schema (zod). On schema failure: log the raw output, do not crash, show
   an error badge in Settings.
