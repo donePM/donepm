@@ -607,8 +607,17 @@ questions with the user's message. The `permission.answered` payload carries `an
 ### 9.5 Process lifecycle
 
 - One child process per running item.
-- Daemon shutdown: SIGTERM to all children, wait 5 s, SIGKILL. Items stay `running` in the
-  database with their `agentSessionId`.
+- Daemon shutdown: first every pending ask of a child is answered with a deny ("donePM is shutting
+  down; the ask was not answered."), so the agent does not wait on a question nobody can answer.
+  The ask is stored `denied` with that reason and a `permission.answered` event (actor `system`,
+  payload `{ behavior: "deny", message, reason }`) is recorded; an item that waited on it is
+  interrupted (`agent.interrupted`). Then SIGTERM to all children, wait 5 s, SIGKILL. Items stay
+  `running` in the database with their `agentSessionId`.
+- Stop button: the same deny first (message "The user stopped the agent; the ask was not
+  answered."), then SIGTERM. A question that arrives while the process is closing is denied too.
+  No ask is left `pending` for a process that is gone.
+- Asks still `pending` at daemon start (crash, kill) become `expired` with the reason "donePM was
+  not running when this was asked". The ask row shows the reason after the outcome.
 - Daemon start: items in `running` → set to `needs_you` with badge "daemon restarted, resume?".
   Button "Resume" starts the process with `--resume` and sends a short message
   ("Continue where you left off.").

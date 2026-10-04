@@ -42,7 +42,7 @@ export function agentHistory(events: readonly Event[]): AgentHistory {
       seen = true;
     }
     if (e.type === "agent.started") activeSince = e.at;
-    else if (OPENS.has(e.type)) activeSince ??= e.at;
+    else if (OPENS.has(e.type) && !(e.type === "permission.answered" && e.actor === "system" && e.payload.behavior === "deny")) activeSince ??= e.at;
     else if (CLOSES.has(e.type) && activeSince) {
       elapsedMs += Math.max(0, Date.parse(e.at) - Date.parse(activeSince));
       activeSince = undefined;

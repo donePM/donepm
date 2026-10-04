@@ -91,6 +91,9 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
       if (isQuestion(ask, p.toolName)) return { tone: "attention", text: "Agent asked you", ...withCode(questionCode(ask)) };
       return { tone: "attention", text: "Agent asked permission", ...withCode(askCode(ask, p.toolName)), ...askFull(ask) };
     case "permission.answered": {
+      if (e.actor === "system") {
+        return { tone: "system", text: "Denied by donePM", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
+      }
       if (isQuestion(ask, undefined)) {
         const detail = answersText(ask, p.answers);
         return {

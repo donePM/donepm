@@ -134,6 +134,12 @@ describe("toRows", () => {
       expect(rows.map(askOutcomeText)).toEqual(["declined", ""]);
     });
 
+    it("adds the reason an ask ended without the user's answer", () => {
+      const stored: PermissionAsk = { id: "a1", itemId: "i1", requestId: "q1", toolName: "Bash", input: {}, state: "expired", rules: [], outcomeReason: "donePM was not running when this was asked" };
+      const rows = toRows([asked("q1")], [stored]) as AskRow[];
+      expect(askOutcomeText(rows[0]!)).toBe("expired: donePM was not running when this was asked");
+    });
+
     it("finds a pending ask inside a subagent", () => {
       const rows = toRows(
         [

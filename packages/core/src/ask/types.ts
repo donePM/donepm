@@ -1,6 +1,9 @@
 import type { PermissionRule } from "./rules.js";
 
-/** `expired`: the process that asked is gone (daemon restart); nobody can answer it any more. */
+/**
+ * `expired`: the process that asked is gone (daemon restart); nobody can answer it any more.
+ * `denied` by the system (Stop, shutdown) carries an `outcomeReason`.
+ */
 export type PermissionAskState = "pending" | "allowed" | "denied" | "expired";
 
 export interface PermissionAsk {
@@ -15,4 +18,6 @@ export interface PermissionAsk {
   rules: PermissionRule[];
   /** Why the CLI asks (`decision_reason`), as it sent it; may carry ANSI codes. */
   reason?: string;
+  /** Why the ask ended without the user's answer (Stop, shutdown, restart). */
+  outcomeReason?: string;
 }

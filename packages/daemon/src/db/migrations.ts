@@ -122,4 +122,6 @@ export const MIGRATIONS: readonly string[] = [
   `,
   // Why the CLI asked (`decision_reason`), shown above the ask (issue #67).
   `ALTER TABLE asks ADD COLUMN reason TEXT;`,
+  // Why an ask ended without the user's answer (daemon stop, restart), shown on the ask row (issue #73).
+  `ALTER TABLE asks ADD COLUMN outcome_reason TEXT;`,
 ];
