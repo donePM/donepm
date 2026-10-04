@@ -42,7 +42,7 @@ describe("database", () => {
 
   it("keeps events append-only", () => {
     const db = openDb(":memory:");
-    db.exec(`INSERT INTO items VALUES ('i','github-issue','o/r#1','u','github.com/o/r',NULL,'t','b','[]','ready','implement',0,NULL,NULL,NULL,0,'a','a',NULL,NULL,'a',NULL,NULL,NULL,NULL)`);
+    db.exec(`INSERT INTO items VALUES ('i','github-issue','o/r#1','u','github.com/o/r',NULL,'t','b','[]','ready','implement',0,NULL,NULL,NULL,0,'a','a',NULL,NULL,'a',NULL,NULL,NULL,NULL,NULL)`);
     db.exec(`INSERT INTO events (id,item_id,at,actor,type,payload) VALUES ('e','i','a','system','item.collected','{}')`);
     expect(() => db.exec("UPDATE events SET type = 'x'")).toThrow(/append-only/);
     expect(() => db.exec("DELETE FROM events")).toThrow(/append-only/);
@@ -50,7 +50,7 @@ describe("database", () => {
 
   it("lets only the events of an archived item be deleted (D37)", () => {
     const db = openDb(":memory:");
-    db.exec(`INSERT INTO items VALUES ('i','github-issue','o/r#1','u','github.com/o/r',NULL,'t','b','[]','done','implement',0,NULL,NULL,NULL,0,'a','a',NULL,NULL,'a','2026-10-01',NULL,NULL,NULL)`);
+    db.exec(`INSERT INTO items VALUES ('i','github-issue','o/r#1','u','github.com/o/r',NULL,'t','b','[]','done','implement',0,NULL,NULL,NULL,0,'a','a',NULL,NULL,'a','2026-10-01',NULL,NULL,NULL,NULL)`);
     db.exec(`INSERT INTO events (id,item_id,at,actor,type,payload) VALUES ('e','i','a','system','item.collected','{}')`);
     expect(() => db.exec("UPDATE events SET type = 'x'")).toThrow(/append-only/);
     db.exec("DELETE FROM events WHERE item_id = 'i'");
@@ -69,7 +69,7 @@ describe("database", () => {
       { id: "old", closed_upstream: 1, state_since: "s", archived_at: null },
     ]);
     const live = (id: string) =>
-      db.exec(`INSERT INTO items VALUES ('${id}','github-issue','o/r#1','u','github.com/o/r',NULL,'t','b','[]','ready','implement',2,NULL,NULL,NULL,0,'a','a',NULL,NULL,'s',NULL,NULL,NULL,NULL)`);
+      db.exec(`INSERT INTO items VALUES ('${id}','github-issue','o/r#1','u','github.com/o/r',NULL,'t','b','[]','ready','implement',2,NULL,NULL,NULL,0,'a','a',NULL,NULL,'s',NULL,NULL,NULL,NULL,NULL)`);
     expect(() => live("new")).toThrow(/UNIQUE/);
     db.exec("UPDATE items SET archived_at = 'z' WHERE id = 'old'");
     live("new");

@@ -564,6 +564,23 @@ export function reviewPosted(item: WorkItem, ctx: Ctx, draftId: string, payload:
 }
 
 /**
+ * donePM merged someone else's pull request (D47): the user's Merge click, or the daemon on the
+ * user's auto-merge choice. The item is done, and so is its pull request.
+ */
+export function reviewedPrMerged(item: WorkItem, ctx: Ctx, merge: { method: string; auto: boolean }): Transition {
+  if (item.source !== "github-pr") throw new InvalidTransitionError("reviewedPrMerged", item.state);
+  const t = apply(
+    { name: "reviewedPrMerged", from: ["ready", "done"], to: "done", actor: merge.auto ? "system" : "user", event: "pr.merged" },
+    item,
+    ctx,
+    undefined,
+    { ...merge },
+  );
+  const at = t.events[0]!.at;
+  return { ...t, item: { ...t.item, ...(item.prStatus ? { prStatus: { ...item.prStatus, state: "MERGED", closedAt: at } } : {}) } };
+}
+
+/**
  * The daemon assigned the issue to the user on start (opt-in per repository, decision D28). Not a
  * state change; the item stays where the agent took it meanwhile.
  */

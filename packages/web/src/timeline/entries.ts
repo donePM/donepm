@@ -240,6 +240,14 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: R
       return { tone: "user", text: "You marked the review feedback done" };
     case "pr.commented":
       return { tone: "user", text: "You commented on the pull request", ...(str(p.body) ? { detail: str(p.body) } : {}) };
+    case "pr.merged":
+      return p.auto
+        ? { tone: "system", text: `Merged automatically (${str(p.method)})` }
+        : { tone: "user", text: `You merged the pull request (${str(p.method)})` };
+    case "pr.merge_failed":
+      return { tone: "danger", text: "Automatic merge failed, turned off for this item", ...(str(p.error) ? { detail: str(p.error) } : {}) };
+    case "pr.auto_merge_set":
+      return { tone: "user", text: p.on ? "You turned on automatic merge" : "You turned off automatic merge" };
     case "item.pr_merged":
       return { tone: "system", text: `${prName(p.number)} merged` };
     case "worktree.removed": {

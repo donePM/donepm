@@ -1,4 +1,4 @@
-import { executedPr, finishedAt, prConflictOf, prMergeOf, type Ctx, type PrConflict, type WorkItem } from "@donepm/core";
+import { autoMergeOn, executedPr, finishedAt, mergeBlockers, prConflictOf, prMergeOf, type Ctx, type PrConflict, type WorkItem } from "@donepm/core";
 import type { FastifyInstance } from "fastify";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -36,7 +36,7 @@ import { ItemStore, type StoredItem } from "./items/store.js";
 import { relinkItems } from "./items/sync.js";
 import { agentHistory, liveHistory } from "./items/agent-info.js";
 import { attentionOf } from "./items/attention.js";
-import { toItemView, type CurrentTool } from "./items/view.js";
+import { toItemView, type CurrentTool, type MergeView } from "./items/view.js";
 import type { Exec } from "./process/exec.js";
 import { ensureDefaultPlaybooks } from "./playbooks/load.js";
 import { RepoCloner } from "./repos/clone.js";
@@ -53,6 +53,7 @@ import { sameDir } from "./worktrees/paths.js";
 import { watchPrs } from "./prs/watch.js";
 import { addressFeedback, dismissConflict, dismissFeedback, resolveConflict } from "./prs/actions.js";
 import { commentOnPr } from "./prs/comment.js";
+import { autoMergeReady, mergeDefaults, mergePr, setAutoMerge } from "./prs/merge.js";
 import { fixCi, markCiDone, rerunCi } from "./ci/actions.js";
 import { watchCi } from "./ci/watch.js";
 import { removeItemWorktree, removeOrphan } from "./worktrees/remove.js";
@@ -152,7 +153,13 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       }),
       pr ? { ...pr, ...prMergeOf(itemEvents), ...conflictView(prConflictOf(itemEvents)) } : undefined,
     );
-    return { ...v, ...(finished ? { finishedAt: finished } : {}), ...(clone ? { clone } : {}) };
+    const merge = item.source === "github-pr" ? mergeView(item, items.get(item.id)?.originUrl) : undefined;
+    return { ...v, ...(finished ? { finishedAt: finished } : {}), ...(clone ? { clone } : {}), ...(merge ? { merge } : {}) };
+  };
+  /** Whether the card's Merge button may be used, and the repository's merge defaults (D47). */
+  const mergeView = (item: WorkItem, origin: string | undefined): MergeView => {
+    const defaults = mergeDefaults(config.sources, origin ?? "");
+    return { blockers: mergeBlockers(item), auto: autoMergeOn(item, defaults.auto), method: defaults.method };
   };
   /**
    * D46: items of an unmanaged repository stay off the board unless they still need attention.
@@ -274,6 +281,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       await collectIssues({ db, exec: opts.exec, items, events, repos, status, ctx: opts.ctx, log: app.log, sources: () => config.sources, onItemUpdated: pushItem });
       if (status.get().gh?.state === "ready") {
         await watchCi({ items, events, writer, exec: opts.exec, ctx: opts.ctx, log: app.log });
+        await autoMergeReady({ items, events, writer, exec: opts.exec, ctx: opts.ctx, log: app.log }, config.sources, (o) => isManaged(config.sources, o));
         await watchPrs({
           items, events, drafts, repos, writer, exec: opts.exec, ctx: opts.ctx, log: app.log,
           removeOnMerge: () => config.removeWorktreeOnMerge,
@@ -352,6 +360,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       addressFeedback({ items, events, writer, repos, ctx: opts.ctx, exec: opts.exec, resume: async (itemId, how) => track(await resumeItem(startDeps(), itemId, how)) }, id),
     dismissFeedback: (id) => dismissFeedback({ items, events, writer, ctx: opts.ctx }, id),
     commentOnPr: (id, body) => commentOnPr({ items, events, writer, ctx: opts.ctx, exec: opts.exec }, id, body),
+    mergePr: (id, method) => mergePr({ items, events, writer, ctx: opts.ctx, exec: opts.exec }, id, method),
+    setAutoMerge: (id, on) => setAutoMerge({ items, events, writer, ctx: opts.ctx }, id, on),
     view,
     answerAsk: (id, answer) => runner.answer(id, answer),
     grants: () => grants.active(),

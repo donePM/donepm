@@ -219,4 +219,6 @@ export const MIGRATIONS: readonly Migration[] = [
   `ALTER TABLE items ADD COLUMN author TEXT;`,
   // Where someone else's pull request stands, as JSON (D47): mergeable, base, reviews, checks.
   `ALTER TABLE items ADD COLUMN pr_status TEXT;`,
+  // The user's per-item auto-merge choice for someone else's pull request (D47); NULL: the repo's default.
+  `ALTER TABLE items ADD COLUMN auto_merge INTEGER;`,
 ];

@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { DEFAULT_WEB_FETCH_DOMAINS, isDomain, normalizeOriginUrl } from "@donepm/core";
+import { DEFAULT_WEB_FETCH_DOMAINS, isDomain, MERGE_METHODS, normalizeOriginUrl } from "@donepm/core";
 import { z } from "zod";
 
 /** Hosts donePM can run a source query against. GitLab and Jira come later (issue #32). */
@@ -24,6 +24,10 @@ export const SourceSchema = z
     assignOnStart: z.boolean().default(false),
     /** donePM collects, shows and starts work for this repository only when true (issue #94, D46). */
     managed: z.boolean().optional(),
+    /** Default of the per-item "Merge automatically" choice for others' pull requests (D47). Off. */
+    autoMerge: z.boolean().optional(),
+    /** How donePM merges others' pull requests here, by the card's default and by auto-merge (D47). */
+    mergeMethod: z.enum(MERGE_METHODS).optional(),
     /** Issue #33's flag, replaced by `managed`; only read once to migrate (D46). */
     ignored: z.boolean().optional(),
   })

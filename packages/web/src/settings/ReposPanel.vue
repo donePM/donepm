@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { MERGE_METHODS, type MergeMethod } from "@donepm/core";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { api } from "../api/client";
 import { onPush } from "../live/socket";
@@ -116,6 +117,8 @@ const editing = ref<{
   origin: string;
   query: string;
   assignOnStart: boolean;
+  autoMerge: boolean;
+  mergeMethod: MergeMethod;
   testing: boolean;
   test?: SourceTest;
   saving: boolean;
@@ -124,7 +127,8 @@ const editing = ref<{
 
 function edit(origin: string) {
   const s = props.sources?.[origin];
-  editing.value = { origin, query: s?.query ?? "", assignOnStart: s?.assignOnStart ?? false, testing: false, saving: false };
+  editing.value = { origin, query: s?.query ?? "", assignOnStart: s?.assignOnStart ?? false,
+    autoMerge: s?.autoMerge ?? false, mergeMethod: s?.mergeMethod ?? "squash", testing: false, saving: false };
 }
 
 async function test() {
@@ -201,6 +205,7 @@ const pollOf = (origin: string) => status.value?.lastPoll?.sources?.[origin];
                   <span v-if="sources?.[r.originUrl]?.query" class="mono">{{ sources[r.originUrl]!.query }}</span>
                   <span v-else class="none">assigned to you</span>
                   <span v-if="sources?.[r.originUrl]?.assignOnStart" class="tag">assigns on start</span>
+                  <span v-if="sources?.[r.originUrl]?.autoMerge" class="tag">merges automatically</span>
                   <span v-if="pollOf(r.originUrl)?.ok === false" class="failed" :title="pollOf(r.originUrl)!.error">query failed</span>
                   <button v-if="editing?.origin !== r.originUrl" class="link" @click="edit(r.originUrl)">Edit</button>
                 </div>
@@ -239,6 +244,16 @@ const pollOf = (origin: string) => status.value?.lastPoll?.sources?.[origin];
                   <label class="check">
                     <input v-model="editing.assignOnStart" type="checkbox" />
                     Assign the issue to me on GitHub when I start it
+                  </label>
+                  <label class="check">
+                    <input v-model="editing.autoMerge" type="checkbox" />
+                    Merge others' pull requests on their own once I approved them, their checks passed and they are mergeable
+                  </label>
+                  <label class="check">
+                    Merge method
+                    <select v-model="editing.mergeMethod" class="select">
+                      <option v-for="m in MERGE_METHODS" :key="m" :value="m">{{ m }}</option>
+                    </select>
                   </label>
                   <div class="actions">
                     <p v-if="editing.error" class="error" role="alert">{{ editing.error }}</p>

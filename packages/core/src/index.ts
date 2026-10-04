@@ -8,6 +8,7 @@ export * from "./ci/checks.js";
 export * from "./ci/state.js";
 export * from "./pr/conflict.js";
 export * from "./pr/feedback.js";
+export * from "./pr/merge.js";
 export * from "./pr/status.js";
 export * from "./item/priority.js";
 export * from "./event/types.js";

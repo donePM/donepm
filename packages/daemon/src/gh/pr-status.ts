@@ -11,6 +11,8 @@ const NAME = /^[A-Za-z0-9_.-]+$/;
 const PullRequestNode = z
   .object({
     number: z.number().int(),
+    state: z.string(),
+    closedAt: z.string().nullish(),
     mergeable: z.string(),
     baseRefName: z.string(),
     reviewDecision: z.string().nullish(),
@@ -38,7 +40,7 @@ export interface PrRef {
 }
 
 const FIELDS =
-  "number mergeable reviewDecision viewerLatestReview { state } baseRefName " +
+  "number state closedAt mergeable reviewDecision viewerLatestReview { state } baseRefName " +
   "commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }";
 
 export function prStatusQuery(refs: readonly PrRef[]): string {
@@ -78,6 +80,8 @@ export async function fetchPrStatuses(exec: Exec, refs: readonly PrRef[]): Promi
       if (!pr) return;
       const checks = pr.commits.nodes[0]?.commit.statusCheckRollup?.state;
       read.set(`${ref.repository}#${ref.number}`, {
+        state: pr.state,
+        ...(pr.closedAt ? { closedAt: pr.closedAt } : {}),
         mergeable: pr.mergeable,
         base: pr.baseRefName,
         ...(pr.reviewDecision ? { reviewDecision: pr.reviewDecision } : {}),

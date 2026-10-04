@@ -351,7 +351,7 @@ describe("collectIssues", () => {
       // The recorded answer resolves the first pull request asked (#88, collected first) and not the second.
       const graphql = exec.calls.filter((c) => c.args[1] === "graphql");
       expect(graphql).toHaveLength(1);
-      expect(deps.items.byExternalId("donePM/donepm#88")!.item.prStatus).toEqual({ mergeable: "UNKNOWN", base: "main", checks: "SUCCESS" });
+      expect(deps.items.byExternalId("donePM/donepm#88")!.item.prStatus).toEqual({ state: "OPEN", mergeable: "UNKNOWN", base: "main", checks: "SUCCESS" });
       expect(deps.items.byExternalId("donePM/donepm#87")!.item.prStatus).toBeUndefined();
 
       // A reviewed pull request that left the searches is still read.
@@ -360,6 +360,14 @@ describe("collectIssues", () => {
       await collectIssues(deps);
       expect(exec.calls.filter((c) => c.args[1] === "graphql")).toHaveLength(2);
       expect(pushed).toHaveLength(0);
+
+      // Merged or closed pull requests are past it.
+      for (const id of ["donePM/donepm#87", "donePM/donepm#88"]) {
+        const { item } = deps.items.byExternalId(id)!;
+        deps.items.update({ ...item, prStatus: { state: id.endsWith("7") ? "CLOSED" : "MERGED", mergeable: "UNKNOWN", base: "main" } });
+      }
+      await collectIssues(deps);
+      expect(exec.calls.filter((c) => c.args[1] === "graphql")).toHaveLength(2);
     });
   });
 

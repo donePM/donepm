@@ -7,6 +7,10 @@ import type { WorkItem } from "../item/types.js";
  * own words; an unknown one is kept as it is.
  */
 export interface PrStatus {
+  /** `OPEN`, `CLOSED` or `MERGED`. Absent in statuses read before it was asked. */
+  state?: string;
+  /** When it was closed or merged. */
+  closedAt?: string;
   /** `MERGEABLE`, `CONFLICTING`, or `UNKNOWN` while GitHub computes it. */
   mergeable: string;
   /** The branch it goes into. */
@@ -21,6 +25,8 @@ export interface PrStatus {
 
 const same = (a: PrStatus | undefined, b: PrStatus): boolean =>
   a !== undefined &&
+  a.state === b.state &&
+  a.closedAt === b.closedAt &&
   a.mergeable === b.mergeable &&
   a.base === b.base &&
   a.reviewDecision === b.reviewDecision &&

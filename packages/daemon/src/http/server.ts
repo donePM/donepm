@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { Draft, PermissionGrant, PrDraftPayload, WorkItem } from "@donepm/core";
+import { MERGE_METHODS, type Draft, type MergeMethod, type PermissionGrant, type PrDraftPayload, type WorkItem } from "@donepm/core";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { z } from "zod";
@@ -89,6 +89,8 @@ export interface ServerDeps {
   dismissFeedback: (id: string) => WorkItem;
   /** Throws PrActionError. Posts the user's comment on someone else's pull request (D47). */
   commentOnPr: (id: string, body: string) => Promise<WorkItem>;
+  mergePr: (id: string, method: MergeMethod) => Promise<WorkItem>;
+  setAutoMerge: (id: string, on: boolean) => WorkItem;
   /** Throws StopError when no agent process is alive. Resolves once it exited. */
   stopItem: (id: string) => Promise<void>;
   /** The item as the API shows it: clone, badges, agent. */
@@ -168,6 +170,10 @@ async function ciCall<T>(reply: FastifyReply, fn: () => Promise<T>) {
 }
 
 const PrCommentSchema = z.object({ body: z.string() }).strict();
+
+const PrMergeSchema = z.object({ method: z.enum(MERGE_METHODS) }).strict();
+
+const AutoMergeSchema = z.object({ on: z.boolean() }).strict();
 
 const DraftRejectSchema = z.object({ reason: z.string().optional() }).strict();
 
@@ -301,6 +307,18 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const parsed = PrCommentSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "body must be {body: string}" });
     return ciCall(reply, async () => deps.view(await deps.commentOnPr(req.params.id, parsed.data.body)));
+  });
+
+  app.post<{ Params: { id: string } }>("/api/items/:id/pr/merge", async (req, reply) => {
+    const parsed = PrMergeSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: `body must be {method: ${MERGE_METHODS.join("|")}}` });
+    return ciCall(reply, async () => deps.view(await deps.mergePr(req.params.id, parsed.data.method)));
+  });
+
+  app.put<{ Params: { id: string } }>("/api/items/:id/auto-merge", async (req, reply) => {
+    const parsed = AutoMergeSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: "body must be {on: boolean}" });
+    return ciCall(reply, async () => deps.view(deps.setAutoMerge(req.params.id, parsed.data.on)));
   });
 
   app.post<{ Params: { id: string } }>("/api/items/:id/stop", async (req, reply) => {

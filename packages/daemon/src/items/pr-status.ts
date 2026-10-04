@@ -13,12 +13,12 @@ export interface PrStatusDeps {
 /**
  * Read where someone else's pull requests stand (D47) for every such item on the board of a managed
  * repository, done ones included: a reviewed pull request may still wait for its merge. Closed and
- * archived ones are past that. Changes are stored silently and pushed to the board.
+ * archived ones, and those GitHub reported merged or closed, are past that. Changes are stored silently and pushed to the board.
  */
 export async function refreshPrStatuses(deps: PrStatusDeps, managed: (origin: string) => boolean): Promise<void> {
   const open = deps.items
     .all()
-    .filter(({ item, originUrl }) => item.source === "github-pr" && !item.archivedAt && !item.closedUpstream && managed(originUrl))
+    .filter(({ item, originUrl }) => item.source === "github-pr" && !item.archivedAt && !item.closedUpstream && isOpen(item) && managed(originUrl))
     .map(({ item }) => item);
   if (open.length === 0) return;
   const refs = open.map((item) => {
@@ -33,4 +33,9 @@ export async function refreshPrStatuses(deps: PrStatusDeps, managed: (origin: st
     deps.items.update(next);
     deps.onItemUpdated(next);
   }
+}
+
+/** Not known to be merged or closed yet. */
+function isOpen(item: WorkItem): boolean {
+  return !item.prStatus?.state || item.prStatus.state === "OPEN";
 }

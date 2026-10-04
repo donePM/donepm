@@ -170,6 +170,22 @@ describe("timelineEntries", () => {
     expect(entry).toMatchObject({ tone: "user", text: "You commented on the pull request", detail: "@dependabot rebase" });
   });
 
+  it("describes merging someone else's pull request (D47)", () => {
+    const entries = timelineEntries([
+      ev("pr.auto_merge_set", { on: true }, { actor: "user" }),
+      ev("pr.merge_failed", { method: "squash", auto: true, error: "merge queue required" }),
+      ev("pr.merged", { method: "rebase", auto: false }, { actor: "user" }),
+      ev("pr.merged", { method: "squash", auto: true }),
+    ], []);
+    // Newest first.
+    expect(entries.map((e) => [e.tone, e.text, e.detail])).toEqual([
+      ["system", "Merged automatically (squash)", undefined],
+      ["user", "You merged the pull request (rebase)", undefined],
+      ["danger", "Automatic merge failed, turned off for this item", "merge queue required"],
+      ["user", "You turned on automatic merge", undefined],
+    ]);
+  });
+
   it("describes a review of someone else's pull request (D43)", () => {
     const events = [
       ev("draft.created", { type: "review", title: "Approve PR #7" }, { refId: "r", actor: "agent" }),

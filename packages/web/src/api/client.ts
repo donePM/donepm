@@ -1,4 +1,4 @@
-import type { PermissionGrant } from "@donepm/core";
+import type { MergeMethod, PermissionGrant } from "@donepm/core";
 import type {
   AskAnswer, CloneResult, Draft, ItemDetail, ItemDiff, ItemView, MoveOutcome, OpenTarget, OrphanWorktree, PrDraftPayload, RepoView, Settings, SourceTest, Status,
   TranscriptMessage,
@@ -55,6 +55,8 @@ export const api = {
   addressFeedback: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/feedback/address`),
   dismissFeedback: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/feedback/dismiss`),
   commentOnPr: (id: string, body: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/pr/comment`, { body }),
+  mergePr: (id: string, method: MergeMethod) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/pr/merge`, { method }),
+  setAutoMerge: (id: string, on: boolean) => call<ItemView>("PUT", `/api/items/${encodeURIComponent(id)}/auto-merge`, { on }),
   dismiss: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/dismiss`),
   transcript: (id: string, after?: string) =>
     call<TranscriptMessage[]>(

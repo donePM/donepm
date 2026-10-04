@@ -19,10 +19,15 @@ const mergeSeen = (e: Event) =>
  * When the item's work was finished on the board and in git, or undefined while it is not (D37).
  * Finished is `done` and, if a draft opened a PR, that PR merged. A done item without a PR (closed
  * upstream, dismissed) has nothing left in git: it finished when it became done. With a PR it
- * finished when the merge was seen, or when it became done again after that.
+ * finished when the merge was seen, or when it became done again after that. Someone else's pull
+ * request (D47) is finished once it is done and that pull request is closed or merged.
  */
 export function finishedAt(item: WorkItem, events: readonly Event[], hasPr: boolean): string | undefined {
   if (item.state !== "done") return undefined;
+  // Someone else's pull request, reviewed, may still wait for its merge (D47).
+  if (item.prStatus?.state === "OPEN") return undefined;
+  const closed = item.prStatus?.closedAt;
+  if (closed !== undefined) return closed > item.stateSince ? closed : item.stateSince;
   if (!hasPr) return item.stateSince;
   const merge = events.find(mergeSeen);
   if (!merge) return undefined;

@@ -76,7 +76,8 @@ functions. `daemon` calls them and persists the result.
 | baseBranch | string? | a review's PR base, set when its worktree is created (D41); else the repo's default branch is the base |
 | agentSessionId | string? | Claude `session_id`, for `--resume` |
 | author | string? | `github-pr`: the PR author's login, `dependabot[bot]` for Dependabot (D47) |
-| prStatus | object? | `github-pr`: `{ mergeable, base, reviewDecision?, viewerReview?, checks? }` in GitHub's words, read each poll (6.2, D47) |
+| prStatus | object? | `github-pr`: `{ state, closedAt?, mergeable, base, reviewDecision?, viewerReview?, checks? }` in GitHub's words, read each poll (6.2, D47) |
+| autoMerge | boolean? | `github-pr`: the card's "Merge automatically"; absent: the repo's `autoMerge` decides (6.2, D47) |
 | archivedAt | datetime? | set once by `archived` (6.8); an archived item is off the board and in the Archive (12.5) |
 | createdAt, updatedAt | datetime | |
 
@@ -104,7 +105,8 @@ Transitions are functions in `core`: `start(item)`, `agentAsked(item)`, `answere
 `worktreeRemoved(item)`, `ciPassed(item)`, `ciFailed(item)`, `ciRerun(item)`, `ciMarkedDone(item)`,
 `ciFix(item)`, `prConflicted(item)`, `prConflictResolved(item)`, `prConflictDismissed(item)`,
 `prConflictFix(item)`, `prFeedback(item)`, `prFeedbackFix(item)`, `prFeedbackDismissed(item)`,
-`repliesPosted(item)`, `reviewPosted(item)` (needs_you → done, D43), `archived(item, finishedAt)` (only from `done`, once; sets `archivedAt`, 6.8).
+`repliesPosted(item)`, `reviewPosted(item)` (needs_you → done, D43), `reviewedPrMerged(item)` (`github-pr`,
+ready or done → done, D47), `archived(item, finishedAt)` (only from `done`, once; sets `archivedAt`, 6.8).
 Invalid transitions throw.
 
 ### 4.3 Event
@@ -136,7 +138,10 @@ stays) and `worktree.remove_skipped` (merged, but the worktree has uncommitted c
 6.5, `ci.started`, `ci.passed`, `ci.failed` and `ci.marked_done` (see 6.6), `pr.conflicted`,
 `pr.conflict_resolved` and `pr.conflict_dismissed` (see 6.7), `pr.feedback` and
 `pr.feedback_dismissed` (see 6.9), `pr.commented` (actor `user`, payload `{ body }`: the user posted a
-comment on someone else's PR from its card, 6.2, D47), `item.archived` (actor `system`,
+comment on someone else's PR from its card, 6.2, D47), `pr.merged` (payload `{ method, auto }`;
+actor `user` for the card's Merge, `system` for auto-merge), `pr.merge_failed` (actor `system`,
+payload `{ method, auto, error }`: auto-merge failed and was turned off for the item) and
+`pr.auto_merge_set` (actor `user`, payload `{ on }`), all 6.2 and D47, `item.archived` (actor `system`,
 payload `{ finishedAt }`, see 6.8), `item.refreshed` (actor `system`, payload `{ changed: {
 priority?, title?, labels? } }`, each `{ from, to }` and only the fields that changed, see 6.2). `agent.resumed` carries
 `reason: "ci_failed"` when the user let the agent fix a red CI, `reason: "pr_conflict"` when it
@@ -196,6 +201,8 @@ config under `sources`, keyed by `originUrl`, not in `.donepm/` (see 14). Per re
 | query | string? | the provider's issue search, pasted from its UI. Absent: issues assigned to me |
 | assignOnStart | boolean | default `false`; see 6.4 |
 | managed | boolean | default `false`: donePM collects and starts work only in managed repos (D46) |
+| autoMerge | boolean? | default `false`: default of the card's "Merge automatically" for others' PRs (6.2, D47) |
+| mergeMethod | `squash` \| `merge` \| `rebase`? | default `squash`: how others' PRs are merged here (6.2, D47) |
 
 The provider follows from the host. Only `github.com` is supported; GitLab (issue list params via
 `glab api`) and Jira (JQL) can be added without changing the format. Other hosts are rejected.
@@ -270,17 +277,26 @@ On start and on Settings open:
   both searches is one item. Without `gh search prs` there are no pull requests, not an error. A closed or merged PR is found like a closed issue: `gh issue view
   --json state` answers `MERGED` for a merged PR, which counts as closed.
 - PR status (D47). At the end of each poll, for every `github-pr` item that is managed, not
-  archived and not closed upstream (done ones too: a reviewed PR is still open), one call per 50
+  archived, not closed upstream and not known to be merged or closed (done ones too: a reviewed PR
+  is still open), one call per 50
   reads where the pull request stands, by repository and number, so PRs that left the searches are
   still read:
   ```
   gh api graphql -f query='query { pr0: repository(owner: "o", name: "r") { pullRequest(number: 88) {
-    number mergeable reviewDecision viewerLatestReview { state } baseRefName
+    number state closedAt mergeable reviewDecision viewerLatestReview { state } baseRefName
     commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } } ... }'
   ```
   The answer becomes the item's `prStatus`; a changed one is saved and pushed, without an event
   (it is display). gh exits 1 when one PR does not resolve but answers for the others; those are
   used. A failure leaves the stored status as it is.
+- Merge (D47). Someone else's PR may be merged once nothing blocks it (`mergeBlockers` in `core`):
+  state `OPEN`, the item `ready` or `done`, the user's own review `APPROVED`, checks (if any)
+  `SUCCESS`, and `mergeable` `MERGEABLE`, all as of the last poll. The card's Merge runs
+  `gh pr merge N --repo host/o/r --squash|--merge|--rebase` as the user, without
+  `--delete-branch` (the author's branch is theirs), and commits `reviewedPrMerged`. After the PR
+  status and the CI watch, each poll merges every such PR whose item has auto-merge on (its own
+  `autoMerge`, else the repo's), with the repo's `mergeMethod`. A failed auto-merge records
+  `pr.merge_failed` and turns `autoMerge` off for that item, so it is not retried every poll.
 - Validate output with a schema (zod). On schema failure: log the raw output, do not crash, show
   an error badge in Settings.
 - Priority (D45). After all sources answered, one call per 100 polled issues reads GitHub's
@@ -456,7 +472,9 @@ clock is the daemon's `Ctx`, so tests move it.
 - **Finished**: `done`, and the PR merged if a draft opened one (`item.pr_merged`, or
   `worktree.removed` with reason `pr_merged`). A done item without a PR (closed upstream,
   dismissed, marked done) is finished when it became done. `finishedAt` is the later of the
-  merge and `stateSince`. A PR closed without merge never finishes the item.
+  merge and `stateSince`. A PR closed without merge never finishes the item. A `github-pr` item
+  (D47) whose PR is still open is not finished; once its `prStatus` says merged or closed, it is
+  finished at the later of `closedAt` and `stateSince`.
 - **Archive**: a finished item with no pending draft or ask, finished for `archiveAfterHours`
   (14), gets `archived` (4.2): `item.archived`, `archivedAt`. It leaves the board (`item.removed`
   over the WebSocket) and stays in the Archive (12.5) with its events, drafts and transcript.
@@ -924,6 +942,8 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/items/:id/feedback/address` | waiting review feedback with a worktree and session; fetches the PR branch, resumes the agent with it (6.9). 202 |
 | POST | `/api/items/:id/feedback/dismiss` | waiting review feedback → `done` (6.9) |
 | POST | `/api/items/:id/pr/comment` | `{body}`: `gh pr comment` on a `github-pr` item's PR as the user, `pr.commented`; 502 with gh's message when it fails (D47) |
+| POST | `/api/items/:id/pr/merge` | `{method}`: `gh pr merge` on a `github-pr` item's PR, `pr.merged`; 409 with the blockers, 502 with gh's message (6.2, D47) |
+| PUT | `/api/items/:id/auto-merge` | `{on}`: the item's "Merge automatically", `pr.auto_merge_set` (D47) |
 | POST | `/api/items/:id/dismiss` | closed upstream, not running → `done` (D32); 409 otherwise |
 | GET | `/api/worktrees/orphaned` | worktrees under the root that no item uses |
 | POST | `/api/worktrees/orphaned/remove` | `{ path }`; only paths from the orphan list |
@@ -985,7 +1005,9 @@ you". Amber means "you have something to do"; red stays for daemon problems.
   review ("You approved", "You asked for changes", "Not reviewed by you"). On a conflict, "Ask
   author" opens a comment prefilled with `@dependabot rebase` for Dependabot, else a request to
   resolve the conflicts with the base; the user edits it, and "Post comment" is the approval
-  (D47). donePM never pushes to the author's branch.
+  (D47). donePM never pushes to the author's branch. Below the chips: the merge method (the repo's
+  `mergeMethod` preselected), Merge (disabled while something blocks it, the blockers in its
+  tooltip) and the checkbox "Merge automatically" (the view's `merge: { blockers, auto, method }`).
 - A card whose priority is not the default P2 shows the tier as a badge next to its id: `P0` and
   `P1` in danger colours, `P3` quiet (D45). A priority changed on GitHub moves a Ready card within
   one poll, and its timeline shows the `item.refreshed` event.
@@ -1089,7 +1111,8 @@ you". Amber means "you have something to do"; red stays for daemon problems.
   without a clone, with their item count and "Clone and manage".
 - Per repo: what it collects (query or "assigned to you"), and an editor with the query field, a
   Test button (count and first titles), "Open in GitHub" (the repo's issue list with this query, to
-  refine it there and paste it back) and the assign-on-start checkbox. A failed query shows on its
+  refine it there and paste it back), the assign-on-start checkbox, and for others' PRs the
+  auto-merge checkbox and the merge method (D47). A failed query shows on its
   row.
 - Web access: the hosts the agent may read with WebFetch without asking (9.4), one per line.
 - Always allowed (D38): the active grants, grouped by repo (`owner/repo`). Each row shows the rule

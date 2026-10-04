@@ -5,7 +5,7 @@ import {
   draftExecutionFailed, draftRejected, interrupted, issueAssignFailed, issueAssigned, resume, start, worktreeRemoved, worktreeMoved,
   turnEnded, turnStarted, closedUpstream, ciFailed, ciFix, ciMarkedDone, ciPassed, ciRerun, dismissed, wasStarted, prMerged, worktreeRemovedOnMerge, worktreeRemoveSkipped,
   prConflicted, prConflictResolved, prConflictDismissed, prConflictFix, archived, alwaysAllowed, grantRevoked,
-  prFeedback, prFeedbackFix, prFeedbackDismissed, repliesPosted, reviewPosted,
+  prFeedback, prFeedbackFix, prFeedbackDismissed, repliesPosted, reviewPosted, reviewedPrMerged,
 } from "./transitions.js";
 import type { PrConflict } from "../pr/conflict.js";
 import type { FeedbackEntry, PrFeedback } from "../pr/feedback.js";
@@ -67,6 +67,7 @@ const table: Array<{
   { name: "prFeedbackDismissed", run: (i) => prFeedbackDismissed(i, makeCtx(), feedback), from: ["needs_you"], to: "done", type: "pr.feedback_dismissed", actor: "user" },
   { name: "repliesPosted", run: (i) => repliesPosted(i, makeCtx(), "d-1"), from: ["needs_you"], to: "done", type: "draft.executed", actor: "system" },
   { name: "reviewPosted", run: (i) => reviewPosted(i, makeCtx(), "d-1"), from: ["needs_you"], to: "done", type: "draft.executed", actor: "system" },
+  { name: "reviewedPrMerged", run: (i) => reviewedPrMerged({ ...i, source: "github-pr" }, makeCtx(), { method: "squash", auto: false }), from: ["ready", "done"], to: "done", type: "pr.merged", actor: "user" },
 ];
 
 describe.each(table)("$name", ({ run, from, to, type, actor, name }) => {
@@ -139,6 +140,14 @@ describe("details", () => {
     expect(() => prFeedbackDismissed(item("needs_you"), makeCtx(), { ...feedback, waiting: false })).toThrow(InvalidTransitionError);
     expect(repliesPosted(item("needs_you"), makeCtx(), "d-9").events[0]?.refId).toBe("d-9");
     expect(reviewPosted(item("needs_you"), makeCtx(), "d-8", { id: 3, url: "u" }).events[0]).toMatchObject({ refId: "d-8", payload: { id: 3, url: "u" } });
+  });
+
+  it("reviewedPrMerged records how and by whom, marks the pull request merged, and refuses an issue (D47)", () => {
+    const status = { mergeable: "MERGEABLE", base: "main", state: "OPEN" };
+    const t = reviewedPrMerged(item("done", { source: "github-pr", prStatus: status }), makeCtx(), { method: "rebase", auto: true });
+    expect(t.events[0]).toMatchObject({ type: "pr.merged", actor: "system", payload: { method: "rebase", auto: true } });
+    expect(t.item.prStatus).toEqual({ ...status, state: "MERGED", closedAt: t.events[0]!.at });
+    expect(() => reviewedPrMerged(item("done"), makeCtx(), { method: "squash", auto: false })).toThrow(InvalidTransitionError);
   });
 
   it("prConflictResolved returns a waiting item to where it was and leaves any other where it is", () => {

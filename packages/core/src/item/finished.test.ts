@@ -25,6 +25,15 @@ describe("finishedAt", () => {
     }
   });
 
+  it("waits for someone else's open pull request, and is when it closed after that (D47)", () => {
+    const pr = { source: "github-pr" as const, prStatus: { mergeable: "MERGEABLE", base: "main", state: "OPEN" } };
+    expect(finishedAt(item("done", pr), [], false)).toBeUndefined();
+    const merged = { ...pr.prStatus, state: "MERGED", closedAt: "2026-10-02T09:00:00.000Z" };
+    expect(finishedAt(item("done", { ...pr, prStatus: merged }), [], false)).toBe("2026-10-02T09:00:00.000Z");
+    expect(finishedAt(item("done", { ...pr, prStatus: { ...merged, closedAt: "2026-09-30T09:00:00.000Z" } }), [], false)).toBe(DONE_AT);
+    expect(finishedAt(item("done", { source: "github-pr" }), [], false)).toBe(DONE_AT);
+  });
+
   it("is when it became done for an item without a PR (closed upstream, dismissed)", () => {
     expect(finishedAt(item("done", { closedUpstream: true }), [], false)).toBe(DONE_AT);
   });
