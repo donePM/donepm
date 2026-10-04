@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import type { Settings } from "../api/types";
 import { recheck, status } from "../status/status";
 import GeneralForm from "./GeneralForm.vue";
+import GrantsPanel from "./GrantsPanel.vue";
 import OrphansPanel from "./OrphansPanel.vue";
 import ReposPanel from "./ReposPanel.vue";
 import SourcesPanel from "./SourcesPanel.vue";
@@ -30,6 +31,7 @@ onMounted(async () => {
     <div class="main">
       <SourcesPanel :poll-seconds="settings?.pollIntervalSeconds" :queries="Object.values(settings?.sources ?? {}).filter((s) => s.query).length" />
       <ReposPanel :repo-root="settings?.repoRoot" :sources="settings?.sources" @saved="settings = $event" />
+      <GrantsPanel />
       <OrphansPanel :worktree-root="settings?.worktreeRoot" />
     </div>
     <div class="side">

@@ -1,3 +1,4 @@
+import type { PermissionGrant } from "@donepm/core";
 import type { AskAnswer, Draft, ItemDetail, ItemDiff, ItemView, OpenTarget, OrphanWorktree, PrDraftPayload, RepoView, Settings, SourceTest, Status, TranscriptMessage } from "./types";
 
 export class ApiError extends Error {
@@ -53,6 +54,8 @@ export const api = {
       `/api/items/${encodeURIComponent(id)}/transcript${after ? `?after=${encodeURIComponent(after)}` : ""}`,
     ),
   answer: (askId: string, answer: AskAnswer) => call<{ ok: true }>("POST", `/api/asks/${encodeURIComponent(askId)}/answer`, answer),
+  grants: () => call<PermissionGrant[]>("GET", "/api/grants"),
+  revokeGrant: (id: string) => call<PermissionGrant>("POST", `/api/grants/${encodeURIComponent(id)}/revoke`),
   repos: () => call<RepoView[]>("GET", "/api/repos"),
   rescan: () => call<RepoView[]>("POST", "/api/repos/rescan"),
   setIgnored: (id: string, ignored: boolean) =>

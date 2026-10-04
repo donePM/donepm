@@ -9,6 +9,8 @@ import { spawnProcess, type ProcessFactory } from "./agent/process.js";
 import { AgentRunner } from "./agent/runner.js";
 import { recoverAfterRestart } from "./agent/restart.js";
 import { resumeItem, startItem, type StartDeps } from "./agent/start.js";
+import { GrantStore } from "./asks/grants.js";
+import { revokeGrant } from "./asks/revoke.js";
 import { AskStore } from "./asks/store.js";
 import { writeMcpConfig } from "./bridge/mcp-config.js";
 import { listenBridge } from "./bridge/server.js";
@@ -98,6 +100,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const events = new EventStore(db);
   const repos = new RepoStore(db);
   const asks = new AskStore(db);
+  const grants = new GrantStore(db);
   const transcript = new TranscriptStore(db);
   const drafts = new DraftStore(db);
   // Short on purpose: a unix socket path is limited to 104 bytes on macOS and truncates silently.
@@ -162,6 +165,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     items,
     writer,
     asks,
+    grants,
     transcript,
     push: (type, payload) => hub.push(type, payload),
     ctx: opts.ctx,
@@ -287,6 +291,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     dismissConflict: (id) => dismissConflict({ items, events, writer, ctx: opts.ctx }, id),
     view,
     answerAsk: (id, answer) => runner.answer(id, answer),
+    grants: () => grants.active(),
+    revokeGrant: (id) => revokeGrant({ grants, items, writer, ctx: opts.ctx }, id),
     diff: (input) => itemDiff(opts.exec, input),
     testSource: (origin, query) => fetchQueryIssues(opts.exec, origin, query),
     openPath: async (path, target) => {

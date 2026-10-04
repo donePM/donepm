@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { errorText, isPublishFailure } from "../api/errors";
 import type { ItemView } from "../api/types";
 import AskPanel from "../asks/AskPanel.vue";
+import { repoOf } from "../markdown/render";
 import { diffFiles, diffStats, type DiffStats } from "../diff/files";
 import { agentElapsed, clock } from "../time/duration";
 import { columnOf, displayId, labelTone, shortId } from "./columns";
@@ -146,6 +147,7 @@ async function act(fn: (id: string) => Promise<void>) {
       :rules="attention.rules"
       :reason="attention.reason"
       :worktree="item.worktreePath"
+      :repo="repoOf(item.externalId)"
     />
     <template v-else-if="attention?.kind === 'draft'">
       <div class="stats mono">

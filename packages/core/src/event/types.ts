@@ -18,6 +18,8 @@ export const EVENT_TYPES = [
   "permission.asked",
   "permission.answered",
   "permission.auto_allowed",
+  "permission.granted",
+  "permission.grant_revoked",
   "draft.created",
   "draft.edited",
   "draft.approved",

@@ -22,7 +22,7 @@ export function askFlags(request: unknown): AskFlags {
  * Whether a suggested rule belongs to the asked tool. The sandbox's network ask is answered with a
  * `WebFetch(domain:…)` rule, which Claude Code uses for both (spec 9.4).
  */
-function forTool(toolName: string, rule: PermissionRule): boolean {
+export function isForTool(toolName: string, rule: PermissionRule): boolean {
   if (rule.toolName === toolName) return true;
   return toolName === "SandboxNetworkAccess" && rule.toolName === "WebFetch" && (rule.ruleContent ?? "").trim().startsWith("domain:");
 }
@@ -33,5 +33,5 @@ function forTool(toolName: string, rule: PermissionRule): boolean {
  */
 export function sessionRules(toolName: string, suggested: readonly PermissionRule[], flags: AskFlags): PermissionRule[] {
   if (flags.suppressAlwaysAllowRule || flags.requiresUserInteraction) return [];
-  return offerableRules(suggested.filter((r) => forTool(toolName, r)));
+  return offerableRules(suggested.filter((r) => isForTool(toolName, r)));
 }

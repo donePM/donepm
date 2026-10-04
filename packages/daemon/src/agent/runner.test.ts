@@ -1,5 +1,7 @@
 import { start, type Playbook, type WorkItem } from "@donepm/core";
 import { describe, expect, it } from "vitest";
+import { GrantStore } from "../asks/grants.js";
+import { revokeGrant } from "../asks/revoke.js";
 import { AskStore } from "../asks/store.js";
 import { openDb } from "../db/database.js";
 import { EventStore } from "../events/store.js";
@@ -21,13 +23,14 @@ function setup(maxConcurrent = 1, webFetchDomains: string[] = []) {
   const items = new ItemStore(db);
   const events = new EventStore(db);
   const asks = new AskStore(db);
+  const grants = new GrantStore(db);
   const transcript = new TranscriptStore(db);
   const pushed: Array<{ type: string; payload: any }> = [];
   const activity: string[] = [];
   const spawn = fakeProcesses();
   const writer = itemWriter({ db, items, events, onItem: () => {}, onEvent: () => {} });
   const runner = new AgentRunner({
-    items, writer, asks, transcript, ctx, log: silentLog, spawn,
+    items, writer, asks, grants, transcript, ctx, log: silentLog, spawn,
     push: (type, payload) => pushed.push({ type, payload }),
     claudePath: () => "/usr/local/bin/claude",
     env: async () => ({ PATH: "/filtered" }),
@@ -54,7 +57,7 @@ function setup(maxConcurrent = 1, webFetchDomains: string[] = []) {
 
   const state = (id: string) => items.get(id)!.item;
   const types = (id: string) => events.forItem(id).map((e) => e.type);
-  return { db, items, events, asks, transcript, pushed, activity, spawn, runner, addItem, launch, state, types };
+  return { db, ctx, writer, grants, items, events, asks, transcript, pushed, activity, spawn, runner, addItem, launch, state, types };
 }
 
 describe("AgentRunner", () => {
@@ -460,6 +463,107 @@ describe("AgentRunner", () => {
       proc.exit(0);
       expect(t.runner.currentTool("item-1")).toBeUndefined();
       expect(t.activity.at(-1)).toBe("item-1");
+    });
+  });
+
+  describe("always allow (D38)", () => {
+    const suggest = (ruleContent: string) => [{ type: "addRules", behavior: "allow", destination: "localSettings", rules: [{ toolName: "Bash", ruleContent }] }];
+    const askFor = (id: string, command: string, ruleContent: string, extra: Record<string, unknown> = {}) => ({
+      type: "control_request", request_id: id,
+      request: { subtype: "can_use_tool", tool_name: "Bash", input: { command }, permission_suggestions: suggest(ruleContent), ...extra },
+    });
+
+    async function grantedRun() {
+      const t = setup(2);
+      const proc = await t.launch(t.addItem(1));
+      proc.emit(askFor("r1", "pnpm test", "pnpm test *"));
+      const [ask] = t.asks.forItem("item-1");
+      t.runner.answer(ask!.id, { behavior: "allow", scope: "always" });
+      return { t, proc, ask: ask! };
+    }
+
+    it("answers with a plain allow, stores the grant for the repository and records it", async () => {
+      const { t, proc, ask } = await grantedRun();
+      expect(proc.sent().at(-1).response.response).toEqual({ behavior: "allow", updatedInput: { command: "pnpm test" } });
+      const [grant] = t.grants.active("github.com/o/r");
+      expect(grant).toMatchObject({ toolName: "Bash", ruleContent: "pnpm test *", askId: ask.id, itemId: "item-1", call: "Bash: pnpm test", useCount: 0 });
+      expect(t.state("item-1").state).toBe("running");
+      expect(t.types("item-1")).toEqual(["agent.started", "permission.asked", "permission.answered", "permission.granted"]);
+      expect(t.events.forItem("item-1").find((e) => e.type === "permission.answered")!.payload).toMatchObject({
+        behavior: "allow", always: [{ grantId: grant!.id, repo: "github.com/o/r", toolName: "Bash", ruleContent: "pnpm test *" }],
+      });
+    });
+
+    it("answers the next matching ask itself, in this run and the next, and counts the use", async () => {
+      const { t, proc } = await grantedRun();
+      const [grant] = t.grants.active();
+      proc.emit(askFor("r2", "pnpm test core", "pnpm test *"));
+      expect(proc.sent().at(-1)).toEqual({
+        type: "control_response",
+        response: { request_id: "r2", subtype: "success", response: { behavior: "allow", updatedInput: { command: "pnpm test core" } } },
+      });
+      expect(t.state("item-1").state).toBe("running");
+      const auto = t.asks.forItem("item-1").at(-1)!;
+      expect(auto).toMatchObject({ state: "allowed", outcomeReason: "always allowed in o/r: Bash(pnpm test *)" });
+      expect(t.events.forItem("item-1").at(-1)).toMatchObject({
+        type: "permission.auto_allowed",
+        payload: { toolName: "Bash", repo: "github.com/o/r", grants: [{ grantId: grant!.id, toolName: "Bash", ruleContent: "pnpm test *" }] },
+      });
+      expect(t.grants.get(grant!.id)).toMatchObject({ useCount: 1, lastUsedAt: expect.any(String) });
+
+      // Another item of the same repository, in a new run.
+      const other = await t.launch(t.addItem(2));
+      other.emit(askFor("r3", "pnpm test web", "pnpm test *"));
+      expect(other.sent().at(-1).response.response.behavior).toBe("allow");
+      expect(t.asks.pending("item-2")).toEqual([]);
+      expect(t.grants.get(grant!.id)!.useCount).toBe(2);
+    });
+
+    it("asks the user again once the grant is removed, also in the run already going", async () => {
+      const { t, proc } = await grantedRun();
+      const [grant] = t.grants.active();
+      revokeGrant({ grants: t.grants, items: t.items, writer: t.writer, ctx: t.ctx }, grant!.id);
+      expect(t.types("item-1").at(-1)).toBe("permission.grant_revoked");
+      expect(t.state("item-1").state).toBe("running");
+
+      const sent = proc.sent().length;
+      proc.emit(askFor("r2", "pnpm test core", "pnpm test *"));
+      expect(proc.sent()).toHaveLength(sent);
+      expect(t.asks.pending("item-1")).toHaveLength(1);
+      expect(t.state("item-1").state).toBe("needs_you");
+    });
+
+    it("leaves near misses, other repositories, flags and questions to the user", async () => {
+      const { t, proc } = await grantedRun();
+      proc.emit(askFor("r2", "pnpm test:unit", "pnpm test:*"));
+      proc.emit(askFor("r3", "pnpm test x", "pnpm test *", { suppress_always_allow_rule: true }));
+      proc.emit({ type: "control_request", request_id: "r4", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "pnpm test" } } });
+      expect(t.asks.pending("item-1").map((a) => a.requestId)).toEqual(["r2", "r3", "r4"]);
+
+      t.items.insert({ ...t.state("item-1"), id: "item-9", externalId: "x/y#9", state: "ready" }, "github.com/x/y");
+      t.writer.commit(start(t.state("item-9"), t.ctx));
+      const other = await t.launch(t.state("item-9"));
+      other.emit(askFor("r5", "pnpm test", "pnpm test *"));
+      expect(t.asks.pending("item-9")).toHaveLength(1);
+    });
+
+    it("never grants a blocked rule, nor an ask without rules", async () => {
+      const t = setup();
+      const proc = await t.launch(t.addItem(1));
+      proc.emit(askFor("r1", "git push", "git push *"));
+      proc.emit({ type: "control_request", request_id: "r2", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "x" } } });
+      for (const ask of t.asks.pending("item-1")) {
+        expect(() => t.runner.answer(ask.id, { behavior: "allow", scope: "always" })).toThrow(AskError);
+      }
+      expect(t.grants.active()).toEqual([]);
+    });
+
+    it("never answers from a blocked grant written into the database", async () => {
+      const t = setup();
+      t.grants.add({ id: "g1", repo: "github.com/o/r", rule: { toolName: "Bash", ruleContent: "gh *" }, askId: "a", itemId: "item-1", call: "" }, "2026-10-03T12:00:00.000Z");
+      const proc = await t.launch(t.addItem(1));
+      proc.emit(askFor("r1", "gh pr list", "gh *"));
+      expect(t.asks.pending("item-1")).toHaveLength(1);
     });
   });
 });

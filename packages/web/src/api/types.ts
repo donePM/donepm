@@ -66,9 +66,12 @@ export interface ItemDiff {
 
 export type OpenTarget = "finder" | "terminal";
 
-/** `scope: "run"` also grants the ask's suggested rules until the agent's session ends. */
+/**
+ * `scope: "run"` also grants the ask's suggested rules until the agent's session ends; `"always"`
+ * grants them in every run in the item's repository until the user removes them (D38).
+ */
 export type AskAnswer =
-  | { behavior: "allow"; scope?: "run"; /** AskUserQuestion only, by question text. */ answers?: Record<string, string> }
+  | { behavior: "allow"; scope?: "run" | "always"; /** AskUserQuestion only, by question text. */ answers?: Record<string, string> }
   | { behavior: "deny"; message?: string; /** End the agent's turn with the deny. */ interrupt?: boolean };
 
 export type CliState = "not_installed" | "not_logged_in" | "ready";

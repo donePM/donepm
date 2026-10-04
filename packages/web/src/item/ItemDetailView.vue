@@ -98,6 +98,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
               :rules="a.rules"
               :reason="a.reason"
               :worktree="detail.worktreePath"
+              :repo="repo"
               @answered="reload"
             />
           </section>

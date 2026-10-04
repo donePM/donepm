@@ -130,7 +130,7 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
       <div v-else-if="row.type === 'ask'" class="row">
         <span class="who ask">Asked</span>
         <div v-if="row.ask" class="ask-open">
-          <AskPanel :ask-id="row.ask.id" :tool-name="row.name" :input="row.input" :rules="row.ask.rules" :reason="row.reason" :worktree="worktree" />
+          <AskPanel :ask-id="row.ask.id" :tool-name="row.name" :input="row.input" :rules="row.ask.rules" :reason="row.reason" :worktree="worktree" :repo="repo" />
         </div>
         <div v-else class="tool">
           <button class="tool-head" type="button" @click="toggle(row.id)">

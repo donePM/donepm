@@ -4,7 +4,7 @@ import {
   InvalidTransitionError, agentAsked, agentFailed, answered, autoAllowed, draftApproved, draftCreated, draftEdited, draftExecuted,
   draftExecutionFailed, draftRejected, interrupted, issueAssignFailed, issueAssigned, resume, start, worktreeRemoved,
   turnEnded, turnStarted, closedUpstream, ciFailed, ciFix, ciMarkedDone, ciPassed, ciRerun, dismissed, wasStarted, prMerged, worktreeRemovedOnMerge, worktreeRemoveSkipped,
-  prConflicted, prConflictResolved, prConflictDismissed, prConflictFix, archived,
+  prConflicted, prConflictResolved, prConflictDismissed, prConflictFix, archived, alwaysAllowed, grantRevoked,
 } from "./transitions.js";
 import type { PrConflict } from "../pr/conflict.js";
 import type { ItemState, WorkItem } from "./types.js";
@@ -258,6 +258,37 @@ describe("autoAllowed", () => {
 
   it.each(["ready", "done", "failed"] as const)("throws from %s", (state) => {
     expect(() => autoAllowed(item(state), makeCtx(), "ask-1")).toThrow(InvalidTransitionError);
+  });
+});
+
+describe("alwaysAllowed", () => {
+  const grant = { id: "g1", repo: "github.com/o/r", toolName: "Bash", ruleContent: "pnpm test *" };
+
+  it("answers like Allow and records each new grant", () => {
+    const { item: after, events } = alwaysAllowed(item("needs_you"), makeCtx(), "ask-1", [grant]);
+    expect(after.state).toBe("running");
+    expect(events.map((e) => [e.type, e.actor, e.refId])).toEqual([
+      ["permission.answered", "user", "ask-1"],
+      ["permission.granted", "user", "g1"],
+    ]);
+    expect(events[0]!.payload).toEqual({ behavior: "allow", rules: [], always: [{ grantId: "g1", repo: "github.com/o/r", toolName: "Bash", ruleContent: "pnpm test *" }] });
+    expect(events[1]!.payload).toEqual({ grantId: "g1", repo: "github.com/o/r", toolName: "Bash", ruleContent: "pnpm test *", askId: "ask-1" });
+  });
+
+  it("keeps waiting while other asks are open", () => {
+    expect(alwaysAllowed(item("needs_you"), makeCtx(), "ask-1", [grant], true).item.state).toBe("needs_you");
+  });
+
+  it.each(["ready", "running", "done"] as const)("throws from %s", (state) => {
+    expect(() => alwaysAllowed(item(state), makeCtx(), "ask-1", [grant])).toThrow(InvalidTransitionError);
+  });
+});
+
+describe("grantRevoked", () => {
+  it.each(ALL)("records the removal without leaving %s", (state) => {
+    const { item: after, events } = grantRevoked(item(state), makeCtx(), { id: "g1", repo: "github.com/o/r", toolName: "Read" });
+    expect(after.state).toBe(state);
+    expect(events[0]).toMatchObject({ type: "permission.grant_revoked", actor: "user", refId: "g1", payload: { grantId: "g1", toolName: "Read" } });
   });
 });
 

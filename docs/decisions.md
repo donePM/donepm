@@ -249,6 +249,25 @@ becomes a **new** item rather than unarchiving the old one: unarchiving would br
 merge events, so the item would count as finished at once and leave again, and the new work deserves
 a fresh run. External ids are unique among live items only. Bloom has no board to clear.
 
+**D38. "Always allow" is per repository, stored by donePM and answered by the daemon on every ask.**
+Allowing `pnpm test` again in every run was the next thing that trained the user to click blindly
+(#72). Claude Code's own answer, `localSettings` or `userSettings` as the destination, would write
+into the clone's `.claude/settings.local.json` or the user's settings: a file donePM does not own,
+that every other session in that clone would obey, and that no list in donePM could show or take
+back. Instead donePM stores a grant per repository (the normalised origin, so every clone and every
+item of the repo shares it) in `permission_grants`, and the daemon answers a later ask itself with a
+**plain** allow, never `updatedPermissions`. The CLI keeps asking, so every ask reads the grants
+again and a Remove in Settings applies at once, also to agents already running. An ask is answered
+only when every rule Claude Code suggested for the asked tool equals an active grant exactly (tool
+and rule content; no glob reasoning of our own), none of them is blocked (D30's list: `gh`, `glab`,
+`jira`, `git push`, all of Bash), no `suppress_always_allow_rule` or `requires_user_interaction`
+flag is set and it is not an `AskUserQuestion`. A blocked rule can never be granted, and a blocked
+grant that somehow sits in the database never matches. An ask without suggestions keeps asking.
+Answers are recorded like D31's (`permission.auto_allowed`, the payload naming the grants), and
+granting and removing are events too. A removal sets `revoked_at`; the row stays. Grants have no
+foreign key to the item or ask they were made on, because they outlive D37's purge; the call they
+were granted for is kept as text. Bloom offers "always" by writing Claude Code's settings.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

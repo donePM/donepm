@@ -1,4 +1,4 @@
-import { isQuestionTool, parseRules, questionsOf, toolSummary, type Event, type PermissionAsk } from "@donepm/core";
+import { isQuestionTool, parseRules, questionsOf, rawRule, repoName, toolSummary, type Event, type PermissionAsk } from "@donepm/core";
 import { grantText } from "../asks/grant";
 import { askCopyText, askView } from "../asks/view";
 
@@ -31,6 +31,14 @@ function askFull(ask: PermissionAsk | undefined): { full?: string } {
   const full = askCopyText(askView(ask.toolName, ask.input));
   return full && full !== toolSummary(ask.toolName, ask.input) ? { full } : {};
 }
+
+/** `Bash(pnpm test *)` from a grant payload (D38). */
+function grantCode(p: Record<string, unknown>): string | undefined {
+  const [rule] = parseRules([p]);
+  return rule ? rawRule(rule) : undefined;
+}
+
+const repoOfPayload = (p: Record<string, unknown>): string => repoName(str(p.repo) ?? "");
 
 function isQuestion(ask: PermissionAsk | undefined, fallbackTool: unknown): boolean {
   return isQuestionTool(ask?.toolName ?? str(fallbackTool) ?? "");
@@ -105,6 +113,9 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
           ...(detail ? { detail } : {}),
         };
       }
+      if (p.behavior === "allow" && Array.isArray(p.always)) {
+        return { tone: "user", text: "You always allowed", ...withCode(askCode(ask, undefined)), ...askFull(ask) };
+      }
       const grant = p.behavior === "allow" ? grantText(parseRules(p.rules)) : undefined;
       return {
         tone: "user",
@@ -115,12 +126,26 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
       };
     }
     case "permission.auto_allowed":
+      if (Array.isArray(p.grants)) {
+        const rules = parseRules(p.grants).map(rawRule).join(", ");
+        return {
+          tone: "system",
+          text: `Always allowed in ${repoOfPayload(p)}`,
+          ...withCode(askCode(ask, p.toolName)),
+          ...askFull(ask),
+          ...(rules ? { detail: `${rules} is in Settings → Always allowed` } : {}),
+        };
+      }
       return {
         tone: "system",
         text: "Allowed web access on your list",
         ...withCode(askCode(ask, p.toolName)),
         ...(str(p.domain) ? { detail: `${str(p.domain)} is in Settings → Web access` } : {}),
       };
+    case "permission.granted":
+      return { tone: "user", text: `Added to Always allowed in ${repoOfPayload(p)}`, ...withCode(grantCode(p)) };
+    case "permission.grant_revoked":
+      return { tone: "user", text: `You removed from Always allowed in ${repoOfPayload(p)}`, ...withCode(grantCode(p)) };
     case "draft.created":
       return { tone: "attention", text: `Agent created ${draftName}`, ...(str(p.title) ? { detail: str(p.title) } : {}) };
     case "draft.edited":

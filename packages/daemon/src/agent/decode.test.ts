@@ -71,6 +71,24 @@ describe("decodeLine against recorded sessions", () => {
     expect(d).toMatchObject({ type: "ask", rules: [{ toolName: "Bash", ruleContent: "bin/test:*" }] });
   });
 
+  it("keeps every suggested allow rule and the flags for matching grants", () => {
+    const d = decodeLine(JSON.stringify({
+      type: "control_request", request_id: "r1",
+      request: {
+        subtype: "can_use_tool", tool_name: "Bash", input: {}, suppress_always_allow_rule: true,
+        permission_suggestions: [
+          { type: "addRules", behavior: "allow", rules: [{ toolName: "Bash", ruleContent: "pnpm test *" }, { toolName: "Bash", ruleContent: "gh *" }] },
+        ],
+      },
+    }));
+    expect(d).toMatchObject({
+      type: "ask",
+      rules: [],
+      suggested: [{ toolName: "Bash", ruleContent: "pnpm test *" }, { toolName: "Bash", ruleContent: "gh *" }],
+      flags: { suppressAlwaysAllowRule: true, requiresUserInteraction: false },
+    });
+  });
+
   it("offers no rules when the request suppresses them", () => {
     for (const flag of ["suppress_always_allow_rule", "requires_user_interaction"]) {
       const d = decodeLine(JSON.stringify({
