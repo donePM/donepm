@@ -2,6 +2,7 @@ import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { createCommentDraft, createPrDraft, createPushDraft, DraftError, type DraftDeps } from "../drafts/actions.js";
 import { createReviewDraft } from "../drafts/review.js";
+import { createUpdateBranchDraft } from "../drafts/update-branch.js";
 import type { Exec } from "../process/exec.js";
 import type { BridgeSession } from "./sessions.js";
 
@@ -26,6 +27,7 @@ const DraftReviewArgs = z.object({
   body: z.string(),
   comments: z.array(ReviewComment).optional(),
 });
+const DraftUpdateBranchArgs = z.object({ reason: z.string().trim().min(1) });
 
 const REPLIES_SCHEMA = {
   type: "array",
@@ -178,6 +180,28 @@ const TOOLS: ToolDef[] = [
         return text("draft_review needs a `verdict` (APPROVE, REQUEST_CHANGES or COMMENT), a `body`, and comments with `path`, a positive `line` and a non-empty `body`.", true);
       }
       return drafted(() => createReviewDraft(deps, session.itemId, { ...parsed.data, comments: parsed.data.comments ?? [] }));
+    },
+  },
+  {
+    draft: "review",
+    tool: {
+      name: "draft_update_branch",
+      description:
+        "Propose bringing this pull request up to date with its base when it is behind. The user approves it and the " +
+        "daemon updates the branch (Dependabot pull requests get an `@dependabot rebase` comment); you cannot do it " +
+        "yourself. Afterwards you get a message; go on with your review and call draft_review once, at the end.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          reason: { type: "string", description: "Why the branch should be updated, shown to the user" },
+        },
+        required: ["reason"],
+      },
+    },
+    call: (deps, session, args) => {
+      const parsed = DraftUpdateBranchArgs.safeParse(args ?? {});
+      if (!parsed.success) return text("draft_update_branch needs a non-empty `reason`.", true);
+      return drafted(() => createUpdateBranchDraft(deps, session.itemId, parsed.data));
     },
   },
 ];

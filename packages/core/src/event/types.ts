@@ -43,6 +43,7 @@ export const EVENT_TYPES = [
   "pr.merged",
   "pr.merge_failed",
   "pr.auto_merge_set",
+  "pr.branch_updated",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

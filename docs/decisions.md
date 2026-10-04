@@ -431,7 +431,11 @@ item's checkbox off instead of retrying every poll. Issue #146 narrowed that: a 
 base (`mergeStateStatus` `BEHIND`) blocks the merge like failing checks, and a refusal that passes
 on its own (behind, checks pending, a branch moved) keeps the checkbox on, held until the PR's
 head commit or merge state changes, since Dependabot or the author usually updates the branch and
-the user expects the merge then. A reviewed PR stays on the board until GitHub
+the user expects the merge then. Issue #148 lets the user, or the review agent through a draft,
+ask for that update from donePM: Dependabot gets `@dependabot rebase` (a push by anyone else ends
+its maintenance of the PR), any other PR GitHub's "Update branch", a merge of the base, never a
+rebase of the author's commits. Both are requests to GitHub as the user; donePM still never pushes
+to someone else's branch. The agent's draft does not end its run, so its review still follows. A reviewed PR stays on the board until GitHub
 says it is merged or closed, so the merge stays in reach.
 
 ## Open (not decided)

@@ -1,4 +1,6 @@
-export type DraftType = "pr" | "push" | "comment" | "review";
+import type { BranchUpdateVia } from "../pr/update-branch.js";
+
+export type DraftType = "pr" | "push" | "comment" | "review" | "update_branch";
 export type DraftState = "pending" | "approved" | "rejected" | "executed" | "failed";
 
 export interface PrDraftPayload {
@@ -96,6 +98,26 @@ export interface ReviewDraftResult {
   url: string;
 }
 
+/**
+ * Bring someone else's pull request up to date with its base (issue #148): `draft_update_branch`.
+ * The daemon fills in the PR and how (`@dependabot rebase` or `gh pr update-branch`); the user
+ * approves, the daemon asks as the user.
+ */
+export interface UpdateBranchDraftPayload {
+  number: number;
+  url: string;
+  base: string;
+  via: BranchUpdateVia;
+  /** The agent's word on why, shown to the user. */
+  reason: string;
+}
+
+export interface UpdateBranchDraftResult {
+  via: BranchUpdateVia;
+  /** The posted `@dependabot rebase` comment. */
+  url?: string;
+}
+
 interface DraftBase {
   id: string;
   itemId: string;
@@ -128,7 +150,13 @@ export interface ReviewDraft extends DraftBase {
   result?: ReviewDraftResult;
 }
 
-export type Draft = PrDraft | PushDraft | CommentDraft | ReviewDraft;
+export interface UpdateBranchDraft extends DraftBase {
+  type: "update_branch";
+  payload: UpdateBranchDraftPayload;
+  result?: UpdateBranchDraftResult;
+}
+
+export type Draft = PrDraft | PushDraft | CommentDraft | ReviewDraft | UpdateBranchDraft;
 
 const VERDICT_TITLE: Record<ReviewVerdict, string> = {
   APPROVE: "Approve",
@@ -155,9 +183,15 @@ export function pushTitle(p: Pick<PushDraftPayload, "commits" | "number" | "unco
   return `Push ${n} commit${n === 1 ? "" : "s"} to PR #${p.number}`;
 }
 
+/** "Update the branch of PR #85 (@dependabot rebase)". */
+export function updateBranchTitle(p: Pick<UpdateBranchDraftPayload, "number" | "via">): string {
+  return `Update the branch of PR #${p.number}${p.via === "dependabot" ? " (@dependabot rebase)" : ""}`;
+}
+
 /** The title a card shows for any draft. */
 export function draftTitle(d: Draft): string {
   if (d.type === "pr") return (d.userEdits ?? d.payload).title;
+  if (d.type === "update_branch") return updateBranchTitle(d.payload);
   if (d.type === "comment") return repliesTitle(d.payload);
   if (d.type === "review") return reviewTitle(d.payload);
   const replies = d.payload.replies?.length ?? 0;

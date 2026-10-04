@@ -27,6 +27,8 @@ describe("cardBadge", () => {
     expect(cardBadge(draft({}))).toEqual({ text: "PR draft", tone: "attn", icon: "pr" });
     expect(cardBadge(draft({ executing: true }))?.text).toBe("publishing");
     expect(cardBadge(draft({ error: "boom" }))).toMatchObject({ text: "PR failed", tone: "danger" });
+    expect(cardBadge(draft({ draftType: "update_branch" }))?.text).toBe("update draft");
+    expect(cardBadge(draft({ draftType: "update_branch", executing: true }))?.text).toBe("updating");
     const kind = (kind: string) => cardBadge(item({ state: "needs_you", attention: { kind } as ItemView["attention"] }))?.text;
     expect(kind("ask")).toBe("permission");
     expect(kind("pr_conflict")).toBe("conflict");

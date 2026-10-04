@@ -564,6 +564,21 @@ export function reviewPosted(item: WorkItem, ctx: Ctx, draftId: string, payload:
 }
 
 /**
+ * The daemon asked for the branch of someone else's pull request to be updated, on the user's
+ * approval of the agent's update-branch draft (issue #148, D47). The review is not done yet, so the
+ * agent runs again and goes on with it.
+ */
+export function branchUpdatePosted(item: WorkItem, ctx: Ctx, draftId: string, payload: Record<string, unknown> = {}): Transition {
+  return apply(
+    { name: "branchUpdatePosted", from: ["needs_you"], to: "running", actor: "system", event: "draft.executed" },
+    item,
+    ctx,
+    draftId,
+    payload,
+  );
+}
+
+/**
  * donePM merged someone else's pull request (D47): the user's Merge click, or the daemon on the
  * user's auto-merge choice. The item is done, and so is its pull request.
  */

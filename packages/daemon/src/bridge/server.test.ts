@@ -76,7 +76,7 @@ describe("bridge server", () => {
 
     const r = await bridge(["review"]);
     const review = await client(r.path, r.token);
-    expect((await review.listTools()).tools.map((t) => t.name)).toEqual(["whoami", "draft_review"]);
+    expect((await review.listTools()).tools.map((t) => t.name)).toEqual(["whoami", "draft_review", "draft_update_branch"]);
     expect((await review.callTool({ name: "draft_push", arguments: { message: "x" } })).isError).toBe(true);
     expect(r.drafts.forItem("item-1")).toEqual([]);
     // A tool the playbook does not allow is an error result, not a JSON-RPC error.

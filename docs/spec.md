@@ -139,7 +139,8 @@ stays) and `worktree.remove_skipped` (merged, but the worktree has uncommitted c
 6.5, `ci.started`, `ci.passed`, `ci.failed` and `ci.marked_done` (see 6.6), `pr.conflicted`,
 `pr.conflict_resolved` and `pr.conflict_dismissed` (see 6.7), `pr.feedback` and
 `pr.feedback_dismissed` (see 6.9), `pr.commented` (actor `user`, payload `{ body }`: the user posted a
-comment on someone else's PR from its card, 6.2, D47), `pr.merged` (payload `{ method, auto }`;
+comment on someone else's PR from its card, 6.2, D47), `pr.branch_updated` (actor `user`, payload
+`{ via }`: the user clicked Update branch on the card, 6.2, D47), `pr.merged` (payload `{ method, auto }`;
 actor `user` for the card's Merge, `system` for auto-merge), `pr.merge_failed` (actor `system`,
 payload `{ method, auto, error, staysOn }`: auto-merge failed; `staysOn` false: it was turned off
 for the item, true: the reason passes and it stays on, held) and
@@ -155,11 +156,11 @@ resolves a merge conflict, `reason: "pr_feedback"` when it addresses review feed
 |---|---|---|
 | id | uuid | |
 | itemId | uuid | |
-| type | `pr` \| `push` \| `comment` \| `review` | |
-| payload | JSON | for `pr`: `{ title, body, base }`; for `push`: `{ summary, number, url, branch, commits, uncommitted, replies? }`; for `comment`: `{ number, url, replies }`. A reply is `{ body, inReplyTo? }` (6.9); for `review`: `{ number, url, commitId, verdict, body, comments }`, a comment `{ path, line, body }` (D43) |
+| type | `pr` \| `push` \| `comment` \| `review` \| `update_branch` | |
+| payload | JSON | for `pr`: `{ title, body, base }`; for `push`: `{ summary, number, url, branch, commits, uncommitted, replies? }`; for `comment`: `{ number, url, replies }`. A reply is `{ body, inReplyTo? }` (6.9); for `review`: `{ number, url, commitId, verdict, body, comments }`, a comment `{ path, line, body }` (D43); for `update_branch`: `{ number, url, base, via, reason }`, `via` `dependabot` \| `update-branch` (6.2, D47) |
 | state | `pending` \| `approved` \| `rejected` \| `executed` \| `failed` | |
 | userEdits | JSON? | the payload after user edits |
-| result | JSON? | for `pr`: `{ url, number }`; for `push`: `{ sha, posted? }`; for `comment`: `{ posted }`; for `review`: `{ id, url }`. `posted` lists `{ index, url }` per reply out, written after each one so a retry skips them |
+| result | JSON? | for `pr`: `{ url, number }`; for `push`: `{ sha, posted? }`; for `comment`: `{ posted }`; for `review`: `{ id, url }`; for `update_branch`: `{ via, url? }` (`url` of the Dependabot comment). `posted` lists `{ index, url }` per reply out, written after each one so a retry skips them |
 
 ### 4.5 PermissionAsk
 
@@ -307,6 +308,13 @@ On start and on Settings open:
   and `mergeStateStatus`; it is tried again once either differs (`autoMergeDue`), or when the user
   ticks the box again. Any other refusal turns `autoMerge` off for that item, so it is not retried
   every poll.
+- Update branch (issue #148, D47). While the last poll read someone else's open PR as `BEHIND`
+  (`branchUpdateBlocker` in `core`), the card offers Update branch; the click is the approval. A
+  Dependabot PR (author `dependabot[bot]`) gets the comment `@dependabot rebase` (`gh pr comment`),
+  since a push by anyone else makes Dependabot stop maintaining it. Any other PR gets
+  `gh pr update-branch N --repo host/o/r`, GitHub's "Update branch", a merge of the base (not
+  `--rebase`, which rewrites the author's commits). It records `pr.branch_updated`; the state stays.
+  The review agent can propose the same with `draft_update_branch` (6.3).
 - Validate output with a schema (zod). On schema failure: log the raw output, do not crash, show
   an error badge in Settings.
 - Priority (D45). After all sources answered, one call per 100 polled issues reads GitHub's
@@ -390,6 +398,13 @@ gh api --hostname <host> --method POST repos/<o>/<r>/pulls/<n>/reviews --input <
 
 `<tmp>` (0600) holds `{ commit_id, event, body, comments: [{ path, line, side: "RIGHT", body }] }`.
 Result `{ id, url }`, `draft.executed`, item `done`. A failure stops the draft with step `review`.
+
+An `update_branch` draft (issue #148) updates the branch like the card's Update branch (6.2):
+`@dependabot rebase` for Dependabot, else `gh pr update-branch`. Result `{ via, url? }`, then
+`draft.executed` moves the item `needs_you` → `running` and the agent is told to go on with its
+review: a live process hears it, otherwise its session is resumed. The review draft still comes
+after it. A failure stops the draft with step `update_branch`. Rejected, the agent is told to leave
+the branch and finish the review.
 
 ### 6.4 Assign on start
 
@@ -921,6 +936,7 @@ Tools in MVP:
 | `draft_push` | `{ summary, replies? }` | only after the item's PR exists; the daemon adds the PR, branch and the commits the PR lacks (`git log origin/<branch>..HEAD`); creates Draft `push`, item → `needs_you`. Refused without a PR, or with no commits and nothing uncommitted. `replies`: `[{ body, inReplyTo? }]`, posted after the push (6.9) |
 | `draft_comment` | `{ replies }` | replies to review feedback without a push; only after the item's PR exists; creates Draft `comment`, item → `needs_you`. Refused without a PR, without replies, or with an `inReplyTo` that is no known thread (6.9) |
 | `draft_review` | `{ verdict, body, comments? }` | only for a `github-pr` item; `verdict` `APPROVE` \| `REQUEST_CHANGES` \| `COMMENT`, a comment `{ path, line, body }`. The daemon adds the PR and the reviewed commit; creates Draft `review`, item → `needs_you`. Refused without a body (except `APPROVE`) or with a line that is not on the new side of `git diff origin/<base>...HEAD` (D43) |
+| `draft_update_branch` | `{ reason }` | only for a `github-pr` item the last poll read as `BEHIND` its base; creates Draft `update_branch`, item → `needs_you`. Approved, the daemon updates the branch (6.2, 6.3) and the agent goes on with its review. Allowed where the playbook allows `review` drafts |
 | `whoami` | – | returns item id, branch, worktree path, repo, and `baseBranch` for a review |
 
 A tool call not allowed by the playbook returns an error result (`isError: true`) with text, not a
@@ -955,6 +971,7 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/items/:id/feedback/address` | waiting review feedback with a worktree and session; fetches the PR branch, resumes the agent with it (6.9). 202 |
 | POST | `/api/items/:id/feedback/dismiss` | waiting review feedback → `done` (6.9) |
 | POST | `/api/items/:id/pr/comment` | `{body}`: `gh pr comment` on a `github-pr` item's PR as the user, `pr.commented`; 502 with gh's message when it fails (D47) |
+| POST | `/api/items/:id/pr/update-branch` | Update branch on a `github-pr` item's PR as the user (`@dependabot rebase` or `gh pr update-branch`), `pr.branch_updated`; 409 unless the last poll read it `BEHIND`, 502 with gh's message (6.2, D47) |
 | POST | `/api/items/:id/pr/merge` | `{method}`: `gh pr merge` on a `github-pr` item's PR, `pr.merged`; 409 with the blockers, 502 with gh's message (6.2, D47) |
 | PUT | `/api/items/:id/auto-merge` | `{on}`: the item's "Merge automatically", `pr.auto_merge_set` (D47) |
 | POST | `/api/items/:id/dismiss` | closed upstream, not running → `done` (D32); 409 otherwise |

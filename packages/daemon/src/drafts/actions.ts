@@ -181,16 +181,21 @@ export async function rejectDraft(deps: RejectDeps, draftId: string, reason: str
   return { ...draft, state: "rejected" };
 }
 
-const REJECTED: Record<DraftType, { what: string; tool: string }> = {
+const REJECTED: Record<DraftType, { what: string; tool: string; tail?: string }> = {
   pr: { what: "pull request draft", tool: "draft_pr" },
   push: { what: "push draft", tool: "draft_push" },
   comment: { what: "replies", tool: "draft_comment" },
   review: { what: "review", tool: "draft_review" },
+  update_branch: {
+    what: "update-branch draft",
+    tool: "draft_update_branch",
+    tail: "Leave the branch as it is. Go on with your review and call draft_review once, at the end.",
+  },
 };
 
 export function rejectionMessage(reason: string | undefined, type: DraftType = "pr"): string {
   const head = `The user rejected your ${REJECTED[type].what}.`;
-  const tail = `Revise the work and call ${REJECTED[type].tool} again when it is ready.`;
+  const tail = REJECTED[type].tail ?? `Revise the work and call ${REJECTED[type].tool} again when it is ready.`;
   return reason ? `${head}\n\nTheir reason:\n${reason}\n\n${tail}` : `${head}\n\n${tail}`;
 }
 
