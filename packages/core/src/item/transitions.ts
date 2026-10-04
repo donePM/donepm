@@ -385,6 +385,28 @@ export function worktreeRemovedOnMerge(item: WorkItem, ctx: Ctx, payload: Record
   );
 }
 
+/**
+ * The user changed the worktree root and chose to move the item's worktree along (issue #93). The
+ * state and the session stay: `claude --resume <id>` finds a session by its id from any directory
+ * (D44). Never under a running agent: its process works in the old directory.
+ */
+export function worktreeMoved(item: WorkItem, ctx: Ctx, move: { from: string; to: string }): Transition {
+  const t = apply(
+    {
+      name: "worktreeMoved",
+      from: ["ready", "needs_you", "checking", "done", "failed"],
+      to: item.state,
+      actor: "user",
+      event: "worktree.moved",
+    },
+    item,
+    ctx,
+    undefined,
+    { from: move.from, to: move.to },
+  );
+  return { ...t, item: { ...t.item, worktreePath: move.to } };
+}
+
 function withoutWorktree(t: Transition): Transition {
   const { worktreePath: _path, agentSessionId: _session, ...rest } = t.item;
   return { ...t, item: rest };

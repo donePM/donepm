@@ -1,5 +1,10 @@
 import type { PermissionGrant } from "@donepm/core";
-import type { AskAnswer, Draft, ItemDetail, ItemDiff, ItemView, OpenTarget, OrphanWorktree, PrDraftPayload, RepoView, Settings, SourceTest, Status, TranscriptMessage } from "./types";
+import type {
+  AskAnswer, Draft, ItemDetail, ItemDiff, ItemView, MoveOutcome, OpenTarget, OrphanWorktree, PrDraftPayload, RepoView, Settings, SourceTest, Status,
+  TranscriptMessage,
+} from "./types";
+
+export type WorktreeChoice = "move" | "leave";
 
 export class ApiError extends Error {
   constructor(
@@ -65,7 +70,12 @@ export const api = {
   status: () => call<Status>("GET", "/api/status"),
   recheck: () => call<Status>("POST", "/api/status/recheck"),
   settings: () => call<Settings>("GET", "/api/settings"),
-  saveSettings: (patch: Partial<Settings>) =>
-    call<{ settings: Settings; restartRequired: boolean }>("PUT", "/api/settings", patch),
+  /** Throws ApiError 409 with `worktreesAtOldRoot` when the root changes and no choice is given (#93). */
+  saveSettings: (patch: Partial<Omit<Settings, "previousWorktreeRoots">>, worktrees?: WorktreeChoice) =>
+    call<{ settings: Settings; restartRequired: boolean; worktrees?: MoveOutcome }>(
+      "PUT",
+      `/api/settings${worktrees ? `?worktrees=${worktrees}` : ""}`,
+      patch,
+    ),
   testSource: (origin: string, query: string) => call<SourceTest>("POST", "/api/sources/test", { origin, query }),
 };

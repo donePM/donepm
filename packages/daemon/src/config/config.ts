@@ -41,6 +41,11 @@ export const ConfigSchema = z
     port: z.number().int().min(1).max(65535).default(6174),
     repoRoot: z.string().min(1).default("~/Code"),
     worktreeRoot: z.string().min(1).default("~/.local/share/donepm/worktrees"),
+    /**
+     * Former worktree roots that may still hold worktrees (issue #93). Kept by the daemon, not set
+     * through the API: orphan detection looks here too until nothing is left under them.
+     */
+    previousWorktreeRoots: z.array(z.string().min(1)).default([]),
     branchPrefix: z.string().default("dp/"),
     pollIntervalSeconds: z.number().int().min(10).default(60),
     maxConcurrentAgents: z.number().int().min(1).default(1),

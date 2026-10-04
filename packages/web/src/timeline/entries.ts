@@ -217,6 +217,8 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: R
       if (p.reason === "pr_merged") return { tone: "system", text: `${prName(p.number)} merged, worktree removed`, ...kept };
       return { tone: "user", text: "You removed the worktree", ...kept };
     }
+    case "worktree.moved":
+      return { tone: "user", text: "You moved the worktree", ...(str(p.to) ? { detail: `to ${str(p.to)}` } : {}) };
     case "worktree.remove_skipped": {
       const files = Array.isArray(p.files) ? p.files.filter((f) => typeof f === "string") : [];
       const reason = str(p.reason) ?? "unknown reason";

@@ -48,6 +48,21 @@ export interface OrphanWorktree {
   branch?: string;
 }
 
+/** `PUT /api/settings` 409: an item's worktree under the old root when the root changes (#93). */
+export interface WorktreeAtOldRoot {
+  itemId: string;
+  title: string;
+  path: string;
+  /** Its agent is running; it would not be moved. */
+  running: boolean;
+}
+
+/** `PUT /api/settings?worktrees=move`: what moved, and what stayed with the reason. */
+export interface MoveOutcome {
+  moved: Array<{ itemId: string; title: string; from: string; to: string }>;
+  skipped: Array<{ itemId: string; title: string; path: string; reason: string }>;
+}
+
 export interface ItemView extends WorkItem {
   repo: Pick<Repo, "id" | "path" | "originUrl" | "defaultBranch"> | null;
   badges: ItemBadge[];
@@ -130,6 +145,8 @@ export interface Settings {
   port: number;
   repoRoot: string;
   worktreeRoot: string;
+  /** Former worktree roots that still hold worktrees; kept by the daemon, read-only here (#93). */
+  previousWorktreeRoots: string[];
   branchPrefix: string;
   pollIntervalSeconds: number;
   maxConcurrentAgents: number;

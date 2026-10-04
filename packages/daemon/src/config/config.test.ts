@@ -11,6 +11,7 @@ describe("config", () => {
       port: 6174,
       repoRoot: "~/Code",
       worktreeRoot: "~/.local/share/donepm/worktrees",
+      previousWorktreeRoots: [],
       branchPrefix: "dp/",
       pollIntervalSeconds: 60,
       maxConcurrentAgents: 1,

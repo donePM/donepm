@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import { errorText } from "../api/errors";
 import type { OrphanWorktree } from "../api/types";
 
-defineProps<{ worktreeRoot?: string }>();
+const props = defineProps<{ worktreeRoot?: string; previousRoots?: string[] }>();
 
 const orphans = ref<OrphanWorktree[]>([]);
 const loaded = ref(false);
@@ -34,13 +34,18 @@ async function remove(path: string) {
 }
 
 onMounted(load);
+// A new root (moved or left behind) changes what is orphaned (#93).
+watch(() => props.worktreeRoot, (now, before) => {
+  if (before !== undefined && now !== before) void load();
+});
 </script>
 
 <template>
   <section class="panel">
     <h2>Orphaned worktrees</h2>
     <p class="sub">
-      Worktrees under <span class="mono">{{ worktreeRoot ?? "…" }}</span> that belong to no item. Removing one keeps its branch.
+      Worktrees under <span class="mono">{{ worktreeRoot ?? "…" }}</span><template v-for="r in previousRoots ?? []" :key="r">
+        or the former root <span class="mono">{{ r }}</span></template> that belong to no item. Removing one keeps its branch.
     </p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <ul v-if="orphans.length" class="list">

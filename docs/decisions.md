@@ -352,6 +352,22 @@ with a reason the agent works in. The playbook allows only `review`, so `draft_p
 and `draft_comment` are not offered. Comments on removed lines (`LEFT`) and multi-line ranges are
 left for later.
 
+**D44. A new worktree root offers to move the old worktrees with `git worktree move`; the agent
+session stays.** Changing `worktreeRoot` used to strand existing worktrees and hide their orphans.
+Now the settings save asks first (409 with the list) and the user chooses move or leave (spec 7.1).
+Move uses `git worktree move`, not a filesystem rename, so git's `.git/worktrees/<name>` metadata
+and the worktree's `.git` file stay consistent. A worktree with a running agent is never moved (the
+process's cwd would vanish under it); it is skipped with a reason, as are a missing worktree, an
+existing target and any git failure. No overwrite, no force. Review worktrees (D41) live under the
+same root and are treated alike. On the session: Claude Code files a session under
+`~/.claude/projects/<encoded cwd>/`, but `claude -p --resume <id>` finds it by id from any cwd
+(checked on Claude Code 2.1.289: resumed from an unrelated directory, same session id). So the
+item keeps `agentSessionId`, no file under `~/.claude` is moved or copied, and resumable items are
+not skipped; the next resume simply runs in the new directory. Should a later Claude Code tie
+resume to the cwd, the remedy is a fresh session, not moving its files. Former roots are kept in
+config (`previousWorktreeRoots`) and searched for orphans until nothing under them is left, so
+"leave" does not hide worktrees from Settings.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

@@ -28,6 +28,7 @@ export const EVENT_TYPES = [
   "draft.execution_failed",
   "worktree.removed",
   "worktree.remove_skipped",
+  "worktree.moved",
   "ci.started",
   "ci.passed",
   "ci.failed",
