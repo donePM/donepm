@@ -19,6 +19,7 @@ describe("config", () => {
       archiveAfterHours: 24,
       deleteAfterDays: 7,
       sources: {},
+      ticketSources: [],
       allowedWebFetchDomains: ["github.com", "raw.githubusercontent.com", "docs.github.com", "nodejs.org", "developer.mozilla.org", "npmjs.com"],
     });
   });

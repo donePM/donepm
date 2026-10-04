@@ -34,6 +34,7 @@ const md = new MarkdownIt({ html: true, linkify: true, breaks: false }).use(task
 const REFERENCE = /(^|[^\w/@#&])(?:(?:([\w.-]+)\/([\w.-]+))?#(\d+)|@([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))(?![\w/-]))/g;
 
 md.core.ruler.push("github-references", (state) => {
+  if ((state.env as Env | undefined)?.noReferences) return;
   const repo = state.env?.repo as RepoRef | undefined;
   const site = siteOf(repo);
   for (const block of state.tokens) {
@@ -107,7 +108,8 @@ function imageAllowed(src: string): boolean {
   }
 }
 
-type Env = { repo?: RepoRef };
+/** `noReferences`: text from elsewhere than GitHub, where `@name` is not a GitHub user (issue #139). */
+type Env = { repo?: RepoRef; noReferences?: boolean };
 
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   const token = tokens[idx]!;
@@ -193,9 +195,9 @@ function finish(root: HTMLElement, repo: RepoRef | undefined): void {
 }
 
 /** Safe HTML for `v-html`. `repo` resolves relative links and `#123`; without it they stay text. */
-export function renderMarkdown(source: string, repo?: RepoRef): string {
+export function renderMarkdown(source: string, repo?: RepoRef, opts: { noReferences?: boolean } = {}): string {
   // RETURN_DOM hands back the `<body>` the sanitized markup was parsed into.
-  const root = purify.sanitize(md.render(source, { repo } satisfies Env), SANITIZE) as HTMLElement;
+  const root = purify.sanitize(md.render(source, { repo, ...opts } satisfies Env), SANITIZE) as HTMLElement;
   finish(root, repo);
   return root.innerHTML;
 }

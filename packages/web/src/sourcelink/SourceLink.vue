@@ -3,6 +3,7 @@ import { computed, type Component } from "vue";
 import IconExternal from "../icons/IconExternal.vue";
 import IconGitHub from "../icons/IconGitHub.vue";
 import IconGlobe from "../icons/IconGlobe.vue";
+import IconTicket from "../icons/IconTicket.vue";
 import { sourceLink, type SourceIconName } from "./source-link";
 
 /**
@@ -15,7 +16,7 @@ const props = defineProps<{
   /** Names the target in the tooltip ("o/r#4 on GitHub"); without it the tooltip says "Open on GitHub". */
   label?: string;
 }>();
-const ICONS: Record<SourceIconName, Component> = { github: IconGitHub, web: IconGlobe };
+const ICONS: Record<SourceIconName, Component> = { github: IconGitHub, ticket: IconTicket, web: IconGlobe };
 const link = computed(() => sourceLink({ source: props.source, externalUrl: props.url }));
 </script>
 

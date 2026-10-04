@@ -22,7 +22,13 @@ describe("sourceLink (#151)", () => {
   });
 
   it("shows the globe and the host for a source it does not know", () => {
-    expect(sourceLink({ source: "jira", externalUrl: "https://acme.atlassian.net/browse/OPS-1" })).toEqual({ icon: "web", site: "acme.atlassian.net" });
+    expect(sourceLink({ source: "linear", externalUrl: "https://linear.app/acme/issue/OPS-1" })).toEqual({ icon: "web", site: "linear.app" });
+  });
+
+  it("marks Jira tickets, on Cloud and on a Data Center host of its own (issue #139)", () => {
+    expect(sourceLink({ source: "jira-issue", externalUrl: "https://acme.atlassian.net/browse/APP-123" })).toEqual({ icon: "ticket", site: "Jira" });
+    expect(sourceLink({ source: "jira-issue", externalUrl: "https://jira.acme.com/browse/OPS-7" })).toEqual({ icon: "ticket", site: "Jira (jira.acme.com)" });
+    expect(sourceLink({ source: "jira-issue", externalUrl: "" })).toEqual({ icon: "ticket", site: "Jira" });
   });
 
   it("falls back to the item's source when the URL has no host", () => {

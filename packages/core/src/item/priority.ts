@@ -37,10 +37,12 @@ export function priorityTierOfField(option: string): PriorityTier | undefined {
 }
 
 /**
- * An issue's tier (D45): GitHub's "Priority" issue field when it is set to a known option, else
- * the labels. The field wins over a priority label.
+ * An issue's tier (D45): the tier its source gave, else GitHub's "Priority" issue field when it is
+ * set to a known option, else the labels. The field wins over a priority label.
  */
-export function issuePriority(issue: { labels: readonly string[]; priorityField?: string }): PriorityTier {
+export function issuePriority(issue: { labels: readonly string[]; priorityField?: string; priorityTier?: PriorityTier }): PriorityTier {
+  // A ticket source that has a priority of its own (Jira, issue #139) names the tier itself.
+  if (issue.priorityTier !== undefined) return issue.priorityTier;
   const field = issue.priorityField === undefined ? undefined : priorityTierOfField(issue.priorityField);
   return field ?? priorityTier(issue.labels);
 }

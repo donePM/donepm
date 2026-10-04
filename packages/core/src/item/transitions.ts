@@ -21,6 +21,22 @@ export class PlaybookNotAllowedError extends Error {
   }
 }
 
+/** A ticket with several repositories waits for the user to choose one before it starts (issue #139). */
+export class RepoNotChosenError extends Error {
+  constructor() {
+    super("choose the repository this ticket's work goes to first");
+    this.name = "RepoNotChosenError";
+  }
+}
+
+/** The repository asked for is not one of the ticket's (issue #139). */
+export class NotARepoCandidateError extends Error {
+  constructor(readonly origin: string) {
+    super(`${origin} is not one of this ticket's repositories`);
+    this.name = "NotARepoCandidateError";
+  }
+}
+
 export class InvalidTransitionError extends Error {
   constructor(
     readonly transition: string,
@@ -62,6 +78,7 @@ function apply(
  * session belongs to it. An item with a session from before #136 is Claude Code's.
  */
 export function start(item: WorkItem, ctx: Ctx, agent: AgentKind = DEFAULT_AGENT): Transition {
+  if (item.repoCandidates !== undefined && item.repoOrigin === undefined) throw new RepoNotChosenError();
   const t = apply(
     {
       name: "start",
@@ -76,6 +93,20 @@ export function start(item: WorkItem, ctx: Ctx, agent: AgentKind = DEFAULT_AGENT
   const agentKind = item.agentKind ?? (item.agentSessionId ? DEFAULT_AGENT : agent);
   const started = { ...t.item, agentKind, ...(item.startedAt === undefined ? { startedAt: t.item.stateSince } : {}) };
   return { ...t, item: started };
+}
+
+/**
+ * The user chooses which of a ticket's repositories its work goes to (issue #139), as
+ * `item.repo_chosen` with `{ origin }`. Only until the agent first starts: after that the work is in
+ * that repository's worktree. Choosing the repository the item already has changes nothing. The
+ * daemon links the item to that repository's clone.
+ */
+export function repoChosen(item: WorkItem, ctx: Ctx, origin: string): Transition {
+  if (item.repoCandidates === undefined || !item.repoCandidates.includes(origin)) throw new NotARepoCandidateError(origin);
+  if (item.startedAt !== undefined || wasStarted(item)) throw new InvalidTransitionError("repoChosen", item.state);
+  const t = apply({ name: "repoChosen", from: ["ready"], to: "ready", actor: "user", event: "item.repo_chosen" }, item, ctx, undefined, { origin });
+  if (item.repoOrigin === origin) return { item, events: [] };
+  return { ...t, item: { ...t.item, repoOrigin: origin } };
 }
 
 /**

@@ -26,6 +26,7 @@ interface ItemRow {
   auto_merge_held: string | null;
   agent_session_id: string | null;
   agent_kind: string | null;
+  repo_candidates: string | null;
   closed_upstream: number;
   created_at: string;
   updated_at: string;
@@ -67,6 +68,11 @@ function fromRow(r: ItemRow): StoredItem {
   if (r.agent_session_id !== null) item.agentSessionId = r.agent_session_id;
   // NULL: never started, or started before #136 and so Claude Code's (`agentOf`).
   if (r.agent_kind !== null && isAgentKind(r.agent_kind)) item.agentKind = r.agent_kind;
+  // A ticket's repositories (issue #139); the chosen one is the row's origin.
+  if (r.repo_candidates !== null) {
+    item.repoCandidates = JSON.parse(r.repo_candidates) as string[];
+    if (r.origin_url) item.repoOrigin = r.origin_url;
+  }
   if (r.closed_upstream) item.closedUpstream = true;
   if (r.archived_at !== null) item.archivedAt = r.archived_at;
   return { item, originUrl: r.origin_url };
@@ -97,6 +103,7 @@ function params(item: WorkItem) {
     auto_merge_held: item.autoMergeHeld ? JSON.stringify(item.autoMergeHeld) : null,
     agent_session_id: item.agentSessionId ?? null,
     agent_kind: item.agentKind ?? null,
+    repo_candidates: item.repoCandidates ? JSON.stringify(item.repoCandidates) : null,
     closed_upstream: item.closedUpstream ? 1 : 0,
     created_at: item.createdAt,
     updated_at: item.updatedAt,
@@ -148,21 +155,24 @@ export class ItemStore {
       .prepare(
         `INSERT INTO items (id, source, external_id, external_url, origin_url, repo_id, title, body, labels, state,
            playbook, priority, issue_created_at, started_at, state_since, worktree_path, branch, base_branch, author, pr_status, auto_merge, auto_merge_held, agent_session_id, agent_kind,
-           closed_upstream, created_at, updated_at, archived_at)
+           repo_candidates, closed_upstream, created_at, updated_at, archived_at)
          VALUES (:id, :source, :external_id, :external_url, :origin_url, :repo_id, :title, :body, :labels, :state,
            :playbook, :priority, :issue_created_at, :started_at, :state_since, :worktree_path, :branch, :base_branch, :author, :pr_status, :auto_merge, :auto_merge_held, :agent_session_id, :agent_kind,
-           :closed_upstream, :created_at, :updated_at, :archived_at)`,
+           :repo_candidates, :closed_upstream, :created_at, :updated_at, :archived_at)`,
       )
       .run({ ...params(item), origin_url: originUrl });
   }
 
+  /** A ticket's chosen repository is its origin (issue #139); any other item keeps the one it was collected with. */
   update(item: WorkItem): void {
-    const { external_id: _ignored, created_at: _created, ...p } = params(item);
+    const { external_id: _ignored, created_at: _created, ...rest } = params(item);
+    const p = { ...rest, origin_url: item.repoCandidates ? (item.repoOrigin ?? "") : null };
     this.db
       .prepare(
         `UPDATE items SET source = :source, external_url = :external_url, repo_id = :repo_id, title = :title,
            body = :body, labels = :labels, state = :state, playbook = :playbook, priority = :priority,
            issue_created_at = :issue_created_at, started_at = :started_at, state_since = :state_since, worktree_path = :worktree_path, branch = :branch, base_branch = :base_branch, author = :author, pr_status = :pr_status, auto_merge = :auto_merge, auto_merge_held = :auto_merge_held, agent_session_id = :agent_session_id, agent_kind = :agent_kind,
+           repo_candidates = :repo_candidates, origin_url = COALESCE(:origin_url, origin_url),
            closed_upstream = :closed_upstream, updated_at = :updated_at, archived_at = :archived_at
          WHERE id = :id`,
       )

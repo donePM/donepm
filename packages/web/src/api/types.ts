@@ -294,7 +294,25 @@ export interface Settings {
   allowedWebFetchDomains: string[];
   /** Unset: github.com through gh. Read by the daemon at start (D50). */
   connections?: ConnectionConfig[];
+  /** Queries against a ticket connection, each for its repositories (issue #139). Read at start. */
+  ticketSources?: TicketSourceSettings[];
 }
+
+/** One query against a ticket connection, and the repositories its tickets are worked in (issue #139). */
+export interface TicketSourceSettings {
+  connection: string;
+  /** JQL. Absent: tickets assigned to me that are not done. */
+  query?: string;
+  /** Normalised origins. One: its tickets go there; several: the user picks per ticket. */
+  repos: string[];
+  /** Assign the ticket to me in Jira when its agent starts. */
+  assignOnStart?: boolean;
+}
+
+/** `POST /api/ticket-sources/test`. */
+export type TicketSourceTest =
+  | { ok: true; count: number; issues: { externalId: string; title: string; url: string }[] }
+  | { ok: false; error: string };
 
 export interface SourceSettings {
   /** GitHub issue search, as pasted. Absent: issues assigned to me. */

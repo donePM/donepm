@@ -27,6 +27,7 @@ import { upsert } from "./items";
 import { loadPlaybookEntries, playbookEntries, playbookOptions } from "./playbook-options";
 import { columnOf, displayId, shortId } from "./columns";
 import { isFinished } from "./finished";
+import { repoName } from "./lanes";
 import { mergeNote } from "./merge-note";
 import { priorityBadge } from "./priority-badge";
 import { prKind } from "./pr-kind";
@@ -81,6 +82,22 @@ const waiting = computed(() => (column.value === "needs_you" ? `waiting ${since(
 const checks = computed(() => checkBadges(props.item.ci?.checks ?? [], props.now));
 /** "worktree removed" once a started item has none left. */
 const worktreeGone = computed(() => props.item.state === "done" && !!props.item.startedAt && !props.item.worktreePath);
+
+/** A ticket of several repositories: the user picks one before the first start (issue #139). */
+const repoChoices = computed(() =>
+  props.item.repoCandidates && props.item.repoCandidates.length > 1 && !props.item.startedAt && (props.item.state === "ready" || props.item.state === "failed")
+    ? props.item.repoCandidates
+    : [],
+);
+const needsRepo = computed(() => props.item.repoCandidates !== undefined && !props.item.repoOrigin);
+async function chooseRepo(origin: string) {
+  error.value = undefined;
+  try {
+    upsert(await api.chooseRepo(props.item.id, origin));
+  } catch (e) {
+    error.value = errorText(e);
+  }
+}
 
 /** The playbook a Ready item runs; it can change until the first start. */
 const choosable = computed(() => props.item.state === "ready" && !props.item.startedAt && !noClone.value);
@@ -196,7 +213,7 @@ async function act(fn: (id: string) => Promise<void>) {
       <CloneButton v-if="item.clone" :clone="item.clone" />
     </div>
     <div v-if="closedUpstream" class="note">
-      Closed on GitHub
+      Closed {{ item.source === "jira-issue" ? "in Jira" : "on GitHub" }}
       <button
         v-if="dismissable"
         class="btn ghost sm dismiss"
@@ -310,6 +327,21 @@ async function act(fn: (id: string) => Promise<void>) {
       <span></span>
       <span class="dim"><template v-if="worktreeGone">worktree removed</template><template v-if="worktreeGone && cost"> · </template>{{ cost }}</span>
     </div>
+    <div v-if="repoChoices.length" class="acts">
+      <label :for="`repo-${item.id}`" class="sr">Repository</label>
+      <select
+        :id="`repo-${item.id}`"
+        class="select"
+        :class="{ attn: needsRepo }"
+        :value="item.repoOrigin ?? ''"
+        :disabled="busy"
+        title="The repository the agent works in; it is fixed once the agent started"
+        @change="chooseRepo(($event.target as HTMLSelectElement).value)"
+      >
+        <option v-if="needsRepo" value="" disabled>Choose a repository…</option>
+        <option v-for="o in repoChoices" :key="o" :value="o">{{ repoName(o) }}</option>
+      </select>
+    </div>
     <div v-if="startable" class="acts">
       <template v-if="agentChoosable">
         <label :for="`agent-${item.id}`" class="sr">Agent</label>
@@ -337,7 +369,7 @@ async function act(fn: (id: string) => Promise<void>) {
       >
         <option v-for="p in playbooks" :key="p.name" :value="p.name">{{ p.label }}</option>
       </select>
-      <button class="btn primary" type="button" :disabled="busy" @click="act(startAgent)">
+      <button class="btn primary" type="button" :disabled="busy || needsRepo" :title="needsRepo ? 'Choose the repository first' : undefined" @click="act(startAgent)">
         <IconPlay class="ic-sm" />{{ item.state === "failed" ? "Retry" : "Start" }}
       </button>
     </div>

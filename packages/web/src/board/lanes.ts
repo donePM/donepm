@@ -5,6 +5,11 @@ import { COLUMNS, groupByColumn, type ColumnKey } from "./columns";
 /** Items without a local clone have no repo to group by; they share one lane. */
 export const NO_CLONE_KEY = "no-clone";
 export const NO_CLONE_NAME = "No local clone";
+/** Tickets of several repositories wait in one lane for the user to pick theirs (issue #139). */
+export const CHOOSE_REPO_KEY = "choose-repo";
+export const CHOOSE_REPO_NAME = "Choose a repository";
+
+const awaitingRepo = (item: ItemView) => item.repoCandidates !== undefined && !item.repoOrigin;
 
 /** One repository's slice of the board. */
 export interface Lane {
@@ -29,10 +34,10 @@ export function repoName(originUrl: string): string {
 export function buildLanes(items: readonly ItemView[]): Lane[] {
   const byKey = new Map<string, { name: string; items: ItemView[] }>();
   for (const item of items) {
-    const key = item.repo?.id ?? NO_CLONE_KEY;
+    const key = item.repo?.id ?? (awaitingRepo(item) ? CHOOSE_REPO_KEY : NO_CLONE_KEY);
     let group = byKey.get(key);
     if (!group) {
-      group = { name: item.repo ? repoName(item.repo.originUrl) : NO_CLONE_NAME, items: [] };
+      group = { name: item.repo ? repoName(item.repo.originUrl) : key === CHOOSE_REPO_KEY ? CHOOSE_REPO_NAME : NO_CLONE_NAME, items: [] };
       byKey.set(key, group);
     }
     group.items.push(item);
@@ -44,9 +49,9 @@ export function buildLanes(items: readonly ItemView[]): Lane[] {
   });
 }
 
-/** The ordering rule: lanes that need you first, then by name; "No local clone" always last. */
+/** The ordering rule: tickets to place, then lanes that need you, then by name; "No local clone" always last. */
 export function sortLanes(lanes: readonly Lane[]): Lane[] {
-  const rank = (l: Lane) => (l.key === NO_CLONE_KEY ? 2 : l.counts.needs_you > 0 ? 0 : 1);
+  const rank = (l: Lane) => (l.key === CHOOSE_REPO_KEY ? -1 : l.key === NO_CLONE_KEY ? 2 : l.counts.needs_you > 0 ? 0 : 1);
   return [...lanes].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
 }
 

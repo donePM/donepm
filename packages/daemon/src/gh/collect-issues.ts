@@ -1,4 +1,4 @@
-import { externalIdOf, GITHUB_COM, initialPlaybook, type Ctx, type ItemSource, type SourceIssue, type WorkItem } from "@donepm/core";
+import { externalIdOf, GITHUB_COM, initialPlaybook, parseTicketId, type Ctx, type ItemSource, type SourceIssue, type WorkItem } from "@donepm/core";
 import type { Config } from "../config/config.js";
 import type { Db } from "../db/database.js";
 import type { EventStore } from "../events/store.js";
@@ -11,8 +11,8 @@ import { managedOrigins } from "../repos/managed.js";
 import type { RepoStore } from "../repos/store.js";
 import { TombstoneStore } from "../retention/tombstones.js";
 import type { SourcePollStatus, StatusStore } from "../status/status.js";
-import { hostOf, type Connection, type Providers } from "../providers/registry.js";
-import type { FetchedIssue, FetchResult, TicketSource } from "../providers/ticket-source.js";
+import { hostOf, ticketConnectionOf, type Connection, type Providers } from "../providers/registry.js";
+import type { FetchedIssue, FetchResult, TicketRef, TicketSource, TicketState } from "../providers/ticket-source.js";
 import { detectHost, ghStatusOf } from "./host-status.js";
 import { githubHosts } from "./hosts.js";
 
@@ -46,6 +46,8 @@ const placeOf = (connection: Connection) => connection.host ?? connection.id;
  * from the searches; the others found there are counted for Settings' discovered list.
  * Every GitHub host donePM works with is searched on its own (issue #140); a host whose `gh` is
  * logged out or fails is skipped and reported, and the others go on.
+ * A Jira connection searches each of its `ticketSources` (issue #139); its tickets go to the
+ * repositories named there, so they bypass the managed filter, and a 429 skips it for this poll.
  * Never throws: failures are logged and recorded in the status, so Settings can show them.
  */
 export async function collectIssues(deps: CollectDeps): Promise<void> {
@@ -68,6 +70,12 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
     }
 
     const sourceConfig = deps.sources();
+    /** The place of a ticket id's connection (issue #139); undefined for a GitHub id. */
+    const ticketPlace = (externalId: string): string | undefined => {
+      const id = parseTicketId(externalId)?.connection;
+      const c = id === undefined ? undefined : providers.connections.find((x) => x.id === id && x.ticketSource);
+      return c && placeOf(c);
+    };
     const managed = managedOrigins(sourceConfig);
     // The searches are one call each per host however many repositories there are, and they find
     // the repositories to offer; an unmanaged repository costs no call of its own.
@@ -100,6 +108,11 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
     for (const { place, origin, label, result } of fetched) {
       if (result.ok) {
         for (const issue of result.issues) {
+          // A ticket goes where its ticket sources send it, not where its URL points.
+          if (issue.origins) {
+            issues.push(issue);
+            continue;
+          }
           const from = issueOrigin(issue);
           if (managed.has(from)) issues.push(issue);
           else if (!repos.byOrigin(from)) discovered.set(from, (discovered.get(from) ?? new Set()).add(issue.number));
@@ -128,28 +141,34 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
         ...deps,
         playbookFor: (origin, source) => initialPlaybook(source, sourceConfig[origin]?.playbook, deps.allowedPlaybooks?.(origin, source) ?? []),
       },
-      (origin) => managed.has(origin),
+      (origin, externalId) => (ticketPlace(externalId) ? true : managed.has(origin)),
     );
     for (const item of [...synced.collected, ...synced.updated]) deps.onItemUpdated(item);
 
-    // An item is only "missing" if every source of its host answered; otherwise it may just not
-    // have been asked.
-    const answered = (origin: string) => isReady(hostOf(origin)) && !unanswered.has(hostOf(origin));
-    for (const item of synced.missing) {
-      const origin = deps.items.get(item.id)?.originUrl;
-      if (!origin || !answered(origin)) continue;
-      const state = await providers.ticketSource(origin)?.state({ externalId: item.externalId, origin });
-      if (state !== "CLOSED") continue;
+    // An item is only "missing" if every source of its place answered; otherwise it may just not
+    // have been asked. A ticket's place is its connection's, whatever repository it went to.
+    const searched = new Set(fetched.map((f) => f.place));
+    const answered = (ref: TicketRef) => {
+      const place = ticketPlace(ref.externalId) ?? hostOf(ref.origin);
+      return !!place && isReady(place) && searched.has(place) && !unanswered.has(place);
+    };
+    const missing = synced.missing.map((item) => {
+      const origin = deps.items.get(item.id)?.originUrl ?? "";
+      return { item, ref: { externalId: item.externalId, origin } };
+    });
+    const asks: TicketRef[] = [
+      ...missing.map((m) => m.ref).filter(answered),
+      ...synced.openTombstones.map((t) => ({ externalId: t.externalId, origin: t.originUrl })).filter(answered),
+    ];
+    const states = await statesOf(providers, asks);
+    for (const { item, ref } of missing) {
+      if (states.get(ref.externalId) !== "CLOSED" || !answered(ref)) continue;
       const flagged = applyClosedUpstream(item.id, deps);
       if (flagged) deps.onItemUpdated(flagged);
     }
     // A purged issue seen closed is imported fresh if it ever shows up again (D37).
     const tombstones = new TombstoneStore(deps.db);
-    for (const t of synced.openTombstones) {
-      if (!answered(t.originUrl)) continue;
-      const state = await providers.ticketSource(t.originUrl)?.state({ externalId: t.externalId, origin: t.originUrl });
-      if (state === "CLOSED") tombstones.markClosed(t.externalId);
-    }
+    for (const t of synced.openTombstones) if (states.get(t.externalId) === "CLOSED") tombstones.markClosed(t.externalId);
 
     // Where the pull requests of others stand: conflicts, reviews, checks (D47). Not a source: a
     // failed read leaves the last status in place.
@@ -182,5 +201,29 @@ async function withFields(providers: Providers, issues: readonly FetchedIssue[])
   }
   const out: SourceIssue[] = [];
   for (const [source, group] of bySource) out.push(...(source ? await source.withFields(group) : group));
+  return out;
+}
+
+/**
+ * Whether each ticket is closed upstream, by `externalId`: in one batch per source that offers it
+ * (Jira's `key in (…)`, issue #139), else one by one.
+ */
+async function statesOf(providers: Providers, refs: readonly TicketRef[]): Promise<Map<string, TicketState>> {
+  const bySource = new Map<TicketSource, TicketRef[]>();
+  for (const ref of refs) {
+    const source = ticketConnectionOf(providers, ref)?.ticketSource;
+    if (source) bySource.set(source, [...(bySource.get(source) ?? []), ref]);
+  }
+  const out = new Map<string, TicketState>();
+  for (const [source, group] of bySource) {
+    if (source.states) {
+      for (const [id, state] of await source.states(group)) out.set(id, state);
+      continue;
+    }
+    for (const ref of group) {
+      const state = await source.state(ref);
+      if (state) out.set(ref.externalId, state);
+    }
+  }
   return out;
 }

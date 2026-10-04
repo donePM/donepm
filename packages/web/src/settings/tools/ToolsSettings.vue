@@ -6,6 +6,7 @@ import { useNow } from "../../time/now";
 import { ago } from "../../time/relative";
 import { settings } from "../store";
 import ConnectionsPanel from "./ConnectionsPanel.vue";
+import TicketSourcesPanel from "./TicketSourcesPanel.vue";
 import ToolsPanel from "./ToolsPanel.vue";
 
 const now = useNow();
@@ -23,6 +24,8 @@ const errors = computed(() => status.value?.pollErrors ?? []);
   <ToolsPanel title="Tools" :categories="['source', 'helper']" />
 
   <ConnectionsPanel />
+
+  <TicketSourcesPanel />
 
   <section class="panel">
     <h2><IconRefresh />Polling</h2>

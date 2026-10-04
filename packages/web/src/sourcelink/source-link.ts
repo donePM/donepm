@@ -1,5 +1,5 @@
 /** Which icon marks a link to the ticket's source. `web` (a globe) is the fallback. */
-export type SourceIconName = "github" | "web";
+export type SourceIconName = "github" | "ticket" | "web";
 
 export interface SourceLink {
   icon: SourceIconName;
@@ -24,6 +24,8 @@ interface SourceRule {
 /** One entry per ticket source. Jira (#139) and Azure DevOps (#142) add theirs here. */
 const RULES: readonly SourceRule[] = [
   { icon: "github", site: "GitHub", sources: ["github-issue", "github-pr"], hosts: ["github.com", "ghe.com"], anyHost: true },
+  // Jira Data Center runs on a host of the company's choosing, like GitHub Enterprise Server.
+  { icon: "ticket", site: "Jira", sources: ["jira-issue"], hosts: ["atlassian.net"], anyHost: true },
 ];
 
 function hostOf(url: string): string | undefined {

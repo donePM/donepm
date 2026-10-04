@@ -1,4 +1,4 @@
-import { AZURE_DEVOPS_HOST, azureOrganizationOf, isAzureDevOpsHost } from "@donepm/core";
+import { AZURE_DEVOPS_HOST, azureOrganizationOf, isAzureDevOpsHost, parseTicketId } from "@donepm/core";
 import type { ConnectionState } from "../status/status.js";
 import type { CiSource } from "./ci-source.js";
 import type { CodeHost } from "./code-host.js";
@@ -75,6 +75,20 @@ export function providerRegistry(connections: readonly Connection[]): Providers 
     codeHost: byHost((c) => c.codeHost),
     ciSource: byHost((c) => c.ciSource),
   };
+}
+
+/**
+ * The connection an item's ticket comes from: the one a ticket id names (`jira:APP-1`, issue #139),
+ * else the one serving its origin's host, as for a GitHub issue.
+ */
+export function ticketConnectionOf(providers: Providers, ticket: { externalId: string; origin: string }): Connection | undefined {
+  const named = parseTicketId(ticket.externalId);
+  if (named) {
+    const c = providers.connections.find((x) => x.id === named.connection && x.ticketSource);
+    if (c) return c;
+  }
+  if (!ticket.origin) return undefined;
+  return providers.connections.find((c) => c.ticketSource && serves(c, ticket.origin));
 }
 
 /** Thrown where an origin or URL names a host no connection serves. */

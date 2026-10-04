@@ -107,6 +107,10 @@ describe("groupByColumn", () => {
 
 describe("displayId", () => {
   it("separates the number", () => expect(displayId("acme/widgets#42")).toBe("acme/widgets #42"));
+  it("shows a ticket's key without its connection (issue #139)", () => {
+    expect(displayId("jira:APP-123")).toBe("APP-123");
+    expect(shortId("jira:APP-123")).toBe("APP-123");
+  });
 });
 
 describe("shortId", () => {

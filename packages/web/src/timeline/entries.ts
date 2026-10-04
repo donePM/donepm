@@ -1,4 +1,4 @@
-import { isQuestionTool, parseRules, priorityName, questionsOf, rawRule, repoName, toolSummary, type Event, type PermissionAsk } from "@donepm/core";
+import { isQuestionTool, parseRules, parseTicketId, priorityName, questionsOf, rawRule, repoName, toolSummary, type Event, type PermissionAsk } from "@donepm/core";
 import { grantText } from "../asks/grant";
 import { askCopyText, askView } from "../asks/view";
 import { tokens } from "../time/duration";
@@ -72,7 +72,7 @@ const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is
  * `item.refreshed` (D45): "Priority changed on GitHub: P2 → P1" when only the priority changed,
  * else "Changed on GitHub: priority P2 → P1, title, labels +bug −P3"; a changed title in the detail.
  */
-function refreshedEntry(p: Record<string, unknown>): EntryText {
+function refreshedEntry(p: Record<string, unknown>, at = "on GitHub"): EntryText {
   const changed = (typeof p.changed === "object" && p.changed !== null ? p.changed : {}) as Record<string, { from?: unknown; to?: unknown } | undefined>;
   const { priority, title, labels } = changed;
   const parts: string[] = [];
@@ -87,7 +87,7 @@ function refreshedEntry(p: Record<string, unknown>): EntryText {
     const diff = [...to.filter((l) => !from.includes(l)).map((l) => `+${l}`), ...from.filter((l) => !to.includes(l)).map((l) => `−${l}`)];
     parts.push(diff.length ? `labels ${diff.join(" ")}` : "labels");
   }
-  const text = tiers && parts.length === 1 ? `Priority changed on GitHub: ${tiers}` : `Changed on GitHub: ${parts.join(", ")}`;
+  const text = tiers && parts.length === 1 ? `Priority changed ${at}: ${tiers}` : `Changed ${at}: ${parts.join(", ")}`;
   const detail = title && str(title.from) && str(title.to) ? { detail: `“${str(title.from)}” → “${str(title.to)}”` } : {};
   return { tone: "system", text, ...detail };
 }
@@ -126,7 +126,31 @@ export function splitActor(text: string, actor: Event["actor"]): { actor: string
   return { actor: "System", verb };
 }
 
-function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: ReadonlyMap<string, string>, turnMs: ReadonlyMap<string, number>): EntryText {
+/** Where the item comes from, as its timeline names it: a ticket's tracker, or GitHub (issue #139). */
+interface Origin {
+  site: string;
+  /** "issue" or "ticket" */
+  noun: string;
+  /** "on GitHub", "in Jira" */
+  at: string;
+}
+
+const GITHUB: Origin = { site: "GitHub", noun: "issue", at: "on GitHub" };
+const JIRA: Origin = { site: "Jira", noun: "ticket", at: "in Jira" };
+
+function originOf(events: readonly Event[]): Origin {
+  const collected = events.find((e) => e.type === "item.collected");
+  const id = collected && str(collected.payload.externalId);
+  return id && parseTicketId(id) ? JIRA : GITHUB;
+}
+
+function entry(
+  e: Event,
+  asks: ReadonlyMap<string, PermissionAsk>,
+  draftTypes: ReadonlyMap<string, string>,
+  turnMs: ReadonlyMap<string, number>,
+  origin: Origin = GITHUB,
+): EntryText {
   const p = e.payload;
   const ask = e.refId ? asks.get(e.refId) : undefined;
   const type = (e.refId !== undefined && draftTypes.get(e.refId)) || "pr";
@@ -134,21 +158,23 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: R
   const draftName = DRAFT_NAME[type] ?? "draft";
   switch (e.type) {
     case "item.collected":
-      return { tone: "system", text: "Collected from GitHub" };
+      return { tone: "system", text: `Collected from ${origin.site}` };
+    case "item.repo_chosen":
+      return { tone: "user", text: "You chose the repository", ...withCode(str(p.origin)) };
     case "item.playbook_changed":
       return { tone: "user", text: "You changed the playbook", ...withCode(str(p.to) ?? str(p.name)) };
     case "item.assigned":
-      return { tone: "system", text: "Assigned the issue to you on GitHub" };
+      return { tone: "system", text: `Assigned the ${origin.noun} to you ${origin.at}` };
     case "item.closed_upstream":
-      return { tone: "system", text: "Closed on GitHub, moved to Done" };
+      return { tone: "system", text: `Closed ${origin.at}, moved to Done` };
     case "item.dismissed":
-      return { tone: "user", text: "You dismissed it after it was closed on GitHub" };
+      return { tone: "user", text: `You dismissed it after it was closed ${origin.at}` };
     case "item.archived":
       return { tone: "system", text: "Moved to the Archive" };
     case "item.refreshed":
-      return refreshedEntry(p);
+      return refreshedEntry(p, origin.at);
     case "item.assign_failed":
-      return { tone: "attention", text: "Assigning the issue to you failed", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
+      return { tone: "attention", text: `Assigning the ${origin.noun} to you failed`, ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
     case "agent.started":
       return { tone: e.actor === "user" ? "user" : "system", text: "Agent started" };
     case "agent.resumed":
@@ -335,6 +361,7 @@ export function timelineEntries(events: readonly Event[], asks: readonly Permiss
   );
   // How long each turn took: from the start, resume or continuation before it.
   const turnMs = new Map<string, number>();
+  const origin = originOf(events);
   let turnStart: string | undefined;
   for (const e of events) {
     if (e.type === "agent.started" || e.type === "agent.resumed" || e.type === "agent.turn_started") turnStart = e.at;
@@ -347,7 +374,7 @@ export function timelineEntries(events: readonly Event[], asks: readonly Permiss
     .map((e, i) => ({ e, i }))
     .sort((a, b) => b.e.at.localeCompare(a.e.at) || b.i - a.i)
     .map(({ e }) => {
-      const x = entry(e, byId, draftTypes, turnMs);
+      const x = entry(e, byId, draftTypes, turnMs, origin);
       return { id: e.id, at: e.at, ...x, ...splitActor(x.text, e.actor) };
     });
 }
