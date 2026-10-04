@@ -94,6 +94,8 @@ export interface ServerDeps {
   /** Throws PrActionError. Posts the user's comment on someone else's pull request (D47). */
   commentOnPr: (id: string, body: string) => Promise<WorkItem>;
   mergePr: (id: string, method: MergeMethod) => Promise<WorkItem>;
+  /** The card's "Update branch" (#148). */
+  updatePrBranch: (id: string) => Promise<WorkItem>;
   setAutoMerge: (id: string, on: boolean) => WorkItem;
   /** Throws PlaybookChangeError. The playbook dropdown on a Ready card. */
   changePlaybook: (id: string, playbook: string) => Promise<WorkItem>;
@@ -334,6 +336,10 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!parsed.success) return reply.code(400).send({ error: `body must be {method: ${MERGE_METHODS.join("|")}}` });
     return ciCall(reply, async () => deps.view(await deps.mergePr(req.params.id, parsed.data.method)));
   });
+
+  app.post<{ Params: { id: string } }>("/api/items/:id/pr/update-branch", async (req, reply) =>
+    ciCall(reply, async () => deps.view(await deps.updatePrBranch(req.params.id))),
+  );
 
   app.put<{ Params: { id: string } }>("/api/items/:id/auto-merge", async (req, reply) => {
     const parsed = AutoMergeSchema.safeParse(req.body);

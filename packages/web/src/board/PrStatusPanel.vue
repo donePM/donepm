@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { conflictComment, MERGE_METHODS, prConflicts, type MergeMethod } from "@donepm/core";
+import { branchUpdateBlocker, branchUpdateVia, conflictComment, MERGE_METHODS, prConflicts, type MergeMethod } from "@donepm/core";
 import { computed, ref } from "vue";
 import { api } from "../api/client";
 import { errorText } from "../api/errors";
@@ -13,7 +13,8 @@ const TONES: Record<ChipTone, string> = { ok: "ok", bad: "danger", wait: "attn",
  * Someone else's pull request on its card (D47): where it stands, and on a conflict a comment to its
  * author. donePM does not push to their branch; the user edits the text and the Post click is the
  * approval. Once the user approved it, its checks passed and it is mergeable, Merge merges it; the
- * checkbox lets the daemon do that on its own.
+ * checkbox lets the daemon do that on its own. Behind its base, Update branch brings it up to date
+ * (issue #148): Dependabot is asked to rebase, any other branch gets GitHub's update (a merge).
  */
 const props = defineProps<{ item: ItemView }>();
 
@@ -26,6 +27,25 @@ const error = ref<string>();
 const method = ref<MergeMethod>(props.item.merge?.method ?? "squash");
 const merging = ref(false);
 const blocked = computed(() => props.item.merge?.blockers ?? []);
+const behind = computed(() => branchUpdateBlocker(props.item) === undefined);
+const updating = ref(false);
+const updateTitle = computed(() =>
+  branchUpdateVia(props.item) === "dependabot"
+    ? "Ask Dependabot to rebase the branch (posts @dependabot rebase)"
+    : `Merge ${props.item.prStatus?.base ?? "the base"} into the branch on GitHub`,
+);
+
+async function updateBranch() {
+  updating.value = true;
+  error.value = undefined;
+  try {
+    upsert(await api.updatePrBranch(props.item.id));
+  } catch (e) {
+    error.value = errorText(e);
+  } finally {
+    updating.value = false;
+  }
+}
 
 function open() {
   body.value = conflictComment(props.item);
@@ -72,6 +92,9 @@ async function setAuto(on: boolean) {
   <div v-if="chips.length || item.merge" class="pr-status">
     <div class="chips">
       <span v-for="c in chips" :key="c.text" class="badge" :class="TONES[c.tone]" :title="c.title">{{ c.text }}</span>
+      <button v-if="behind" class="btn ghost sm ask" type="button" :disabled="updating" :title="updateTitle" @click="updateBranch">
+        {{ updating ? "Updating…" : "Update branch" }}
+      </button>
       <button v-if="conflicting && !writing" class="btn ghost sm ask" type="button" title="Ask the author to resolve the conflicts" @click="open">Ask author</button>
     </div>
     <form v-if="writing" class="comment" @submit.prevent="post">

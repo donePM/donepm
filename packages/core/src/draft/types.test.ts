@@ -24,4 +24,10 @@ describe("draftTitle", () => {
       "Request changes on PR #12, 2 inline comments",
     );
   });
+
+  it("names an update-branch draft by its pull request and how", () => {
+    const p = { number: 85, url: "u", base: "main", reason: "behind" };
+    expect(draftTitle({ ...base, type: "update_branch", payload: { ...p, via: "dependabot" } } as Draft)).toBe("Update the branch of PR #85 (@dependabot rebase)");
+    expect(draftTitle({ ...base, type: "update_branch", payload: { ...p, via: "update-branch" } } as Draft)).toBe("Update the branch of PR #85");
+  });
 });

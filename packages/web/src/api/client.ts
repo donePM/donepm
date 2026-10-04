@@ -55,6 +55,7 @@ export const api = {
   addressFeedback: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/feedback/address`),
   dismissFeedback: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/feedback/dismiss`),
   commentOnPr: (id: string, body: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/pr/comment`, { body }),
+  updatePrBranch: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/pr/update-branch`),
   mergePr: (id: string, method: MergeMethod) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/pr/merge`, { method }),
   setAutoMerge: (id: string, on: boolean) => call<ItemView>("PUT", `/api/items/${encodeURIComponent(id)}/auto-merge`, { on }),
   setPlaybook: (id: string, playbook: string) => call<ItemView>("PUT", `/api/items/${encodeURIComponent(id)}/playbook`, { playbook }),

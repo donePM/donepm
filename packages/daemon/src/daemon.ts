@@ -59,6 +59,7 @@ import { watchPrs } from "./prs/watch.js";
 import { addressFeedback, dismissConflict, dismissFeedback, resolveConflict } from "./prs/actions.js";
 import { commentOnPr } from "./prs/comment.js";
 import { autoMergeReady, mergeDefaults, mergePr, setAutoMerge } from "./prs/merge.js";
+import { updatePrBranch } from "./prs/update-branch.js";
 import { fixCi, markCiDone, rerunCi } from "./ci/actions.js";
 import { watchCi } from "./ci/watch.js";
 import { removeItemWorktree, removeOrphan } from "./worktrees/remove.js";
@@ -395,6 +396,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     dismissFeedback: (id) => dismissFeedback({ items, events, writer, ctx: opts.ctx }, id),
     commentOnPr: (id, body) => commentOnPr({ items, events, writer, ctx: opts.ctx, exec: opts.exec }, id, body),
     mergePr: (id, method) => mergePr({ items, events, writer, ctx: opts.ctx, exec: opts.exec }, id, method),
+    updatePrBranch: (id) => updatePrBranch({ items, events, writer, ctx: opts.ctx, exec: opts.exec }, id),
     setAutoMerge: (id, on) => setAutoMerge({ items, events, writer, ctx: opts.ctx }, id, on),
     changePlaybook: (id, playbook) =>
       changePlaybook(
@@ -427,6 +429,15 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
         exec: opts.exec,
         stopAgent: async (itemId) => {
           if (runner.hasProcess(itemId)) await runner.stop(itemId);
+        },
+        continueAgent: async (itemId, how) => {
+          const item = items.get(itemId)?.item;
+          if (item && runner.hasProcess(itemId)) {
+            writer.commit(how.transition(item, opts.ctx));
+            runner.say(itemId, how.prompt);
+          } else {
+            track(await resumeItem(startDeps(), itemId, how));
+          }
         },
       }, id),
     rejectDraft: (id, reason) =>

@@ -201,6 +201,23 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("describes updating the branch of someone else's pull request (issue #148)", () => {
+    const events = [
+      ev("draft.created", { type: "update_branch", title: "Update the branch of PR #7" }, { refId: "u", actor: "agent" }),
+      ev("draft.execution_failed", { step: "update_branch", error: "HTTP 422" }, { refId: "u" }),
+      ev("draft.executed", { via: "update-branch" }, { refId: "u" }),
+      ev("pr.branch_updated", { via: "dependabot" }, { actor: "user" }),
+      ev("pr.branch_updated", { via: "update-branch" }, { actor: "user" }),
+    ];
+    expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail })).reverse()).toEqual([
+      { tone: "attention", text: "Agent created update-branch draft", detail: "Update the branch of PR #7" },
+      { tone: "danger", text: "Updating the branch failed", detail: "HTTP 422" },
+      { tone: "system", text: "Branch update requested, the agent goes on", detail: undefined },
+      { tone: "user", text: "You asked Dependabot to rebase the branch", detail: undefined },
+      { tone: "user", text: "You updated the branch with its base", detail: undefined },
+    ]);
+  });
+
   it("describes items closed upstream", () => {
     const events = [ev("item.closed_upstream"), ev("item.dismissed", {}, { actor: "user" })];
     expect(timelineEntries(events, []).map(({ tone, text }) => ({ tone, text }))).toEqual([

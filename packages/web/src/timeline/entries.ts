@@ -92,7 +92,7 @@ function refreshedEntry(p: Record<string, unknown>): EntryText {
   return { tone: "system", text, ...detail };
 }
 
-const DRAFT_NAME: Record<string, string> = { pr: "PR draft", push: "push draft", comment: "reply draft", review: "review draft" };
+const DRAFT_NAME: Record<string, string> = { pr: "PR draft", push: "push draft", comment: "reply draft", review: "review draft", update_branch: "update-branch draft" };
 
 /** "4 s", "11 min", "1 h 5 min". */
 export function spanText(ms: number): string {
@@ -228,6 +228,13 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: R
     case "draft.executed":
       if (type === "comment") return { tone: "system", text: `${replies(p.posted)} posted, done` };
       if (type === "review") return { tone: "system", text: "Review posted, done", ...(str(p.url) ? { detail: str(p.url) } : {}) };
+      if (type === "update_branch") {
+        return {
+          tone: "system",
+          text: p.via === "dependabot" ? "Asked Dependabot to rebase, the agent goes on" : "Branch update requested, the agent goes on",
+          ...(str(p.url) ? { detail: str(p.url) } : {}),
+        };
+      }
       if (push) {
         return {
           tone: "system",
@@ -242,6 +249,7 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: R
         text:
           p.step === "reply" ? "Posting the replies failed"
           : p.step === "review" ? "Posting the review failed"
+          : p.step === "update_branch" ? "Updating the branch failed"
           : push ? "Pushing failed"
           : "Creating the pull request failed",
         ...(str(p.error) ? { detail: str(p.error) } : {}),
@@ -279,6 +287,8 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: R
       return { tone: "user", text: "You marked the review feedback done" };
     case "pr.commented":
       return { tone: "user", text: "You commented on the pull request", ...(str(p.body) ? { detail: str(p.body) } : {}) };
+    case "pr.branch_updated":
+      return { tone: "user", text: p.via === "dependabot" ? "You asked Dependabot to rebase the branch" : "You updated the branch with its base" };
     case "pr.merged":
       return p.auto
         ? { tone: "system", text: `Merged automatically (${str(p.method)})` }

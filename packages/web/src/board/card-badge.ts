@@ -25,9 +25,9 @@ export function cardBadge(item: ItemView): CardBadge | undefined {
   if (a) {
     switch (a.kind) {
       case "draft": {
-        const what = a.draftType === "push" ? "push" : a.draftType === "comment" ? "replies" : a.draftType === "review" ? "review" : "PR";
+        const what = a.draftType === "push" ? "push" : a.draftType === "comment" ? "replies" : a.draftType === "review" ? "review" : a.draftType === "update_branch" ? "update" : "PR";
         if (a.error) return { text: `${what} failed`, tone: "danger", icon: "alert", title: a.error };
-        if (a.executing) return { text: a.draftType === "pr" ? "publishing" : a.draftType === "push" ? "pushing" : "posting", tone: "attn", icon: "pr" };
+        if (a.executing) return { text: a.draftType === "pr" ? "publishing" : a.draftType === "push" ? "pushing" : a.draftType === "update_branch" ? "updating" : "posting", tone: "attn", icon: "pr" };
         return { text: `${what} draft`, tone: "attn", icon: "pr" };
       }
       case "ask":

@@ -1,8 +1,8 @@
 import type {
-  CommentDraftResult, Draft, DraftState, PrDraft, PrDraftPayload, PrDraftResult, PushDraftResult, ReviewDraftResult,
+  CommentDraftResult, Draft, DraftState, PrDraft, PrDraftPayload, PrDraftResult, PushDraftResult, ReviewDraftResult, UpdateBranchDraftResult,
 } from "@donepm/core";
 
-export type DraftResult = PrDraftResult | PushDraftResult | CommentDraftResult | ReviewDraftResult;
+export type DraftResult = PrDraftResult | PushDraftResult | CommentDraftResult | ReviewDraftResult | UpdateBranchDraftResult;
 import type { Db } from "../db/database.js";
 
 interface DraftRow {
@@ -23,6 +23,9 @@ function fromRow(r: DraftRow): Draft {
   }
   if (r.type === "review") {
     return { ...base, type: "review", payload: JSON.parse(r.payload), ...(result ? { result: result as ReviewDraftResult } : {}) };
+  }
+  if (r.type === "update_branch") {
+    return { ...base, type: "update_branch", payload: JSON.parse(r.payload), ...(result ? { result: result as UpdateBranchDraftResult } : {}) };
   }
   if (r.type === "push") {
     return { ...base, type: "push", payload: JSON.parse(r.payload), ...(result ? { result: result as PushDraftResult } : {}) };

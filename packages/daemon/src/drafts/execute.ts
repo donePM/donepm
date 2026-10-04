@@ -2,11 +2,13 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  draftApproved, draftExecuted, draftExecutionFailed, repliesPosted, reviewPosted,
+  branchUpdatedMessage, branchUpdatePosted, draftApproved, draftExecuted, draftExecutionFailed, repliesPosted, reviewPosted,
   type CiPr, type Draft, type DraftReply, type PostedReply, type PrDraftPayload, type PrDraftResult, type WorkItem,
 } from "@donepm/core";
 import { postReply } from "../gh/pr-replies.js";
 import { postReview } from "../gh/pr-review.js";
+import type { ResumeHow } from "../agent/start.js";
+import { requestBranchUpdate } from "../prs/update-branch.js";
 import type { Exec, ExecResult } from "../process/exec.js";
 import type { DraftResult } from "./store.js";
 import { setupCopies } from "../worktrees/setup.js";
@@ -17,7 +19,7 @@ export const WIP_MESSAGE = "WIP from donePM";
 
 const PUSH_TIMEOUT_MS = 120_000;
 
-export type ExecutionStep = "commit" | "push" | "pr" | "reply" | "review";
+export type ExecutionStep = "commit" | "push" | "pr" | "reply" | "review" | "update_branch";
 
 export class ExecutionError extends Error {
   constructor(
@@ -33,6 +35,11 @@ export interface ApproveDeps extends DraftDeps {
   exec: Exec;
   /** Ends the agent once its work is published. */
   stopAgent: (itemId: string) => Promise<void>;
+  /**
+   * Lets the agent go on after a draft that does not end its work (an update-branch draft, #148):
+   * commits `how.transition` and sends `how.prompt`, to the live process or a resumed session.
+   */
+  continueAgent: (itemId: string, how: ResumeHow) => Promise<unknown>;
 }
 
 /**
@@ -40,7 +47,8 @@ export interface ApproveDeps extends DraftDeps {
  * the branch; for a PR draft it then opens the pull request with the user's edits. Either way the
  * item then waits for the PR's CI (D35). Replies to review feedback are posted after the push; a
  * comment draft only posts them, and the item is done again (D39). A review draft posts the review of
- * someone else's pull request, and the item is done (D43). A failed draft can be approved again
+ * someone else's pull request, and the item is done (D43). An update-branch draft asks for someone
+ * else's pull request to be brought up to date (#148); the agent then goes on with its review. A failed draft can be approved again
  * (Retry). Throws DraftError before anything ran; ExecutionError once a step failed, with the draft
  * `failed` and the item still waiting for the user.
  */
@@ -51,6 +59,7 @@ export async function approveDraft(deps: ApproveDeps, draftId: string): Promise<
   const item = deps.items.get(draft.itemId)?.item;
   if (!item) throw new DraftError(404, "item not found");
   if (item.state !== "needs_you") throw new DraftError(409, `the item is ${item.state}, not waiting for the user`);
+  if (draft.type === "update_branch") return updateBranch(deps, draft, item);
   const repo = item.repoId ? deps.repos.get(item.repoId) : undefined;
   if (!repo || !item.worktreePath || !item.branch) throw new DraftError(409, "the item has no worktree");
 
@@ -100,6 +109,31 @@ export async function approveDraft(deps: ApproveDeps, draftId: string): Promise<
   );
   await deps.stopAgent(item.id).catch(() => {});
   return { ...draft, state: "executed", result } as Draft;
+}
+
+/**
+ * An approved update-branch draft (#148): `@dependabot rebase` or `gh pr update-branch`, as the
+ * user. The review is not done yet, so the agent runs again with word of it instead of being
+ * stopped. Needs no worktree: nothing local changes.
+ */
+async function updateBranch(deps: ApproveDeps, draft: Extract<Draft, { type: "update_branch" }>, item: WorkItem): Promise<Draft> {
+  deps.drafts.setState(draft.id, "approved", deps.ctx.now());
+  let current = deps.writer.commit(draftApproved(item, deps.ctx, draft.id));
+  const done = await requestBranchUpdate(deps.exec, current).catch((e: Error) => ({ ok: false as const, error: e.message }));
+  if (!done.ok) {
+    const err = new ExecutionError("update_branch", `updating the branch failed: ${done.error}`);
+    deps.drafts.setState(draft.id, "failed", deps.ctx.now());
+    current = itemNow(deps, current);
+    deps.writer.commit(draftExecutionFailed(current, deps.ctx, draft.id, { step: err.step, error: err.message }));
+    throw err;
+  }
+  const result = { via: done.via, ...(done.url ? { url: done.url } : {}) };
+  deps.drafts.setResult(draft.id, result, deps.ctx.now());
+  await deps.continueAgent(item.id, {
+    transition: (latest, ctx) => branchUpdatePosted(latest, ctx, draft.id, { ...result }),
+    prompt: branchUpdatedMessage(done.via, draft.payload.base),
+  });
+  return { ...draft, state: "executed", result };
 }
 
 /**

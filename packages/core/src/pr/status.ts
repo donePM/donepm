@@ -1,6 +1,7 @@
 import type { Ctx } from "../ids.js";
 import { InvalidTransitionError, type Transition } from "../item/transitions.js";
 import type { WorkItem } from "../item/types.js";
+import { DEPENDABOT_REBASE } from "./update-branch.js";
 
 /**
  * Where someone else's pull request stands on GitHub (D47), read on every poll. Values are GitHub's
@@ -59,7 +60,7 @@ export function prConflicts(item: Pick<WorkItem, "prStatus">): boolean {
  * person is asked. The user edits it before it is posted.
  */
 export function conflictComment(item: Pick<WorkItem, "author" | "prStatus">): string {
-  if (item.author === "dependabot[bot]") return "@dependabot rebase";
+  if (item.author === "dependabot[bot]") return DEPENDABOT_REBASE;
   const base = item.prStatus?.base;
   return `This pull request has conflicts with \`${base ?? "its base branch"}\`. Could you resolve them?`;
 }

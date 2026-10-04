@@ -21,7 +21,7 @@ function setup(routes: Parameters<typeof fakeExec>[0] = {}) {
     },
     ...routes,
   });
-  const deps = { ...t.deps, exec, stopAgent: async (id: string) => void stopped.push(id) };
+  const deps = { ...t.deps, exec, stopAgent: async (id: string) => void stopped.push(id), continueAgent: async () => undefined };
   const draft = createPrDraft(t.deps, "item-1", { title: "Fix it", body: "Closes #1" });
   return { ...t, exec, deps, draft, stopped, body: () => body };
 }
