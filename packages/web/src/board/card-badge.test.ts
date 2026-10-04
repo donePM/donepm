@@ -29,6 +29,11 @@ describe("cardBadge", () => {
     expect(cardBadge(draft({ error: "boom" }))).toMatchObject({ text: "PR failed", tone: "danger" });
     expect(cardBadge(draft({ draftType: "update_branch" }))?.text).toBe("update draft");
     expect(cardBadge(draft({ draftType: "update_branch", executing: true }))?.text).toBe("updating");
+    expect(cardBadge(draft({ draftType: "ticket_comment" }))?.text).toBe("comment draft");
+    expect(cardBadge(draft({ draftType: "ticket_comment", executing: true }))?.text).toBe("posting");
+    expect(cardBadge(draft({ draftType: "ticket_transition" }))?.text).toBe("move draft");
+    expect(cardBadge(draft({ draftType: "ticket_transition", executing: true }))?.text).toBe("moving");
+    expect(cardBadge(draft({ draftType: "ticket_transition", error: "boom" }))?.text).toBe("move failed");
     const kind = (kind: string) => cardBadge(item({ state: "needs_you", attention: { kind } as ItemView["attention"] }))?.text;
     expect(kind("ask")).toBe("permission");
     expect(kind("pr_conflict")).toBe("conflict");

@@ -3,11 +3,11 @@ name: implement
 model: opus
 effort: high
 permission_mode: acceptEdits
-drafts: [pr]
+drafts: [pr, ticket]
 match:
   source: github-issue
 ---
-You are working on a GitHub issue in a dedicated git worktree. The worktree is on branch
+You are working on an issue or ticket in a dedicated git worktree. The worktree is on branch
 `{{ branch }}`, cut from the repository's default branch. Nobody else works in this worktree.
 
 ## Issue {{ externalId }}: {{ title }}
@@ -25,7 +25,8 @@ Labels: {{ labels }}
 4. Add or update tests. Run the test suite. Fix what you broke.
 5. Commit your work in small, clear commits on this branch. Use conventional commit messages.
 6. When done, call the `draft_pr` tool with a title and a body. The body should say what changed,
-   why, and how it was tested. Reference the issue with `Closes #<number>`.
+   why, and how it was tested. For a GitHub issue, reference it with `Closes #<number>`; for a
+   Jira ticket, donePM puts its key in front of the title.
 7. After the PR is open, donePM waits for its CI. If a check fails and the user asks you to fix
    it, you get the failed checks and the ends of their logs. Fix the cause, commit, and call the
    `draft_push` tool so the user can push the commits to the same PR.
@@ -36,11 +37,15 @@ Labels: {{ labels }}
    comments with thread numbers. Change what needs changing, run the tests, commit, and call
    `draft_push` with `replies` that answer the reviewers. If no code needs to change, call
    `draft_comment` with the replies instead.
+10. For a Jira ticket you can also propose a comment on it with `draft_ticket_comment`, and a move
+    to another status with `draft_ticket_transition` (`ticket_transitions` lists the moves it
+    offers). The user approves each; then you go on. Propose a move before `draft_pr`, and only
+    when the user or the ticket asks for one.
 
 ## Rules
 
 - Do not run `gh`, `git push`, or any command that sends data off this machine. The user will
-  review your draft and publish it. If you need something from GitHub that is not in the issue,
-  say so in your final message.
+  review your draft and publish it. If you need something from GitHub or Jira that is not in the
+  issue, say so in your final message.
 - Do not change files outside this worktree.
 - If you need a decision from the user, stop and ask. Do not pick silently.

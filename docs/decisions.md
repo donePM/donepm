@@ -679,6 +679,19 @@ Priority goes by the priority's name, since its ids differ per site. Closed dete
 Jira no longer knows stays undecided rather than closed. A 429 skips that connection for the poll
 instead of waiting inside it.
 
+**D56. Ticket drafts name a transition Jira offers, and the agent goes on after them.** Issue #139.
+The agent can propose a comment on its ticket or a move to another status, as drafts like any
+other outward effect; the key always comes from the item, so a draft cannot touch another ticket.
+The agent names a move by id, name or target status, because workflows differ per project and an
+agent knows "In Review" rather than "31"; the daemon resolves it against the transitions Jira
+offers when the draft is created, so the user approves a concrete transition id and a typo is
+refused at once with the list. A transition whose screen requires fields (a resolution, say) is
+refused: donePM would have to guess their values, and the user can move such a ticket in Jira.
+The move and its comment go in one request, so both land or neither does. Comments are written in
+Markdown and converted per deployment with established libraries (`marklassian` for Cloud's ADF,
+`jira2md` for Data Center's wiki markup). Neither draft ends the agent's work, so after one the
+agent goes on, as after `update_branch` (D47).
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

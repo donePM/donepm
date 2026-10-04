@@ -218,6 +218,12 @@ importers:
       fastify:
         specifier: ^5.12.5
         version: 5.12.5
+      jira2md:
+        specifier: ^3.0.1
+        version: 3.0.1
+      marklassian:
+        specifier: ^1.2.1
+        version: 1.2.1
       turndown:
         specifier: ^7.2.4
         version: 7.2.4
@@ -1405,6 +1411,9 @@ packages:
   isexe@2.0.0:
     resolution: {integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==}
 
+  jira2md@3.0.1:
+    resolution: {integrity: sha512-BQlgr64fveNCT8lmTUmUcwdJwLJwGnZpNO0aeRyyFbRONZ0WiIar0iaS6V8loqbNM6pgmRilCKRhFO8tH8977Q==}
+
   jose@6.2.12:
     resolution: {integrity: sha512-9NiFmJEex0sy2Dk58j2UGBSHgUs2ypF9eZSu4L6vjOX3Dp96Sw1F3uL+H+D1sx02jZZdzUT0HgvCy59CuvXcWw==}
 
@@ -1533,6 +1542,19 @@ packages:
   markdown-it@15.0.2:
     resolution: {integrity: sha512-q4IGxMv56jCqT4OCRCADBoDP3LO4MhmTXjFbphHPXs4g3j9Xg5RDnxqN8IF/3vIWEU+VCnUq+7JUg/cfy2E6Qw==}
     hasBin: true
+
+  marked@16.4.2:
+    resolution: {integrity: sha512-TI3V8YYWvkVf3KJe1dRkpnjs68JUPyEa5vjKrp1XEEJUAOaQc+Qj+L1qWbPd0SJuAdQkFU0h73sXXqwDYxsiDA==}
+    engines: {node: '>= 20'}
+    hasBin: true
+
+  marked@4.3.0:
+    resolution: {integrity: sha512-PRsaiG84bK+AMvxziE/lCFss8juXjNaWzVbN5tXAm4XjeaS9NAHhop+PjQxz2A9h8Q4M/xGmzP8vqNwy6JeK0A==}
+    engines: {node: '>= 12'}
+    hasBin: true
+
+  marklassian@1.2.1:
+    resolution: {integrity: sha512-xqsslmU//fP0yWV7Qbw+Eq250cuYzi7uEOBElykAAM5cU2i30p1CDYjb1gRrkrt3Gg33XaqK0jk6838cRjxKJg==}
 
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
@@ -3232,6 +3254,10 @@ snapshots:
 
   isexe@2.0.0: {}
 
+  jira2md@3.0.1:
+    dependencies:
+      marked: 4.3.0
+
   jose@6.2.12: {}
 
   js-tokens@9.0.1: {}
@@ -3356,6 +3382,14 @@ snapshots:
       mdurl: 2.1.0
       punycode.js: 2.3.1
       uc.micro: 3.0.0
+
+  marked@16.4.2: {}
+
+  marked@4.3.0: {}
+
+  marklassian@1.2.1:
+    dependencies:
+      marked: 16.4.2
 
   math-intrinsics@1.1.0: {}
 

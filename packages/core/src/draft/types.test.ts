@@ -25,6 +25,13 @@ describe("draftTitle", () => {
     );
   });
 
+  it("names a ticket draft by its key and target (issue #139)", () => {
+    expect(draftTitle({ ...base, type: "ticket_comment", payload: { key: "APP-123", url: "u", body: "b" } } as Draft)).toBe("Comment on APP-123");
+    const t = { key: "APP-123", url: "u", transitionId: "31", toStatus: "In Review" };
+    expect(draftTitle({ ...base, type: "ticket_transition", payload: t } as Draft)).toBe("Move APP-123 to In Review");
+    expect(draftTitle({ ...base, type: "ticket_transition", payload: { ...t, comment: "c" } } as Draft)).toBe("Move APP-123 to In Review, with a comment");
+  });
+
   it("names an update-branch draft by its pull request and how", () => {
     const p = { number: 85, url: "u", base: "main", reason: "behind" };
     expect(draftTitle({ ...base, type: "update_branch", payload: { ...p, via: "dependabot" } } as Draft)).toBe("Update the branch of PR #85 (@dependabot rebase)");

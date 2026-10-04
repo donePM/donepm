@@ -1,8 +1,10 @@
 import type {
-  CommentDraftResult, Draft, DraftState, PrDraft, PrDraftPayload, PrDraftResult, PushDraftResult, ReviewDraftResult, UpdateBranchDraftResult,
+  CommentDraftResult, Draft, DraftState, PrDraft, PrDraftPayload, PrDraftResult, PushDraftResult, ReviewDraftResult, TicketCommentDraftResult,
+  TicketTransitionDraftResult, UpdateBranchDraftResult,
 } from "@donepm/core";
 
-export type DraftResult = PrDraftResult | PushDraftResult | CommentDraftResult | ReviewDraftResult | UpdateBranchDraftResult;
+export type DraftResult =
+  | PrDraftResult | PushDraftResult | CommentDraftResult | ReviewDraftResult | UpdateBranchDraftResult | TicketCommentDraftResult | TicketTransitionDraftResult;
 import type { Db } from "../db/database.js";
 
 interface DraftRow {
@@ -26,6 +28,12 @@ function fromRow(r: DraftRow): Draft {
   }
   if (r.type === "update_branch") {
     return { ...base, type: "update_branch", payload: JSON.parse(r.payload), ...(result ? { result: result as UpdateBranchDraftResult } : {}) };
+  }
+  if (r.type === "ticket_comment") {
+    return { ...base, type: "ticket_comment", payload: JSON.parse(r.payload), ...(result ? { result: result as TicketCommentDraftResult } : {}) };
+  }
+  if (r.type === "ticket_transition") {
+    return { ...base, type: "ticket_transition", payload: JSON.parse(r.payload), ...(result ? { result: result as TicketTransitionDraftResult } : {}) };
   }
   if (r.type === "push") {
     return { ...base, type: "push", payload: JSON.parse(r.payload), ...(result ? { result: result as PushDraftResult } : {}) };

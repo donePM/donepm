@@ -13,6 +13,7 @@ import { silentLog } from "../log.js";
 import { exec } from "../process/exec.js";
 import { draftStores } from "../test-support/draft-stores.js";
 import { TranscriptStore } from "../transcript/store.js";
+import { providerRegistry } from "../providers/registry.js";
 import { listenBridge } from "./server.js";
 import { BridgeSessions } from "./sessions.js";
 
@@ -28,7 +29,7 @@ describe.skipIf(!process.env.DONEPM_LIVE)("draft_pr (live)", () => {
     const transcript = new TranscriptStore(t.db);
     const sessions = new BridgeSessions();
     const socket = join(cwd, "mcp.sock");
-    const bridge = await listenBridge({ ...t.deps, exec, sessions, log: silentLog, version: "live" }, socket);
+    const bridge = await listenBridge({ ...t.deps, exec, providers: providerRegistry([]), sessions, log: silentLog, version: "live" }, socket);
     const runner = new AgentRunner({
       items: t.items, writer: t.deps.writer, asks: new AskStore(t.db), transcript, ctx: t.deps.ctx, log: silentLog,
       spawn: spawnProcess, push: () => {},

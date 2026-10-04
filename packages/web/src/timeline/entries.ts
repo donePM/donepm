@@ -92,7 +92,10 @@ function refreshedEntry(p: Record<string, unknown>, at = "on GitHub"): EntryText
   return { tone: "system", text, ...detail };
 }
 
-const DRAFT_NAME: Record<string, string> = { pr: "PR draft", push: "push draft", comment: "reply draft", review: "review draft", update_branch: "update-branch draft" };
+const DRAFT_NAME: Record<string, string> = {
+  pr: "PR draft", push: "push draft", comment: "reply draft", review: "review draft", update_branch: "update-branch draft",
+  ticket_comment: "ticket comment draft", ticket_transition: "ticket move draft",
+};
 
 /** "4 s", "11 min", "1 h 5 min". */
 export function spanText(ms: number): string {
@@ -261,6 +264,12 @@ function entry(
           ...(str(p.url) ? { detail: str(p.url) } : {}),
         };
       }
+      if (type === "ticket_comment") {
+        return { tone: "system", text: "Comment posted on the ticket, the agent goes on", ...(str(p.url) ? { detail: str(p.url) } : {}) };
+      }
+      if (type === "ticket_transition") {
+        return { tone: "system", text: str(p.status) ? `Ticket moved to ${str(p.status)}, the agent goes on` : "Ticket moved, the agent goes on" };
+      }
       if (push) {
         return {
           tone: "system",
@@ -276,6 +285,7 @@ function entry(
           p.step === "reply" ? "Posting the replies failed"
           : p.step === "review" ? "Posting the review failed"
           : p.step === "update_branch" ? "Updating the branch failed"
+          : p.step === "ticket" ? (type === "ticket_transition" ? "Moving the ticket failed" : "Commenting on the ticket failed")
           : push ? "Pushing failed"
           : "Creating the pull request failed",
         ...(str(p.error) ? { detail: str(p.error) } : {}),

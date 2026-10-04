@@ -2,6 +2,7 @@ import { parseTicketId } from "@donepm/core";
 import { queryOf, type TicketSourceConfig } from "../config/ticket-sources.js";
 import type { FetchedIssue, FetchResult, Search, TicketRef, TicketSource, TicketState } from "../providers/ticket-source.js";
 import type { JiraClient } from "./client.js";
+import { jiraComment, jiraTransition, jiraTransitions } from "./write.js";
 import { isDone, searchJql, toTicket, type JiraIssue, type SearchAnswer } from "./search.js";
 
 /** `key in (…)` takes this many keys at a time. */
@@ -42,6 +43,13 @@ export function jiraTickets(client: JiraClient, entries: () => readonly TicketSo
     return out;
   };
 
+  /** The ticket's key, when the ref is one of this connection's. */
+  const keyOf = (ticket: TicketRef): string | undefined => {
+    const t = parseTicketId(ticket.externalId);
+    return t && t.connection === id ? t.key : undefined;
+  };
+  const notOurs = (ticket: TicketRef) => ({ ok: false as const, error: `${ticket.externalId} is not a ticket of ${id}` });
+
   return {
     async collect() {
       const mine = entries().filter((e) => e.connection === id);
@@ -76,9 +84,21 @@ export function jiraTickets(client: JiraClient, entries: () => readonly TicketSo
       return (await statusOf([ticket])).get(ticket.externalId);
     },
     states: statusOf,
+    async comment(ticket, markdown) {
+      const key = keyOf(ticket);
+      return key ? jiraComment(client, key, markdown) : notOurs(ticket);
+    },
+    async transitions(ticket) {
+      const key = keyOf(ticket);
+      return key ? jiraTransitions(client, key) : notOurs(ticket);
+    },
+    async transition(ticket, transitionId, comment) {
+      const key = keyOf(ticket);
+      return key ? jiraTransition(client, key, transitionId, comment) : notOurs(ticket);
+    },
     async assignToMe(ticket) {
       const t = parseTicketId(ticket.externalId);
-      if (!t || t.connection !== id) return { ok: false, error: `${ticket.externalId} is not a ticket of ${id}` };
+      if (!t || t.connection !== id) return notOurs(ticket);
       const me = await client.call("GET", `/rest/api/${client.apiVersion}/myself`);
       if (!me.ok) return { ok: false, error: me.error };
       const who = me.body as { accountId?: unknown; name?: unknown } | undefined;

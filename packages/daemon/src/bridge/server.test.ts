@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { silentLog } from "../log.js";
 import { draftStores } from "../test-support/draft-stores.js";
 import { fakeExec, ok } from "../test-support/fake-exec.js";
+import { providerRegistry } from "../providers/registry.js";
 import { listenBridge, SocketTransport } from "./server.js";
 import { BridgeSessions } from "./sessions.js";
 
@@ -15,7 +16,7 @@ afterEach(async () => {
   for (const c of cleanup.splice(0)) await c();
 });
 
-async function bridge(drafts: Array<"pr" | "review">) {
+async function bridge(drafts: Array<"pr" | "review" | "ticket">) {
   const t = draftStores();
   const sessions = new BridgeSessions();
   const token = sessions.mint({ itemId: "item-1", drafts });
@@ -24,7 +25,7 @@ async function bridge(drafts: Array<"pr" | "review">) {
     "git -C /wt/1 log": ok("a1b2c3\tFix the flaky test\n"),
     "git -C /wt/1 status": ok(""),
   });
-  const server = await listenBridge({ ...t.deps, exec, sessions, log: silentLog, version: "0.0.0-test" }, path);
+  const server = await listenBridge({ ...t.deps, exec, providers: providerRegistry([]), sessions, log: silentLog, version: "0.0.0-test" }, path);
   cleanup.push(server.close);
   return { ...t, sessions, token, path };
 }
@@ -84,6 +85,19 @@ describe("bridge server", () => {
     expect(res.isError).toBe(true);
     expect(b.drafts.forItem("item-1")).toEqual([]);
     expect(b.state()).toBe("running");
+  });
+
+  it("offers the ticket tools only to a playbook that allows ticket drafts, and refuses them for a GitHub issue", async () => {
+    const t = await bridge(["pr", "ticket"]);
+    const c = await client(t.path, t.token);
+    expect((await c.listTools()).tools.map((x) => x.name)).toEqual([
+      "whoami", "draft_pr", "draft_push", "draft_comment", "ticket_transitions", "draft_ticket_comment", "draft_ticket_transition",
+    ]);
+    const res = await c.callTool({ name: "draft_ticket_comment", arguments: { body: "x" } });
+    expect(res.isError).toBe(true);
+    expect(JSON.stringify(res.content)).toContain("not a Jira ticket");
+    expect(t.drafts.forItem("item-1")).toEqual([]);
+    expect(t.state()).toBe("running");
   });
 
   it("whoami names the item, branch and worktree", async () => {

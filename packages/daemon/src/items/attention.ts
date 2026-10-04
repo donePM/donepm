@@ -85,5 +85,7 @@ function executionError(draft: Draft, events: readonly Event[]): string {
   if (draft.type === "pr") return "creating the pull request failed";
   if (draft.type === "review") return "posting the review failed";
   if (draft.type === "update_branch") return "updating the branch failed";
+  if (draft.type === "ticket_comment") return "commenting on the ticket failed";
+  if (draft.type === "ticket_transition") return "moving the ticket failed";
   return draft.type === "push" ? "pushing the commits failed" : "posting the replies failed";
 }

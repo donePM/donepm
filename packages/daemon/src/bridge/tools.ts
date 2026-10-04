@@ -2,11 +2,13 @@ import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { createCommentDraft, createPrDraft, createPushDraft, DraftError, type DraftDeps } from "../drafts/actions.js";
 import { createReviewDraft } from "../drafts/review.js";
+import { createTicketCommentDraft, createTicketTransitionDraft, ticketOf, transitionList } from "../drafts/ticket.js";
 import { createUpdateBranchDraft } from "../drafts/update-branch.js";
 import type { Exec } from "../process/exec.js";
+import type { Providers } from "../providers/registry.js";
 import type { BridgeSession } from "./sessions.js";
 
-export type ToolDeps = DraftDeps & { exec: Exec };
+export type ToolDeps = DraftDeps & { exec: Exec; providers: Providers };
 
 interface ToolDef {
   tool: Tool;
@@ -28,6 +30,8 @@ const DraftReviewArgs = z.object({
   comments: z.array(ReviewComment).optional(),
 });
 const DraftUpdateBranchArgs = z.object({ reason: z.string().trim().min(1) });
+const DraftTicketCommentArgs = z.object({ body: z.string().trim().min(1) });
+const DraftTicketTransitionArgs = z.object({ to: z.string().trim().min(1), comment: z.string().optional() });
 
 const REPLIES_SCHEMA = {
   type: "array",
@@ -202,6 +206,72 @@ const TOOLS: ToolDef[] = [
       const parsed = DraftUpdateBranchArgs.safeParse(args ?? {});
       if (!parsed.success) return text("draft_update_branch needs a non-empty `reason`.", true);
       return drafted(() => createUpdateBranchDraft(deps, session.itemId, parsed.data));
+    },
+  },
+  {
+    draft: "ticket",
+    tool: {
+      name: "ticket_transitions",
+      description:
+        "List the transitions the Jira ticket of this item offers now: id, name and the status each leads to. " +
+        "Use it before draft_ticket_transition. Reads only.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    call: async (deps, session) => {
+      const item = deps.items.get(session.itemId)?.item;
+      if (!item) return text("The item for this session no longer exists.", true);
+      try {
+        const { ref, key, source } = ticketOf(deps.providers, item);
+        const r = await source.transitions!(ref);
+        if (!r.ok) return text(`Cannot read the transitions of ${key}: ${r.error}.`, true);
+        return text(`${key} offers: ${transitionList(r.transitions)}.`);
+      } catch (e) {
+        if (e instanceof DraftError) return text(`${e.message}.`, true);
+        throw e;
+      }
+    },
+  },
+  {
+    draft: "ticket",
+    tool: {
+      name: "draft_ticket_comment",
+      description:
+        "Propose a comment on this item's Jira ticket, e.g. a question for the reporter or a note on what you found. " +
+        "The user reviews it and donePM posts it; you cannot post yourself. Afterwards you get a message; go on with your work.",
+      inputSchema: {
+        type: "object",
+        properties: { body: { type: "string", description: "The comment in Markdown" } },
+        required: ["body"],
+      },
+    },
+    call: (deps, session, args) => {
+      const parsed = DraftTicketCommentArgs.safeParse(args ?? {});
+      if (!parsed.success) return text("draft_ticket_comment needs a non-empty `body`.", true);
+      return drafted(() => createTicketCommentDraft(deps, session.itemId, parsed.data));
+    },
+  },
+  {
+    draft: "ticket",
+    tool: {
+      name: "draft_ticket_transition",
+      description:
+        "Propose moving this item's Jira ticket to another status, e.g. to In Review before you call draft_pr. " +
+        "Name a transition ticket_transitions lists, by its id, its name or the status it leads to. The user reviews it and " +
+        "donePM moves the ticket; you cannot do it yourself. Afterwards you get a message; go on with your work.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "The transition's id or name, or the status it leads to" },
+          comment: { type: "string", description: "A comment posted with the move, in Markdown" },
+        },
+        required: ["to"],
+      },
+    },
+    call: (deps, session, args) => {
+      const parsed = DraftTicketTransitionArgs.safeParse(args ?? {});
+      if (!parsed.success) return text("draft_ticket_transition needs a non-empty `to`.", true);
+      const { to, comment } = parsed.data;
+      return drafted(() => createTicketTransitionDraft(deps, session.itemId, { to, ...(comment?.trim() ? { comment } : {}) }));
     },
   },
 ];

@@ -530,7 +530,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
         app.log.warn({ err: e }, "could not write the default playbooks"),
       );
       await app.listen({ host: "127.0.0.1", port });
-      bridge = await listenBridge({ ...draftDeps, exec: opts.exec, sessions: bridgeSessions, log: app.log, version: opts.version }, bridgeSocket);
+      bridge = await listenBridge({ ...draftDeps, exec: opts.exec, providers, sessions: bridgeSessions, log: app.log, version: opts.version }, bridgeSocket);
       app.log.info({ configFile: paths.configFile, dbFile: paths.dbFile }, "donepm started");
       await recheck();
       if (status.get().claude?.version) app.log.info({ version: status.get().claude?.version }, "claude cli");

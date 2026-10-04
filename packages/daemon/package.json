@@ -37,6 +37,8 @@
     "@modelcontextprotocol/sdk": "^1.32.0",
     "diff": "^9.0.0",
     "fastify": "^5.12.5",
+    "jira2md": "^3.0.1",
+    "marklassian": "^1.2.1",
     "turndown": "^7.2.4",
     "ws": "^8.22.0",
     "zod": "^3.25.76"
