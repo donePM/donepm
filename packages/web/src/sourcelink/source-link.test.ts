@@ -1,0 +1,24 @@
+import { describe, expect, it } from "vitest";
+import { sourceLink } from "./source-link";
+
+describe("sourceLink (#151)", () => {
+  it("marks GitHub issues and pull requests with the GitHub icon", () => {
+    expect(sourceLink({ source: "github-issue", externalUrl: "https://github.com/o/r/issues/4" })).toEqual({ icon: "github", site: "GitHub" });
+    expect(sourceLink({ source: "github-pr", externalUrl: "https://github.com/o/r/pull/9" })).toEqual({ icon: "github", site: "GitHub" });
+  });
+
+  it("goes by the URL's host, subdomains and case included", () => {
+    expect(sourceLink({ source: "github-issue", externalUrl: "https://GitHub.com/o/r/issues/4" }).icon).toBe("github");
+    expect(sourceLink({ source: "github-issue", externalUrl: "https://gist.github.com/o/1" }).icon).toBe("github");
+    expect(sourceLink({ source: "github-issue", externalUrl: "https://notgithub.com/o/r" }).icon).toBe("web");
+  });
+
+  it("shows the globe and the host for a source it does not know", () => {
+    expect(sourceLink({ source: "jira", externalUrl: "https://acme.atlassian.net/browse/OPS-1" })).toEqual({ icon: "web", site: "acme.atlassian.net" });
+  });
+
+  it("falls back to the item's source when the URL has no host", () => {
+    expect(sourceLink({ source: "github-pr", externalUrl: "" })).toEqual({ icon: "github", site: "GitHub" });
+    expect(sourceLink({ source: "jira", externalUrl: "not a url" })).toEqual({ icon: "web", site: "the source" });
+  });
+});

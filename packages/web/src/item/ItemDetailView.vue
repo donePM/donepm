@@ -26,6 +26,7 @@ import FeedbackPanel from "./FeedbackPanel.vue";
 import PushDraftPanel from "./PushDraftPanel.vue";
 import ReviewDraftPanel from "./ReviewDraftPanel.vue";
 import UpdateBranchDraftPanel from "./UpdateBranchDraftPanel.vue";
+import SourceLink from "../sourcelink/SourceLink.vue";
 import WorktreeBlock from "./WorktreeBlock.vue";
 
 const route = useRoute();
@@ -129,7 +130,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
           <span v-if="stats"><span class="add">+{{ stats.additions }}</span> <span class="del">−{{ stats.deletions }}</span></span>
           <span v-if="work" title="How long the agent worked · its cost">{{ work }}</span>
           <span v-if="tokensLabel" title="Tokens: input includes cache reads and writes">{{ tokensLabel }}</span>
-          <a :href="detail.externalUrl" target="_blank" rel="noreferrer" class="ext">{{ detail.source === "github-pr" ? "PR" : "issue" }} ↗</a>
+          <SourceLink :source="detail.source" :url="detail.externalUrl" class="ext">{{ detail.source === "github-pr" ? "PR" : "issue" }}</SourceLink>
         </div>
         <div v-if="detail.badges.includes('no-local-clone')" class="no-clone">
           <span>No local clone<template v-if="detail.clone">. Clone lands in <span class="mono">{{ detail.clone.target }}</span></template></span>

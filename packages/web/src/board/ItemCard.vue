@@ -18,6 +18,7 @@ import IconPlay from "../icons/IconPlay.vue";
 import IconPullRequest from "../icons/IconPullRequest.vue";
 import IconShield from "../icons/IconShield.vue";
 import IconStop from "../icons/IconStop.vue";
+import SourceLink from "../sourcelink/SourceLink.vue";
 import { checkBadges } from "../ci/check-badges";
 import { cardBadge } from "./card-badge";
 import { upsert } from "./items";
@@ -143,14 +144,13 @@ async function act(fn: (id: string) => Promise<void>) {
 <template>
   <article class="card item" :class="{ running: item.state === 'running', attn: column === 'needs_you' && !noClone, ghost: noClone || (closedUpstream && item.state !== 'done'), done: column === 'done', finished }">
     <div class="meta">
-      <a
-        :href="item.externalUrl"
-        target="_blank"
-        rel="noreferrer"
+      <SourceLink
+        :source="item.source"
+        :url="item.externalUrl"
+        :label="displayId(item.externalId)"
         class="ext"
-        :title="hideRepo ? displayId(item.externalId) : undefined"
         :aria-label="hideRepo ? displayId(item.externalId) : undefined"
-      >{{ hideRepo ? shortId(item.externalId) : displayId(item.externalId) }}</a>
+      >{{ hideRepo ? shortId(item.externalId) : displayId(item.externalId) }}</SourceLink>
       <span v-if="item.state === 'running'" class="live primary"><span class="dot primary" aria-hidden="true"></span>running<template v-if="elapsed"> · {{ elapsed }}</template></span>
       <span v-else-if="item.state === 'checking'" class="live attn"><CiPendingDot />waiting for CI</span>
       <span v-else-if="badge" class="badge" :class="badge.tone" :title="badge.title">
