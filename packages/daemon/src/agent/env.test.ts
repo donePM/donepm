@@ -23,6 +23,15 @@ describe("agentEnv", () => {
     expect(env.PATH).not.toContain(bin);
   });
 
+  it("drops GitHub Enterprise tokens and the gh host (issue #140)", async () => {
+    const root = await mkdtemp(join(tmpdir(), "donepm-env-"));
+    const env = await agentEnv(
+      { PATH: "", HOME: "/home/x", GH_ENTERPRISE_TOKEN: "t", GITHUB_ENTERPRISE_TOKEN: "t", GH_HOST: "github.acme.com" },
+      { shimRoot: join(root, "shims"), emptyConfigDir: join(root, "no-config") },
+    );
+    expect(Object.keys(env).sort()).toEqual(["GH_CONFIG_DIR", "GLAB_CONFIG_DIR", "HOME", "PATH"]);
+  });
+
   it("drops what a node --watch or pnpm run of the daemon leaves in its environment (#115)", async () => {
     const root = await mkdtemp(join(tmpdir(), "donepm-env-"));
     // A directory without gh, so filteredPath keeps it as it is.

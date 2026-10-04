@@ -71,6 +71,18 @@ export function toolRows(status: Status | undefined): ToolRow[] {
       detail: [gh?.path, "used for polling, PR creation, merges and comments"].filter(Boolean).join(" · "),
     },
   ];
+  // The same gh, logged in to each further GitHub host on its own (issue #140).
+  for (const [host, found] of Object.entries(status?.ghHosts ?? {})) {
+    rows.push({
+      id: `gh:${host}`,
+      category: "source",
+      name: `GitHub CLI on ${host}`,
+      tag: "gh",
+      hint: ghHint(found.state, host),
+      ready: found.account ? `logged in as ${found.account}` : "ready",
+      detail: [found.path, `used for ${host}`].filter(Boolean).join(" · "),
+    });
+  }
   for (const h of HELPERS) {
     const found = status?.helpers?.[h.id];
     rows.push({

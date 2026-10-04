@@ -16,11 +16,13 @@ export interface Lane {
   counts: Record<ColumnKey, number>;
 }
 
-/** `github.com/acme/widgets` → `acme/widgets`. Without a host segment the input is returned as is. */
+/**
+ * `github.com/acme/widgets` → `acme/widgets`. A repository on another host keeps it
+ * (`github.acme.com/team/app`), so two of the same name get two lanes that tell them apart (issue #140).
+ */
 export function repoName(originUrl: string): string {
   const origin = normalizeOriginUrl(originUrl);
-  const slash = origin.indexOf("/");
-  return slash === -1 ? origin : origin.slice(slash + 1);
+  return origin.startsWith("github.com/") ? origin.slice("github.com/".length) : origin;
 }
 
 /** One lane per repo that has items, in first-seen order; use `sortLanes` for display. */

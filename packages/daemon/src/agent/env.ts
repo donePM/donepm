@@ -8,6 +8,13 @@ export const TOKEN_VARIABLES = [
   "GLAB_TOKEN", "GITLAB_TOKEN", "JIRA_API_TOKEN",
 ] as const;
 
+/**
+ * Which GitHub host `gh` talks to (issue #140). Not a secret, but the agent has no business with a
+ * GitHub host: dropped with the tokens. The empty config directory below holds no login for any
+ * host, github.com or GitHub Enterprise alike.
+ */
+export const HOST_VARIABLES = ["GH_HOST"] as const;
+
 /** Where `gh` and `glab` look for their logins. Pointed at an empty directory for the agent. */
 export const CONFIG_DIR_VARIABLES = ["GH_CONFIG_DIR", "GLAB_CONFIG_DIR"] as const;
 
@@ -42,7 +49,7 @@ const isRunBinDir = (dir: string) => isAbsolute(dir) && dir.endsWith(`${sep}node
  */
 export async function agentEnv(base: NodeJS.ProcessEnv, dirs: { shimRoot: string; emptyConfigDir: string }): Promise<NodeJS.ProcessEnv> {
   const env = { ...base };
-  for (const name of TOKEN_VARIABLES) delete env[name];
+  for (const name of [...TOKEN_VARIABLES, ...HOST_VARIABLES]) delete env[name];
   for (const name of Object.keys(env)) if (isRunVariable(name)) delete env[name];
   const path = (base.PATH ?? "").split(delimiter).filter((dir) => !isRunBinDir(dir)).join(delimiter);
   env.PATH = await filteredPath(path, dirs.shimRoot);

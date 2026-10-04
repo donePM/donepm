@@ -14,10 +14,17 @@ interface SourceRule {
   sources: readonly string[];
   /** URL hosts this rule covers; their subdomains match too. */
   hosts: readonly string[];
+  /**
+   * The source's own items link to it on any host: a GitHub Enterprise Server has a host of the
+   * company's choosing (issue #140).
+   */
+  anyHost?: true;
 }
 
 /** One entry per ticket source. Jira (#139) and Azure DevOps (#142) add theirs here. */
-const RULES: readonly SourceRule[] = [{ icon: "github", site: "GitHub", sources: ["github-issue", "github-pr"], hosts: ["github.com"] }];
+const RULES: readonly SourceRule[] = [
+  { icon: "github", site: "GitHub", sources: ["github-issue", "github-pr"], hosts: ["github.com", "ghe.com"], anyHost: true },
+];
 
 function hostOf(url: string): string | undefined {
   try {
@@ -32,11 +39,15 @@ const coversHost = (rule: SourceRule, host: string) => rule.hosts.some((h) => ho
 /**
  * The icon and site name for a link that leaves donePM for the item's source (issue #151).
  * The URL's host decides, so the icon always shows where the link really goes; the item's
- * source is the fallback for a URL without a host. Anything unknown gets the globe.
+ * source is the fallback for a URL without a host, and for a GitHub item on a GitHub Enterprise
+ * host, named with that host (issue #140). Anything unknown gets the globe.
  */
 export function sourceLink(item: { source: string; externalUrl: string }): SourceLink {
   const host = hostOf(item.externalUrl);
-  const rule = host ? RULES.find((r) => coversHost(r, host)) : RULES.find((r) => r.sources.includes(item.source));
+  const ofSource = RULES.find((r) => r.sources.includes(item.source));
+  if (!host) return ofSource ? { icon: ofSource.icon, site: ofSource.site } : { icon: "web", site: "the source" };
+  const rule = RULES.find((r) => coversHost(r, host));
   if (rule) return { icon: rule.icon, site: rule.site };
-  return { icon: "web", site: host ?? "the source" };
+  if (ofSource?.anyHost) return { icon: ofSource.icon, site: `${ofSource.site} (${host})` };
+  return { icon: "web", site: host };
 }

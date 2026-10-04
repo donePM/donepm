@@ -1,4 +1,4 @@
-import type { PrStatus } from "@donepm/core";
+import { GITHUB_COM, qualifiedRepository, type PrStatus } from "@donepm/core";
 import { z } from "zod";
 import type { PrRef } from "../providers/code-host.js";
 import type { Exec } from "../process/exec.js";
@@ -56,16 +56,17 @@ const valid = (ref: PrRef): boolean => {
 };
 
 /**
- * The status of someone else's pull requests (D47), keyed `owner/repo#N`. One `gh api graphql` call
- * per 50, by repository and number, so items the searches no longer return (reviewed, done) are
- * read, too. A pull request missing from the map could not be read and keeps what it had.
+ * The status of someone else's pull requests (D47) on one GitHub host, keyed by `externalId`
+ * (`owner/repo#N` on github.com, `host/owner/repo#N` elsewhere, issue #140). One `gh api graphql`
+ * call per 50, by repository and number, so items the searches no longer return (reviewed, done)
+ * are read, too. A pull request missing from the map could not be read and keeps what it had.
  */
-export async function fetchPrStatuses(exec: Exec, refs: readonly PrRef[]): Promise<Map<string, PrStatus>> {
+export async function fetchPrStatuses(exec: Exec, refs: readonly PrRef[], host: string = GITHUB_COM): Promise<Map<string, PrStatus>> {
   const read = new Map<string, PrStatus>();
   const asked = refs.filter(valid);
   for (let i = 0; i < asked.length; i += STATUS_BATCH) {
     const batch = asked.slice(i, i + STATUS_BATCH);
-    const r = await exec("gh", ["api", "graphql", "-f", `query=${prStatusQuery(batch)}`]);
+    const r = await exec("gh", ["api", "graphql", "--hostname", host, "-f", `query=${prStatusQuery(batch)}`]);
     let parsed: z.infer<typeof PrStatusesSchema> | undefined;
     try {
       const result = PrStatusesSchema.safeParse(JSON.parse(r.stdout));
@@ -78,7 +79,7 @@ export async function fetchPrStatuses(exec: Exec, refs: readonly PrRef[]): Promi
       const pr = parsed?.data?.[`pr${n}`]?.pullRequest;
       if (!pr) return;
       const checks = pr.commits.nodes[0]?.commit.statusCheckRollup?.state;
-      read.set(`${ref.repository}#${ref.number}`, {
+      read.set(`${qualifiedRepository(host, ref.repository)}#${ref.number}`, {
         state: pr.state,
         ...(pr.closedAt ? { closedAt: pr.closedAt } : {}),
         mergeable: pr.mergeable,

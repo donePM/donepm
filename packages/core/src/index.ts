@@ -27,6 +27,8 @@ export * from "./repo/clone.js";
 export * from "./repo/dependencies.js";
 export * from "./transcript/types.js";
 export * from "./origin/normalize.js";
+export * from "./github/host.js";
+export * from "./github/external-id.js";
 export * from "./branch/naming.js";
 export * from "./playbook/split.js";
 export * from "./playbook/schema.js";

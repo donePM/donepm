@@ -83,5 +83,6 @@ describe("rawRule and repoName", () => {
   it("names the repository without its host", () => {
     expect(repoName("github.com/spatie/bloom")).toBe("spatie/bloom");
     expect(repoName("odd")).toBe("odd");
+    expect(repoName("github.acme.com/team/app")).toBe("github.acme.com/team/app");
   });
 });

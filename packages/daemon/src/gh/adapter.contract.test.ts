@@ -4,8 +4,12 @@ import { codeHostContract } from "../test-support/contracts/code-host.js";
 import { ticketSourceContract } from "../test-support/contracts/ticket-source.js";
 import { gitHubCliAdapter } from "./adapter.js";
 
-/** `gh api graphql` serves both the issue fields (D45) and the pull request statuses (D47). */
+/**
+ * `gh api graphql --hostname …` serves the issue fields (D45), the pull request statuses (D47) and,
+ * with its variables, the review feedback (D39).
+ */
 function graphql(call: FakeCall) {
+  if (call.args.some((a) => a.startsWith("owner="))) return ok(fixture("gh/pr-feedback.json"));
   const query = call.args.find((a) => a.startsWith("query=")) ?? "";
   return ok(fixture(query.includes("issueFieldValues") ? "gh/issue-fields.json" : "gh/pr-status.json"));
 }
@@ -27,7 +31,6 @@ const answering = () =>
       "gh issue view": ok(fixture("gh/issue-view-open.json")),
       "gh issue edit": ok(""),
       "gh api graphql": graphql,
-      "gh api graphql --hostname": ok(fixture("gh/pr-feedback.json")),
       "gh api --hostname": restPost,
       "gh repo clone": ok(""),
       "gh pr create": ok("https://github.com/acme/widgets/pull/42\n"),

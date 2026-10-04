@@ -194,7 +194,10 @@ export interface Status {
   pid: number;
   /** When this daemon process started. */
   startedAt: string;
+  /** `gh` for github.com. */
   gh?: GhStatus;
+  /** `gh` for each other GitHub host donePM works with (issue #140). */
+  ghHosts?: Record<string, GhStatus>;
   claude?: ClaudeStatus;
   /** Optional helper CLIs by id, e.g. `playwright-cli`. */
   helpers?: Record<string, HelperStatus>;

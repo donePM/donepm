@@ -34,6 +34,18 @@ describe("fetchPrStatuses (D47)", () => {
     expect(exec.calls).toHaveLength(0);
   });
 
+  it("asks the given GitHub host and keys its pull requests by host (issue #140)", async () => {
+    const exec = fakeExec({ "gh api graphql --hostname acme.ghe.com": ok(fixture("gh/ghe-pr-status.json")) });
+    const read = await fetchPrStatuses(exec, [{ repository: "team/app", number: 42 }], "acme.ghe.com");
+    expect(exec.calls[0]!.args.slice(0, 4)).toEqual(["api", "graphql", "--hostname", "acme.ghe.com"]);
+    expect(Object.fromEntries(read)).toEqual({
+      "acme.ghe.com/team/app#42": {
+        state: "OPEN", mergeable: "MERGEABLE", mergeState: "BLOCKED", head: "5d1c0a9e7b3f42c68e0a1b2c3d4e5f60718293a4", base: "main",
+        reviewDecision: "REVIEW_REQUIRED", checks: "PENDING",
+      },
+    });
+  });
+
   it("names each pull request by an alias in order", () => {
     expect(prStatusQuery([{ repository: "o/r", number: 3 }])).toMatch(/^query \{ pr0: repository\(owner: "o", name: "r"\) \{ pullRequest\(number: 3\) \{ number state closedAt mergeable mergeStateStatus headRefOid /);
   });

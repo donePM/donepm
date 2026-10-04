@@ -30,6 +30,10 @@ export function problems(status: Status | undefined, reachable: boolean, registr
     if (state === "not_installed") out.push(`${tool.name} is not installed`);
     else if (state === "not_logged_in") out.push(`${tool.name} is not logged in`);
   }
+  // Each further GitHub host has a login of its own (issue #140); not installed is said above.
+  if (registry.some((t) => t.name === "gh")) {
+    for (const [host, gh] of Object.entries(status.ghHosts ?? {})) if (gh.state === "not_logged_in") out.push(`gh is not logged in to ${host}`);
+  }
   if (poll && status.lastPoll?.ok === false) out.push("last poll failed");
   return out;
 }

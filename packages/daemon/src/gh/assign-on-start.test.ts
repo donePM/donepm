@@ -1,5 +1,6 @@
 import type { WorkItem } from "@donepm/core";
-import { githubProviders } from "./adapter.js";
+import { gitHubCliConnection, githubProviders } from "./adapter.js";
+import { providerRegistry } from "../providers/registry.js";
 import { describe, expect, it } from "vitest";
 import type { Config } from "../config/config.js";
 import { openDb } from "../db/database.js";
@@ -43,6 +44,20 @@ describe("assignOnStart", () => {
     expect(exec.calls[0]!.args).toEqual(["issue", "edit", "12", "--repo", "Acme/API", "--add-assignee", "@me"]);
     expect(events.forItem("item-1")).toMatchObject([{ type: "item.assigned", actor: "system" }]);
     expect(deps.items.get("item-1")!.item.state).toBe("running");
+  });
+
+  it("names the host of an issue off github.com (issue #140)", async () => {
+    const exec = fakeExec({ "gh issue edit": ok("") });
+    const db = openDb(":memory:");
+    const items = new ItemStore(db);
+    const events = new EventStore(db);
+    items.insert({ ...ITEM, externalId: "github.acme.com/team/app#7", externalUrl: "https://github.acme.com/team/app/issues/7" }, "github.acme.com/team/app");
+    const writer = itemWriter({ db, items, events, onItem: () => {}, onEvent: () => {} });
+    const providers = providerRegistry([gitHubCliConnection(exec), gitHubCliConnection(exec, "github.acme.com", "acme")]);
+    const deps = { items, writer, providers, ctx: testCtx(), log: silentLog, sources: () => ({ "github.acme.com/team/app": { assignOnStart: true } }) };
+    await assignOnStart(deps, "item-1", "github.acme.com/team/app");
+    expect(exec.calls[0]!.args).toEqual(["issue", "edit", "7", "--repo", "github.acme.com/team/app", "--add-assignee", "@me"]);
+    expect(events.forItem("item-1")).toMatchObject([{ type: "item.assigned" }]);
   });
 
   it("records a failure and leaves the item alone", async () => {

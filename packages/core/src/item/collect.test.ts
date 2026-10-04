@@ -26,6 +26,15 @@ describe("externalIdOf", () => {
   it("is owner/repo#number", () => {
     expect(externalIdOf(issue)).toBe("owner/repo#7");
   });
+
+  it("names the host of any other GitHub (issue #140)", () => {
+    expect(externalIdOf({ ...issue, repository: "team/app", url: "https://github.acme.com/team/app/issues/7" })).toBe("github.acme.com/team/app#7");
+    expect(externalIdOf({ ...issue, repository: "team/app", url: "https://acme.ghe.com/team/app/pull/7" })).toBe("acme.ghe.com/team/app#7");
+  });
+
+  it("keeps the short form for a URL it cannot read", () => {
+    expect(externalIdOf({ ...issue, url: "not a url" })).toBe("owner/repo#7");
+  });
 });
 
 describe("collect", () => {

@@ -25,7 +25,8 @@ import { DraftStore } from "./drafts/store.js";
 import { itemDiff } from "./diff/item-diff.js";
 import { EventStore } from "./events/store.js";
 import { collectIssues } from "./gh/collect-issues.js";
-import { detectGh } from "./gh/detect.js";
+import { detectHosts } from "./gh/host-status.js";
+import { githubHosts } from "./gh/hosts.js";
 import { detectHelpers } from "./helpers/detect.js";
 import { githubProviders } from "./gh/adapter.js";
 import { Poller } from "./gh/poller.js";
@@ -306,8 +307,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   };
 
   const recheck = async () => {
-    const [gh, claude, helpers] = await Promise.all([detectGh(opts.exec), detectClaude(opts.exec), detectHelpers(opts.exec)]);
-    status.update({ gh, claude, helpers });
+    const [gh, claude, helpers] = await Promise.all([detectHosts(opts.exec, githubHosts(providers)), detectClaude(opts.exec), detectHelpers(opts.exec)]);
+    status.update({ ...gh, claude, helpers });
   };
 
   const poller = new Poller(
