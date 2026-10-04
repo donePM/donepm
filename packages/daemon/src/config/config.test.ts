@@ -14,6 +14,7 @@ describe("config", () => {
       branchPrefix: "dp/",
       pollIntervalSeconds: 60,
       maxConcurrentAgents: 1,
+      removeWorktreeOnMerge: false,
       sources: {},
       allowedWebFetchDomains: ["github.com", "raw.githubusercontent.com", "docs.github.com", "nodejs.org", "developer.mozilla.org", "npmjs.com"],
     });
@@ -46,6 +47,11 @@ describe("config", () => {
     expect(() => parseConfig("{")).toThrow(ConfigError);
     expect(() => parseConfig('{"port":"x"}')).toThrow(/port/);
     expect(() => parseConfig('{"prot":1}')).toThrow(ConfigError);
+    expect(() => parseConfig('{"removeWorktreeOnMerge":"yes"}')).toThrow(/removeWorktreeOnMerge/);
+  });
+
+  it("keeps the remove-on-merge opt-in", () => {
+    expect(parseConfig('{"removeWorktreeOnMerge":true}').removeWorktreeOnMerge).toBe(true);
   });
 });
 

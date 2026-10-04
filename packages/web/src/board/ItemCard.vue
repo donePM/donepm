@@ -8,9 +8,13 @@ import AskPanel from "../asks/AskPanel.vue";
 import { diffFiles, diffStats, type DiffStats } from "../diff/files";
 import { clock } from "../time/duration";
 import { columnOf, displayId, labelTone, shortId } from "./columns";
+import { mergeNote } from "./merge-note";
 
-/** `hideRepo`: the lane already names the repo, so the id shows only the number. */
-const props = defineProps<{ item: ItemView; repoRoot?: string; now: number; hideRepo?: boolean }>();
+/**
+ * `hideRepo`: the lane already names the repo, so the id shows only the number.
+ * `removeOnMerge`: the user's `removeWorktreeOnMerge` (D33).
+ */
+const props = defineProps<{ item: ItemView; repoRoot?: string; now: number; hideRepo?: boolean; removeOnMerge?: boolean }>();
 
 const noClone = computed(() => props.item.badges.includes("no-local-clone"));
 const closedUpstream = computed(() => props.item.badges.includes("closed-upstream"));
@@ -20,8 +24,9 @@ const column = computed(() => columnOf(props.item));
 const busy = computed(() => pending.value.has(props.item.id));
 /** Ready and failed items can start; a failed one starts again from its worktree. */
 const startable = computed(() => (props.item.state === "ready" || props.item.state === "failed") && !noClone.value);
-/** Never automatic (spec 7.4): the user removes a finished or failed item's worktree. */
+/** The user removes a finished or failed item's worktree; only a merged PR's goes on its own (D33). */
 const removable = computed(() => (props.item.state === "done" || props.item.state === "failed") && !!props.item.worktreePath && !props.item.agent.running);
+const merge = computed(() => mergeNote(props.item, props.removeOnMerge ?? false));
 const elapsed = computed(() =>
   props.item.agent.startedAt ? clock(props.now - Date.parse(props.item.agent.startedAt)) : undefined,
 );
@@ -153,7 +158,14 @@ async function act(fn: (id: string) => Promise<void>) {
         <RouterLink :to="{ name: 'agent', params: { id: item.id } }" class="btn">Transcript</RouterLink>
       </div>
     </template>
-    <a v-if="item.pr" :href="item.pr.url" target="_blank" rel="noreferrer" class="pr mono">PR #{{ item.pr.number }}</a>
+    <p v-if="item.pr && merge?.kind === 'pending'" class="note quiet">
+      Worktree is removed when <a :href="item.pr.url" target="_blank" rel="noreferrer" class="pr mono">PR #{{ item.pr.number }}</a> is merged
+    </p>
+    <div v-else-if="item.pr" class="pr-line">
+      <a :href="item.pr.url" target="_blank" rel="noreferrer" class="pr mono">PR #{{ item.pr.number }}</a>
+      <span v-if="merge?.kind === 'merged'" class="merged">PR merged</span>
+      <span v-else-if="merge?.kind === 'skipped'" class="note warn">Not removed: {{ merge.reason }}</span>
+    </div>
     <div v-if="startable" class="actions">
       <label :for="`pb-${item.id}`" class="sr-only">Playbook</label>
       <select :id="`pb-${item.id}`" class="select" :value="item.playbook" disabled title="More playbooks come later">
@@ -227,6 +239,9 @@ h3 { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; overflow-wr
 .label.tone-feature { background: var(--blue-tint); color: var(--blue); }
 .note { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .note.warn { color: var(--amber); }
+.note.quiet { display: block; margin: 0; color: var(--ink-3); }
+.pr-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.merged { font-size: 12px; color: var(--ink-3); }
 .dismiss { margin-left: auto; height: 26px; padding: 0 10px; font-size: 12px; }
 .live { flex: none; display: flex; align-items: center; gap: 6px; color: var(--blue); }
 .activity { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }

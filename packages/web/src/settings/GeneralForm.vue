@@ -15,7 +15,7 @@ watch(
 const saving = ref(false);
 const message = ref<{ text: string; tone: "ok" | "error" }>();
 
-const fields: { key: Exclude<keyof Settings, "sources" | "allowedWebFetchDomains">; label: string; type: "text" | "number"; min?: number }[] = [
+const fields: { key: Exclude<keyof Settings, "sources" | "allowedWebFetchDomains" | "removeWorktreeOnMerge">; label: string; type: "text" | "number"; min?: number }[] = [
   { key: "repoRoot", label: "Repository root", type: "text" },
   { key: "worktreeRoot", label: "Worktree root", type: "text" },
   { key: "branchPrefix", label: "Branch prefix", type: "text" },
@@ -29,7 +29,10 @@ async function save() {
   message.value = undefined;
   try {
     // Only this form's fields: the repositories and web access panels save theirs on their own.
-    const patch = Object.fromEntries(fields.map((f) => [f.key, form[f.key]]));
+    const patch = {
+      ...Object.fromEntries(fields.map((f) => [f.key, form[f.key]])),
+      removeWorktreeOnMerge: form.removeWorktreeOnMerge,
+    };
     const { settings, restartRequired } = await api.saveSettings(patch);
     emit("saved", settings);
     message.value = { text: restartRequired ? "Saved. The new port applies after a restart." : "Saved.", tone: "ok" };
@@ -60,6 +63,13 @@ async function save() {
         />
         <input v-else :id="`set-${f.key}`" v-model="form[f.key]" type="text" class="mono" spellcheck="false" />
       </div>
+      <div class="field">
+        <label class="check">
+          <input v-model="form.removeWorktreeOnMerge" type="checkbox" />
+          Remove the worktree once its PR is merged
+        </label>
+        <p class="hint">Only when it has no uncommitted or untracked changes. The branch is kept.</p>
+      </div>
       <div class="actions">
         <p v-if="message" :class="message.tone" role="status">{{ message.text }}</p>
         <button class="btn btn-primary" type="submit" :disabled="saving">{{ saving ? "Saving…" : "Save" }}</button>
@@ -72,6 +82,9 @@ async function save() {
 form { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 label { font-weight: 500; color: var(--ink-2); }
+.check { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+.check input { width: auto; height: auto; }
+.hint { margin: 0; font-size: 12px; color: var(--ink-3); }
 input {
   height: 38px;
   border: 1px solid var(--border-control);

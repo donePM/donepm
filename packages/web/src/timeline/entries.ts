@@ -113,8 +113,18 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>): Omit<Timelin
       return { tone: "system", text: "Pull request created", ...(str(p.url) ? { detail: str(p.url) } : {}) };
     case "draft.execution_failed":
       return { tone: "danger", text: "Creating the pull request failed", ...(str(p.error) ? { detail: str(p.error) } : {}) };
-    case "worktree.removed":
-      return { tone: "user", text: "You removed the worktree", ...(str(p.branch) ? { detail: `Branch ${str(p.branch)} kept` } : {}) };
+    case "item.pr_merged":
+      return { tone: "system", text: `${prName(p.number)} merged` };
+    case "worktree.removed": {
+      const kept = str(p.branch) ? { detail: `Branch ${str(p.branch)} kept` } : {};
+      if (p.reason === "pr_merged") return { tone: "system", text: `${prName(p.number)} merged, worktree removed`, ...kept };
+      return { tone: "user", text: "You removed the worktree", ...kept };
+    }
+    case "worktree.remove_skipped": {
+      const files = Array.isArray(p.files) ? p.files.filter((f) => typeof f === "string") : [];
+      const reason = str(p.reason) ?? "unknown reason";
+      return { tone: "attention", text: "Worktree not removed", detail: files.length ? `${reason}: ${files.join(", ")}` : reason };
+    }
     default:
       // Newer daemons may write types this UI does not know yet.
       return { tone: "system", text: String(e.type) };
@@ -122,6 +132,7 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>): Omit<Timelin
 }
 
 const withCode = (code: string | undefined) => (code ? { code } : {});
+const prName = (n: unknown) => (typeof n === "number" ? `PR #${n}` : "PR");
 
 /** Events as the item detail lists them: newest first (spec §12.2). */
 export function timelineEntries(events: readonly Event[], asks: readonly PermissionAsk[]): TimelineEntry[] {

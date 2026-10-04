@@ -27,7 +27,9 @@ decisions already made with their reasons; do not reopen them without asking.
 - **State transitions live in `core`** as pure functions that throw on invalid transitions. The
   daemon calls them; it does not decide on its own.
 - **Never fail on unknown stream-json events.** Store the raw line, decode what is known, carry on.
-- **No worktree is removed automatically.** Only the user's button does that.
+- **No worktree is removed automatically** unless the user turned on `removeWorktreeOnMerge`, and
+  then only after the PR is merged and the worktree is clean. Otherwise only the user's button does
+  that.
 - Keep files grouped by subject, not by layer ("services", "utils"). Prefer small files with one
   responsibility.
 

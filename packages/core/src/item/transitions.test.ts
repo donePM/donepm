@@ -3,7 +3,7 @@ import type { Ctx } from "../ids.js";
 import {
   InvalidTransitionError, agentAsked, agentFailed, answered, autoAllowed, draftApproved, draftCreated, draftEdited, draftExecuted,
   draftExecutionFailed, draftRejected, interrupted, issueAssignFailed, issueAssigned, resume, start, worktreeRemoved,
-  turnEnded, turnStarted, closedUpstream, dismissed, wasStarted,
+  turnEnded, turnStarted, closedUpstream, dismissed, wasStarted, prMerged, worktreeRemovedOnMerge, worktreeRemoveSkipped,
 } from "./transitions.js";
 import type { ItemState, WorkItem } from "./types.js";
 
@@ -152,6 +152,42 @@ describe("worktreeRemoved", () => {
 
   it.each(["ready", "running", "needs_you"] as const)("throws from %s", (state) => {
     expect(() => worktreeRemoved(item(state), makeCtx())).toThrow(InvalidTransitionError);
+  });
+});
+
+describe("worktreeRemovedOnMerge", () => {
+  it("clears the worktree of a done item as the system, with the reason", () => {
+    const before = item("done", { worktreePath: "/wt/1", branch: "dp/1-t", agentSessionId: "sess" });
+    const { item: after, events } = worktreeRemovedOnMerge(before, makeCtx(), { path: "/wt/1", number: 45 });
+    expect(after).toMatchObject({ state: "done", branch: "dp/1-t" });
+    expect(after).not.toHaveProperty("worktreePath");
+    expect(after).not.toHaveProperty("agentSessionId");
+    expect(events[0]).toMatchObject({
+      type: "worktree.removed", actor: "system", payload: { path: "/wt/1", number: 45, reason: "pr_merged" },
+    });
+  });
+
+  it.each(["ready", "running", "needs_you", "failed"] as const)("throws from %s", (state) => {
+    expect(() => worktreeRemovedOnMerge(item(state), makeCtx())).toThrow(InvalidTransitionError);
+  });
+});
+
+describe("prMerged and worktreeRemoveSkipped", () => {
+  it("record on a done item without changing it", () => {
+    const before = item("done", { worktreePath: "/wt/1" });
+    const merged = prMerged(before, makeCtx(), { number: 45 });
+    expect(merged.item).toMatchObject({ state: "done", worktreePath: "/wt/1" });
+    expect(merged.events[0]).toMatchObject({ type: "item.pr_merged", actor: "system", payload: { number: 45 } });
+    const skipped = worktreeRemoveSkipped(before, makeCtx(), "uncommitted changes", { files: [".env.local"] });
+    expect(skipped.item).toMatchObject({ state: "done", worktreePath: "/wt/1" });
+    expect(skipped.events[0]).toMatchObject({
+      type: "worktree.remove_skipped", actor: "system", payload: { reason: "uncommitted changes", files: [".env.local"] },
+    });
+  });
+
+  it.each(["ready", "running", "needs_you", "failed"] as const)("throw from %s", (state) => {
+    expect(() => prMerged(item(state), makeCtx())).toThrow(InvalidTransitionError);
+    expect(() => worktreeRemoveSkipped(item(state), makeCtx(), "x")).toThrow(InvalidTransitionError);
   });
 });
 

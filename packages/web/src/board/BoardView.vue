@@ -11,7 +11,16 @@ import { useNow } from "../time/now";
 watchItems();
 
 const repoRoot = ref<string>();
-onMounted(() => api.settings().then((s) => (repoRoot.value = s.repoRoot), () => undefined));
+const removeOnMerge = ref(false);
+onMounted(() =>
+  api.settings().then(
+    (s) => {
+      repoRoot.value = s.repoRoot;
+      removeOnMerge.value = s.removeWorktreeOnMerge;
+    },
+    () => undefined,
+  ),
+);
 
 const now = useNow(1000);
 
@@ -83,6 +92,7 @@ const shownCounts = (lane: Lane) => COLUMNS.filter((c) => lane.counts[c.key] > 0
               :key="item.id"
               :item="item"
               :repo-root="repoRoot"
+              :remove-on-merge="removeOnMerge"
               :now="now"
               :hide-repo="lane.key !== NO_CLONE_KEY"
             />

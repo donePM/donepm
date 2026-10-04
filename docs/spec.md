@@ -113,7 +113,9 @@ Event types in MVP: `item.collected`, `item.playbook_changed`, `agent.started`, 
 `agent.interrupted`, `worktree.removed`, `item.assigned`, `item.assign_failed` (assign on start,
 see 6.4), `permission.auto_allowed` (the daemon answered a WebFetch ask itself, see 9.4),
 `item.closed_upstream` (a never-started item moved to Done) and `item.dismissed` (the user moved
-a started one to Done), both see 6.2.
+a started one to Done), both see 6.2, `item.pr_merged` (the item's PR was merged, the worktree
+stays) and `worktree.remove_skipped` (merged, but the worktree has uncommitted changes), both see
+6.5. `worktree.removed` carries `reason: "pr_merged"` and actor `system` when the poll removed it.
 
 ### 4.4 Draft
 
@@ -245,6 +247,28 @@ When the item's repo has `assignOnStart`, `start` also runs
 `item.assigned` or `item.assign_failed` (with the reason). Neither changes the state; a failure does
 not stop the agent. The daemon runs this, never the agent (decision D28).
 
+### 6.5 PR state
+
+Part of each poll, after the issues, and only while `gh` is ready (D33). For every `done` item
+that still has a worktree and an executed PR draft whose merge is not recorded yet:
+
+```
+gh pr view <number> --repo <host/owner/repo> --json state,mergedAt
+```
+
+`--repo` comes from the PR URL in the draft result. Only `MERGED` matters; a failure is logged and
+retried on the next poll.
+
+- `removeWorktreeOnMerge` off → `item.pr_merged`, once.
+- On, worktree clean → removed as in 7.4, branch kept, `worktree.removed` (actor `system`, reason
+  `pr_merged`). Clean means `git status --porcelain --untracked-files=all` lists nothing besides the
+  files `.donepm/setup.yml` copies (7.3).
+- On, worktree dirty → `item.pr_merged` and `worktree.remove_skipped` with the reason and the files,
+  once. Checked again each poll; removed once it is clean.
+- The agent runs → `item.pr_merged`; the worktree is left alone.
+
+Turning the setting on later removes worktrees of PRs already recorded as merged on the next poll.
+
 ## 7. Worktrees
 
 ### 7.1 Location
@@ -281,8 +305,9 @@ failure → item `failed`, card shows output.
 
 ### 7.4 Remove
 
-Not automatic in the MVP. Button on a `done` or `failed` card: "Remove worktree". Runs
-`git worktree remove --force <path>` and `git worktree prune`. Branch is kept.
+Button on a `done` or `failed` card: "Remove worktree". Runs
+`git worktree remove --force <path>` and `git worktree prune`. Branch is kept. Automatic only after
+the PR is merged, with `removeWorktreeOnMerge` on and a clean worktree (6.5, D33).
 
 ### 7.5 Reconcile on start
 
@@ -562,7 +587,9 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
 - Needs You card: shows what is needed: permission question (tool name, input, Allow / Deny) or
   draft (title, body editable, diff of branch vs base, Approve / Reject with reason) or failure
   (stderr tail, Retry / Remove worktree).
-- Done card: PR link, Remove worktree.
+- Done card: PR link, Remove worktree. With `removeWorktreeOnMerge` on, a quiet note "Worktree is
+  removed when PR #45 is merged" (PR linked) until it is; "Not removed: uncommitted changes" when
+  the poll kept it (6.5). After the merge: "PR merged".
 - Card of an item closed upstream: note "Closed on GitHub"; on a started, not running item a
   Dismiss button next to it (6.2).
 - Sort: one fixed order per column, the same inside every repo lane, so cards do not jump. Ties
@@ -614,7 +641,8 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
 
 ### 12.4 Settings
 
-- Repo root, worktree root, branch prefix, port, poll interval, max agents.
+- Repo root, worktree root, branch prefix, port, poll interval, max agents, and "Remove the
+  worktree once its PR is merged" (`removeWorktreeOnMerge`, 6.5).
 - CLI status for `gh` and `claude`, with hints and "Check again".
 - Repos list with rescan. Orphaned worktrees.
 - Per repo: what it collects (query or "assigned to you"), and an editor with the query field, a
@@ -645,6 +673,7 @@ and `PATH`, because launchd starts jobs with a bare `PATH` and the daemon needs 
   "branchPrefix": "dp/",
   "pollIntervalSeconds": 60,
   "maxConcurrentAgents": 1,
+  "removeWorktreeOnMerge": false,
   "sources": {},
   "allowedWebFetchDomains": ["github.com", "raw.githubusercontent.com", "docs.github.com", "nodejs.org", "developer.mozilla.org", "npmjs.com"]
 }

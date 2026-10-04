@@ -31,7 +31,8 @@ export async function removeWorktree(exec: Exec, repoPath: string, path: string)
 }
 
 /**
- * The user's "Remove worktree" on a done or failed card. Never automatic (spec 7.4). Throws
+ * The user's "Remove worktree" on a done or failed card (spec 7.4); the poll removes a merged PR's
+ * worktree through `removeWorktree` only when the user opted in (D33). Throws
  * RemoveError before, WorktreeError while git runs.
  */
 export async function removeItemWorktree(

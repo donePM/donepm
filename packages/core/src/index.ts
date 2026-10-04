@@ -2,6 +2,7 @@ export * from "./ids.js";
 export * from "./item/types.js";
 export * from "./item/transitions.js";
 export * from "./item/collect.js";
+export * from "./item/pr-merge.js";
 export * from "./item/priority.js";
 export * from "./event/types.js";
 export * from "./draft/types.js";

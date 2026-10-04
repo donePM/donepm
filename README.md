@@ -63,8 +63,9 @@ also restarts the daemon on the new code.
 | Logs (service) | `~/Library/Logs/donepm/daemon.log`, `daemon.err.log` |
 | launchd job | `~/Library/LaunchAgents/com.donepm.daemon.plist` |
 
-Worktrees are never removed automatically: remove them from a done or failed item, or from
-Settings → Orphaned worktrees.
+Worktrees are not removed automatically: remove them from a done or failed item, or from
+Settings → Orphaned worktrees. Turn on "Remove the worktree once its PR is merged" in
+Settings → General to have donePM remove a clean worktree after its PR is merged; the branch stays.
 
 ## Development
 

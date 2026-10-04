@@ -93,6 +93,21 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("describes a merged PR and what happened to its worktree", () => {
+    const events = [
+      ev("item.pr_merged", { number: 45, url: "https://github.com/acme/widgets/pull/45" }),
+      ev("worktree.remove_skipped", { reason: "uncommitted changes", files: ["notes.md", "src/a.ts"], number: 45 }),
+      ev("worktree.removed", { path: "/wt", branch: "dp/45-x", reason: "pr_merged", number: 45 }),
+      ev("worktree.removed", { reason: "pr_merged" }),
+    ];
+    expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail }))).toEqual([
+      { tone: "system", text: "PR merged, worktree removed", detail: undefined },
+      { tone: "system", text: "PR #45 merged, worktree removed", detail: "Branch dp/45-x kept" },
+      { tone: "attention", text: "Worktree not removed", detail: "uncommitted changes: notes.md, src/a.ts" },
+      { tone: "system", text: "PR #45 merged", detail: undefined },
+    ]);
+  });
+
   it("keeps insertion order for events in the same instant", () => {
     const at = "2026-10-03T10:00:00Z";
     const events = [ev("draft.created", {}, { at, id: "first" }), ev("draft.edited", {}, { at, id: "second" })];
