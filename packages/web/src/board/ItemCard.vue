@@ -130,7 +130,15 @@ async function act(fn: (id: string) => Promise<void>) {
       <span v-if="item.agent.currentTool" class="dim">{{ item.agent.currentTool.name }} · {{ item.agent.currentTool.summary }}</span>
       <span v-else-if="!item.agent.startedAt || !item.worktreePath" class="dim">preparing worktree…</span>
     </div>
-    <AskPanel v-if="attention?.kind === 'ask'" :ask-id="attention.askId" :tool-name="attention.toolName" :input="attention.input" :rules="attention.rules" />
+    <AskPanel
+      v-if="attention?.kind === 'ask'"
+      :ask-id="attention.askId"
+      :tool-name="attention.toolName"
+      :input="attention.input"
+      :rules="attention.rules"
+      :reason="attention.reason"
+      :worktree="item.worktreePath"
+    />
     <template v-else-if="attention?.kind === 'draft'">
       <div class="stats mono">
         <template v-if="draftStats">

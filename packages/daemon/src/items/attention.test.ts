@@ -21,6 +21,11 @@ describe("attentionOf", () => {
     });
   });
 
+  it("passes on why the CLI asked", () => {
+    const asks = [{ ...ask("pending"), reason: "This command requires approval" }];
+    expect(attentionOf({ ...live, state: "needs_you", asks, drafts: [], events: [] })).toMatchObject({ reason: "This command requires approval" });
+  });
+
   it("shows the draft title as the user edited it", () => {
     const d = draft({ userEdits: { title: "Edited", body: "", base: "main" } });
     expect(attentionOf({ ...live, state: "needs_you", asks: [], drafts: [draft({ id: "old", state: "rejected" }), d], events: [] })).toEqual({

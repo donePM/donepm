@@ -120,4 +120,6 @@ export const MIGRATIONS: readonly string[] = [
       AND e.type IN ('draft.executed', 'item.closed_upstream', 'item.dismissed')
   ), updated_at) WHERE state = 'done';
   `,
+  // Why the CLI asked (`decision_reason`), shown above the ask (issue #67).
+  `ALTER TABLE asks ADD COLUMN reason TEXT;`,
 ];

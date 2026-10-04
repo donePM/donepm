@@ -13,4 +13,6 @@ export interface PermissionAsk {
   state: PermissionAskState;
   /** Rules the CLI suggested and we may grant for the run, possibly none ("Allow for this run"). */
   rules: PermissionRule[];
+  /** Why the CLI asks (`decision_reason`), as it sent it; may carry ANSI codes. */
+  reason?: string;
 }

@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, reactive } from "vue";
+import AskInput from "../asks/AskInput.vue";
+import AskPanel from "../asks/AskPanel.vue";
 import MarkdownView from "../markdown/MarkdownView.vue";
 import type { RepoRef } from "../markdown/render";
 import { clock } from "../time/duration";
 import { rendersMarkdown } from "./markdown";
-import { agentNote, resultNote, type Row } from "./rows";
+import DiffView from "./DiffView.vue";
+import { agentNote, askOutcomeText, hasPendingAsk, resultNote, type Row } from "./rows";
 import TranscriptRows from "./TranscriptRows.vue";
 
 const props = defineProps<{
@@ -14,11 +17,14 @@ const props = defineProps<{
   running: boolean;
   /** For `#123` and relative links in the agent's Markdown. */
   repo?: RepoRef;
+  /** The item's worktree, for asks that run somewhere else. */
+  worktree?: string;
 }>();
 
-/** Rows the user opened (tools, thinking, the task). */
+/** Rows the user opened (tools, thinking, the task). A subagent waiting on the user stays open. */
 const open = reactive(new Set<string>());
 const toggle = (id: string) => (open.has(id) ? open.delete(id) : open.add(id));
+const isOpen = (row: Row) => open.has(row.id) || hasPendingAsk(row);
 
 /** Only the latest tool call without a result counts as running, and only while the agent runs. */
 const runningTool = computed(() => {
@@ -89,8 +95,7 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
             </span>
           </button>
           <template v-if="open.has(row.id)">
-            <pre v-if="row.diff" class="diff"><span
-              v-for="(l, i) in row.diff" :key="i" :class="{ add: l.op === '+', del: l.op === '-' }">{{ l.op }} {{ l.text }}</span></pre>
+            <DiffView v-if="row.diff" class="diff" :lines="row.diff" />
             <pre v-else class="body">{{ formatInput(row.input) }}</pre>
             <pre v-if="row.result" class="body result">{{ row.result.text || "(no output)" }}</pre>
           </template>
@@ -102,17 +107,19 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
         <div class="tool sub" :class="{ running: running && row.status === 'running', failed: row.status === 'failed' }">
           <button class="tool-head" type="button" @click="toggle(row.id)">
             <span v-if="running && row.status === 'running'" class="dot dot-ok" aria-hidden="true"></span>
-            <span class="dim">{{ running && row.status === "running" ? "" : open.has(row.id) ? "▾" : "▸" }} {{ row.agentType ?? "Agent" }}</span>
+            <span class="dim">{{ running && row.status === "running" ? "" : isOpen(row) ? "▾" : "▸" }} {{ row.agentType ?? "Agent" }}</span>
             <span class="summary">{{ row.description }}</span>
             <span class="note dim">{{ agentNote(row, running, now) }}</span>
           </button>
-          <div v-if="open.has(row.id)" class="children">
+          <div v-if="isOpen(row)" class="children">
             <p class="meta dim">
               {{ [row.model, row.background ? "in the background" : "", `${row.children.length} steps`].filter(Boolean).join(" · ") }}
             </p>
-            <TranscriptRows :rows="row.children" live="" :now="now" :running="running && row.status === 'running'" :repo="repo" />
+            <TranscriptRows
+              :rows="row.children" live="" :now="now" :running="running && row.status === 'running'" :repo="repo" :worktree="worktree"
+            />
           </div>
-          <div v-if="open.has(row.id) && row.result" class="body result report">
+          <div v-if="isOpen(row) && row.result" class="body result report">
             <MarkdownView v-if="row.result.text" :source="row.result.text" :repo="repo" compact />
             <span v-else class="dim">(no report)</span>
           </div>
@@ -121,7 +128,17 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
 
       <div v-else-if="row.type === 'ask'" class="row">
         <span class="who ask">Asked</span>
-        <div class="ask-line">Permission for <b>{{ row.name }}</b> <span class="mono">{{ row.summary }}</span></div>
+        <div v-if="row.ask" class="ask-open">
+          <AskPanel :ask-id="row.ask.id" :tool-name="row.name" :input="row.input" :rules="row.ask.rules" :reason="row.reason" :worktree="worktree" />
+        </div>
+        <div v-else class="tool">
+          <button class="tool-head" type="button" @click="toggle(row.id)">
+            <span class="dim">{{ open.has(row.id) ? "▾" : "▸" }} {{ row.name }}</span>
+            <span class="summary">{{ row.summary }}</span>
+            <span class="note outcome" :class="row.outcome">{{ askOutcomeText(row) }}</span>
+          </button>
+          <AskInput v-if="open.has(row.id)" class="ask-input" :tool-name="row.name" :input="row.input" :worktree="worktree" />
+        </div>
       </div>
 
       <div v-else-if="row.type === 'result'" class="row">
@@ -219,16 +236,23 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
 }
 .body.result { color: var(--ink-2); }
 .diff { padding: 8px 0; }
-.diff span { display: block; padding: 0 12px; }
-.diff .add { background: var(--add); }
-.diff .del { background: var(--danger-tint); }
 .tool.sub { font-family: inherit; font-size: 13px; }
 .tool.sub > .tool-head { font-family: var(--mono); font-size: 12px; }
 .children { padding: 10px 12px 12px; border-top: 1px solid var(--border-soft); }
 .children .meta { margin: 0 0 10px; font-size: 12px; }
 .report { white-space: normal; font-family: inherit; font-size: 13px; }
-.ask-line { flex: 1; min-width: 0; color: var(--amber); overflow-wrap: anywhere; }
-.ask-line .mono { font-size: 12px; }
+.ask-open {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--amber);
+  border-radius: 8px;
+  background: var(--card);
+  font-size: 13px;
+}
+.ask-input { padding: 8px 12px; border-top: 1px solid var(--border-soft); }
+.outcome.denied { color: var(--danger); }
+.outcome.allowed, .outcome.allowed_run, .outcome.expired { color: var(--ink-3); }
 .turn { font-size: 12px; color: var(--ink-3); }
 .turn.failed { color: var(--danger); }
 </style>

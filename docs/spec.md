@@ -482,6 +482,15 @@ offers a second button when any are left. Answering with it adds them for the se
 `destination` is always `session`, whatever the suggestion said. The `permission.answered` event
 payload is `{ behavior, rules }`, with `rules` empty for a one-time answer.
 
+Showing an ask. The ask panel shows the tool's whole input, never cut: Bash the full command (plus
+`description`, plus `cwd` when it is not the worktree), Write/Edit/MultiEdit the path and the
+diff, WebFetch the URL, the sandbox's network ask the host, anything else the input as JSON. The
+request's `decision_reason` is stored with the ask and shown above it, ANSI codes stripped. The same
+panel answers the ask on the board, on the item page and in the Agents view, where it sits in the
+transcript's ask row (inside the subagent's row for a subagent's ask). An answered ask's row shows
+how it ended: allowed, allowed for this run (the answer carried `updatedPermissions`), denied, or
+expired. The one-line summary stays in the timeline, with the whole input as its tooltip.
+
 What asks and what does not (measured with `claude 2.1.288`):
 
 - A network ask (`SandboxNetworkAccess`) suggests `WebFetch(domain:<host>)`. Claude Code uses that

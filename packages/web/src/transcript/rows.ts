@@ -10,7 +10,7 @@ import {
 } from "@donepm/core/subagent";
 import { toolSummary } from "@donepm/core/tool-summary";
 import { diffLines } from "diff";
-import type { TranscriptMessage } from "../api/types";
+import type { PermissionAsk, TranscriptMessage } from "../api/types";
 import { clock } from "../time/duration";
 
 export interface DiffLine {
@@ -54,10 +54,15 @@ export type Row =
       result?: ToolResult;
       children: Row[];
     }
-  /** The agent asked for permission. */
-  | { type: "ask"; id: string; name: string; summary: string }
+  /**
+   * The agent asked for permission. `ask` is the stored question while it waits for an answer;
+   * `outcome` is how it ended, unknown for asks from before donePM kept them.
+   */
+  | { type: "ask"; id: string; name: string; summary: string; input: unknown; reason?: string; ask?: PermissionAsk; outcome?: AskOutcome }
   /** The end of a turn. */
   | { type: "result"; id: string; ok: boolean; label: string };
+
+export type AskOutcome = "pending" | "allowed" | "allowed_run" | "denied" | "expired";
 
 type Json = Record<string, unknown>;
 const isObject = (v: unknown): v is Json => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -180,6 +185,46 @@ function finishAgent(agent: AgentRow, m: TranscriptMessage, text: string, isErro
   else if (!agent.background) agent.status = totals.status === undefined ? "done" : endStatus(totals.status);
 }
 
+type AskRow = Extract<Row, { type: "ask" }>;
+
+/** The answers donePM wrote to the agent, by request id; the transcript keeps them as raw lines. */
+function answersOf(messages: readonly TranscriptMessage[]): Map<string, AskOutcome> {
+  const out = new Map<string, AskOutcome>();
+  for (const m of messages) {
+    if (m.kind !== "raw" || !isObject(m.raw) || m.raw.type !== "control_response" || !isObject(m.raw.response)) continue;
+    const { request_id: id, response } = m.raw.response;
+    if (typeof id !== "string" || !isObject(response)) continue;
+    if (response.behavior === "deny") out.set(id, "denied");
+    else if (response.behavior === "allow") out.set(id, Array.isArray(response.updatedPermissions) ? "allowed_run" : "allowed");
+  }
+  return out;
+}
+
+/** A subagent waits on the user when one of its asks, or its own subagents' asks, is pending. */
+export function hasPendingAsk(row: Row): boolean {
+  if (row.type === "ask") return row.ask !== undefined;
+  return row.type === "agent" && row.children.some(hasPendingAsk);
+}
+
+/** How an ask ended, in words. Questions are answered or declined, not allowed. */
+export function askOutcomeText(row: AskRow): string {
+  const question = row.name === "AskUserQuestion";
+  switch (row.outcome) {
+    case "pending":
+      return "waiting for you";
+    case "allowed":
+      return question ? "answered" : "allowed";
+    case "allowed_run":
+      return "allowed for this run";
+    case "denied":
+      return question ? "declined" : "denied";
+    case "expired":
+      return "expired";
+    default:
+      return "";
+  }
+}
+
 /** A task that ended with a status donePM does not know still ended. */
 const endStatus = (status: string | undefined): SubagentStatus =>
   subagentStatus(status) === "running" ? "done" : subagentStatus(status);
@@ -189,8 +234,10 @@ const endStatus = (status: string | undefined): SubagentStatus =>
  * a subagent's messages go under its `Agent` call; messages it does not know (raw, init, answers)
  * are left out, never an error.
  */
-export function toRows(messages: readonly TranscriptMessage[]): Row[] {
+export function toRows(messages: readonly TranscriptMessage[], asks: readonly PermissionAsk[] = []): Row[] {
   const main: Flow = { rows: [], sawUser: false };
+  const answers = answersOf(messages);
+  const stored = new Map(asks.map((a) => [a.requestId, a]));
   const tools = new Map<string, ToolRow>();
   const agents = new Map<string, { row: AgentRow; flow: Flow }>();
   /** task id → `Agent` call, for lines that only carry the task id. */
@@ -262,7 +309,16 @@ export function toRows(messages: readonly TranscriptMessage[]): Row[] {
           const task = askAgentId(raw);
           const call = task ? tasks.get(task) : undefined;
           const flow = (call && agents.get(call)?.flow) || main;
-          flow.rows.push({ type: "ask", id: m.id, name: req.tool_name, summary: toolSummary(req.tool_name, req.input) });
+          const requestId = typeof raw.request_id === "string" ? raw.request_id : undefined;
+          const ask = requestId ? stored.get(requestId) : undefined;
+          const outcome = (requestId && answers.get(requestId)) || ask?.state;
+          const row: AskRow = {
+            type: "ask", id: m.id, name: req.tool_name, summary: toolSummary(req.tool_name, req.input), input: req.input,
+          };
+          if (typeof req.decision_reason === "string") row.reason = req.decision_reason;
+          if (ask?.state === "pending" && outcome === "pending") row.ask = ask;
+          if (outcome) row.outcome = outcome;
+          flow.rows.push(row);
           break;
         }
         const e = taskEvent(raw);

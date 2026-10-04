@@ -142,6 +142,16 @@ describe("AgentRunner", () => {
     });
   });
 
+  it("stores why the CLI asked", async () => {
+    const t = setup();
+    const proc = await t.launch(t.addItem(1));
+    proc.emit({
+      type: "control_request", request_id: "r1",
+      request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" }, decision_reason: "This command requires approval" },
+    });
+    expect(t.asks.forItem("item-1")[0]!.reason).toBe("This command requires approval");
+  });
+
   it("never stores a suggested rule the deny list forbids", async () => {
     const t = setup();
     const proc = await t.launch(t.addItem(1));

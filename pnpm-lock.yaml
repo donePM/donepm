@@ -246,6 +246,9 @@ importers:
       markdown-it-task-lists:
         specifier: ^2.1.1
         version: 2.1.1
+      strip-ansi:
+        specifier: ^7.2.0
+        version: 7.2.0
       vue:
         specifier: ^3.5.43
         version: 3.5.43(typescript@5.9.3)

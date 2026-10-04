@@ -16,7 +16,7 @@ describe("rendersMarkdown", () => {
       { type: "thinking", id: "th", text: "**hi**" },
       { type: "setup", id: "s", label: "pnpm install", ok: true, output: "" },
       { type: "tool", id: "to", at: "2026-10-03T00:00:00Z", name: "Bash", summary: "ls", input: {} },
-      { type: "ask", id: "a", name: "Bash", summary: "ls" },
+      { type: "ask", id: "a", name: "Bash", summary: "ls", input: {} },
       { type: "result", id: "r", ok: true, label: "done" },
     ];
     for (const row of plain) expect(rendersMarkdown(row)).toBe(false);
