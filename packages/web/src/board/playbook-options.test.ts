@@ -7,6 +7,9 @@ const entry = (name: string, model: string, scope: PlaybookEntry["scope"]): Play
   model,
   permissionMode: "default",
   drafts: [],
+  body: "",
+  tools: [],
+  permissions: { allow: [], deny: [] },
   file: `${name}.md`,
   scope,
 });

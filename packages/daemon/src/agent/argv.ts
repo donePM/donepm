@@ -39,6 +39,13 @@ export interface ArgvInput {
   home?: string;
 }
 
+/** The `permissions` an agent starts with: allowed without a question, and always denied (D42 adds to both). */
+export function permissionRules(readOnly: boolean): { allow: string[]; deny: string[] } {
+  return readOnly
+    ? { allow: [...ALLOW_RULES, ...READ_ONLY_ALLOW_RULES], deny: [...DENY_RULES, ...READ_ONLY_DENY_RULES] }
+    : { allow: [...ALLOW_RULES], deny: [...DENY_RULES] };
+}
+
 /** Arguments for `claude` (spec 9.1, Bloom PROTOCOL.md "How Bloom invokes it"). */
 export function claudeArgv(input: ArgvInput): string[] {
   const { playbook } = input;
@@ -55,9 +62,7 @@ export function claudeArgv(input: ArgvInput): string[] {
   ];
   if (playbook.effort) args.push("--effort", playbook.effort);
   const readOnly = playbook.readOnly === true;
-  const permissions = readOnly
-    ? { allow: [...ALLOW_RULES, ...READ_ONLY_ALLOW_RULES], deny: [...DENY_RULES, ...READ_ONLY_DENY_RULES] }
-    : { allow: ALLOW_RULES, deny: DENY_RULES };
+  const permissions = permissionRules(readOnly);
   // One object: --settings does not accumulate.
   args.push("--settings", JSON.stringify({ permissions, sandbox: sandboxSettings(input.home, readOnly) }));
   // A read-only agent reviews someone else's code (D42): the worktree's `.claude/settings.json` and
