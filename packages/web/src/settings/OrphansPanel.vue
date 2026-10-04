@@ -65,11 +65,11 @@ watch(() => props.worktreeRoot, (now, before) => {
 
 <style scoped>
 .list { list-style: none; margin: 16px 0 0; padding: 0; }
-li { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--border-soft); }
+li { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--border); }
 li:last-child { border-bottom: 0; }
 .what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .path { font-size: 12px; overflow-wrap: anywhere; }
-.branch { font-size: 11px; color: var(--ink-3); }
+.branch { font-size: 11px; color: var(--fg-3); }
 .none { margin-top: 12px; }
 .danger { flex: none; color: var(--danger); font-weight: 400; }
 .error { margin: 12px 0 0; color: var(--danger); }

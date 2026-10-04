@@ -13,7 +13,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--pending);
+  background: var(--attn);
   animation: ci-pending-pulse 1.6s ease-in-out infinite;
 }
 /* Opacity and transform only: the dot keeps its box, so the text beside it never moves. */

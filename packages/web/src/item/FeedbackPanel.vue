@@ -38,7 +38,7 @@ async function act(fn: (id: string) => Promise<void>) {
       only replies. Nothing is posted until you approve.
     </p>
     <div class="actions">
-      <button class="btn btn-primary" type="button" :disabled="busy || !item.agentSessionId" @click="act(addressFeedback)">Address with agent</button>
+      <button class="btn primary" type="button" :disabled="busy || !item.agentSessionId" @click="act(addressFeedback)">Address with agent</button>
       <button class="btn subtle" type="button" :disabled="busy" @click="act(dismissFeedback)">Mark done</button>
     </div>
     <p v-if="error" class="alert" role="alert">{{ error }}</p>
@@ -47,8 +47,8 @@ async function act(fn: (id: string) => Promise<void>) {
 
 <style scoped>
 .needs {
-  background: var(--amber-tint);
-  border: 1px solid var(--amber-border);
+  background: var(--attn-tint);
+  border: 1px solid var(--attn-border);
   border-radius: 8px;
   padding: 16px 20px;
   display: flex;
@@ -57,6 +57,6 @@ async function act(fn: (id: string) => Promise<void>) {
 }
 h2 { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
 .entries { display: flex; flex-direction: column; gap: 10px; background: var(--card); border-radius: 6px; padding: 12px 14px; }
-.hint { margin: 0; font-size: 13px; color: var(--ink-2); }
+.hint { margin: 0; font-size: 13px; color: var(--fg-2); }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 </style>

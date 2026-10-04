@@ -3,7 +3,10 @@ import { useRouter } from "vue-router";
 import { watchAskNotifications } from "../asks/notifications";
 import { status, watchStatus } from "../status/status";
 import StatusBar from "../status/StatusBar.vue";
+import { watchTheme } from "../theme/apply";
+import ThemeSwitch from "../theme/ThemeSwitch.vue";
 
+watchTheme();
 watchStatus();
 watchAskNotifications(useRouter());
 </script>
@@ -17,12 +20,13 @@ watchAskNotifications(useRouter());
       <nav>
         <RouterLink to="/" class="tab" exact-active-class="active">Board</RouterLink>
         <RouterLink to="/agents" class="tab" active-class="active">
-          Agents<span v-if="status?.runningAgents" class="badge" :aria-label="`${status.runningAgents} running`">{{ status.runningAgents }}</span>
+          Agents<span v-if="status?.runningAgents" class="badge primary count" :aria-label="`${status.runningAgents} running`">{{ status.runningAgents }}</span>
         </RouterLink>
         <RouterLink to="/archive" class="tab" active-class="active">Archive</RouterLink>
         <RouterLink to="/settings" class="tab" active-class="active">Settings</RouterLink>
       </nav>
       <StatusBar />
+      <ThemeSwitch />
     </header>
     <div class="view"><RouterView /></div>
   </div>
@@ -44,23 +48,12 @@ watchAskNotifications(useRouter());
   flex-wrap: wrap;
 }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; }
-.mark { width: 18px; height: 18px; color: var(--ink); }
+.mark { width: 18px; height: 18px; color: var(--fg); }
 nav { display: flex; gap: 4px; }
-.tab { padding: 6px 12px; border-radius: 6px; color: var(--ink-2); text-decoration: none; }
-.tab:hover { color: var(--ink); background: var(--border-soft); }
-.badge {
-  display: inline-block;
-  min-width: 18px;
-  margin-left: 6px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--blue);
-  color: #fff;
-  font-size: 11px;
-  line-height: 18px;
-  text-align: center;
-}
-.tab.active { background: var(--border-soft); color: var(--ink); font-weight: 500; }
+.tab { padding: 6px 12px; border-radius: 6px; color: var(--fg-2); text-decoration: none; }
+.tab:hover { color: var(--fg); background: var(--muted); }
+.count { margin-left: 6px; }
+.tab.active { background: var(--muted); color: var(--fg); font-weight: 500; }
 @media (max-width: 640px) {
   .topbar { padding: 8px 16px; gap: 12px; }
 }

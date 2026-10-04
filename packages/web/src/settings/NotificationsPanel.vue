@@ -15,7 +15,7 @@ import { notifyEnabled, notifyPermission, requestNotifyPermission, setNotifyEnab
     </label>
     <p v-if="notifyPermission === 'unsupported'" class="sub">This browser has no notifications.</p>
     <template v-else-if="notifyPermission === 'default'">
-      <button class="btn btn-primary" type="button" @click="requestNotifyPermission()">Allow browser notifications</button>
+      <button class="btn primary" type="button" @click="requestNotifyPermission()">Allow browser notifications</button>
     </template>
     <p v-else-if="notifyPermission === 'denied'" class="sub">The browser blocks notifications for this site. Allow them in the site settings of your browser.</p>
     <p v-else class="sub">The browser allows notifications.</p>

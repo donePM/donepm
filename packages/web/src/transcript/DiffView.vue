@@ -12,5 +12,5 @@ defineProps<{ lines: DiffLine[] }>();
 .diff { margin: 0; padding: 8px 0; max-height: 360px; overflow: auto; line-height: 1.6; white-space: pre; font-family: var(--mono); font-size: 12px; }
 .diff span { display: block; padding: 0 12px; }
 .add { background: var(--add); }
-.del { background: var(--danger-tint); }
+.del { background: var(--del); }
 </style>

@@ -258,7 +258,7 @@ const pollOf = (origin: string) => status.value?.lastPoll?.sources?.[origin];
                   <div class="actions">
                     <p v-if="editing.error" class="error" role="alert">{{ editing.error }}</p>
                     <button type="button" class="btn" @click="editing = undefined">Cancel</button>
-                    <button type="submit" class="btn btn-primary" :disabled="editing.saving">{{ editing.saving ? "Saving…" : "Save" }}</button>
+                    <button type="submit" class="btn primary" :disabled="editing.saving">{{ editing.saving ? "Saving…" : "Save" }}</button>
                   </div>
                 </form>
               </td>
@@ -294,47 +294,47 @@ const pollOf = (origin: string) => status.value?.lastPoll?.sources?.[origin];
 .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .scroll { overflow-x: auto; margin-top: 16px; }
 table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 13px; }
-th { text-align: left; font-weight: 500; color: var(--ink-2); padding: 8px 12px; border-bottom: 1px solid var(--border); }
-td { padding: 9px 12px; border-bottom: 1px solid var(--border-soft); vertical-align: top; overflow-wrap: anywhere; }
+th { text-align: left; font-weight: 500; color: var(--fg-2); padding: 8px 12px; border-bottom: 1px solid var(--border); }
+td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
 td.mono { font-size: 12px; }
-td.none, .none { color: var(--ink-3); }
+td.none, .none { color: var(--fg-3); }
 td.nowrap { white-space: nowrap; }
 tbody tr:last-child td { border-bottom: 0; }
 .collects { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 .collects .mono { font-size: 12px; }
-.tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--border-soft); color: var(--ink-2); white-space: nowrap; }
-tr.unmanaged td:not(.toggle) { color: var(--ink-3); }
+.tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--muted); color: var(--fg-2); white-space: nowrap; }
+tr.unmanaged td:not(.toggle) { color: var(--fg-3); }
 tr.unmanaged .collects .mono { color: inherit; }
 .managed-count { font-weight: 500; }
 .uncloned { margin-top: 24px; }
-.uncloned h3 { margin: 0; font-size: 13px; font-weight: 500; color: var(--ink-2); }
+.uncloned h3 { margin: 0; font-size: 13px; font-weight: 500; color: var(--fg-2); }
 .uncloned .sub { margin: 4px 0 0; }
 .uncloned ul { list-style: none; margin: 12px 0 0; padding: 0; }
-.uncloned li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 0; border-top: 1px solid var(--border-soft); font-size: 13px; }
+.uncloned li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; }
 .uncloned li .mono { font-size: 12px; overflow-wrap: anywhere; }
 .uncloned li .actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
 .toggle { text-align: center; }
 .failed { color: var(--danger); white-space: nowrap; }
-.link { border: 0; background: none; padding: 0; color: var(--ink-2); text-decoration: underline; cursor: pointer; font: inherit; }
+.link { border: 0; background: none; padding: 0; color: var(--fg-2); text-decoration: underline; cursor: pointer; font: inherit; }
 .editor td { background: var(--card); }
 form { display: flex; flex-direction: column; gap: 10px; }
-form label { font-weight: 500; color: var(--ink-2); }
+form label { font-weight: 500; color: var(--fg-2); }
 form .sub { margin: 0; }
 .row { display: flex; gap: 8px; }
 .row input {
   flex: 1;
   min-width: 0;
   height: 36px;
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border-2);
   border-radius: 6px;
   padding: 0 10px;
   font-size: 12px;
-  color: var(--ink);
+  color: var(--fg);
   background: var(--card);
 }
 .row .btn { white-space: nowrap; text-decoration: none; }
 .result p { margin: 0 0 4px; font-weight: 500; }
-.result ul { margin: 0; padding-left: 18px; color: var(--ink-2); }
+.result ul { margin: 0; padding-left: 18px; color: var(--fg-2); }
 .check { display: flex; align-items: center; gap: 8px; font-weight: 400; }
 .actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
 .actions .error { margin: 0 auto 0 0; }

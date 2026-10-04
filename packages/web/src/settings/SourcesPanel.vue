@@ -58,7 +58,7 @@ const poll = computed(() => status.value?.lastPoll);
 
 <style scoped>
 .list { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
-.line { color: var(--ink-2); }
+.line { color: var(--fg-2); }
 .failed { color: var(--danger); }
 .error { margin: 12px 0 0; color: var(--danger); }
 </style>

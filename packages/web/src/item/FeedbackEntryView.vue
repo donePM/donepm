@@ -32,7 +32,7 @@ const hunk = computed(() => props.entry.diffHunk?.split("\n").slice(-6).join("\n
 </template>
 
 <style scoped>
-.entry { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border-soft); }
+.entry { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
 .entry:first-child { border-top: 0; padding-top: 0; }
 .head { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
 .link { margin-left: 6px; font-size: 12px; }
@@ -41,7 +41,7 @@ const hunk = computed(() => props.entry.diffHunk?.split("\n").slice(-6).join("\n
   padding: 8px 10px;
   border-radius: 6px;
   background: var(--code-bg);
-  color: var(--code-ink);
+  color: var(--code-fg);
   font-size: 12px;
   white-space: pre;
   overflow: auto;

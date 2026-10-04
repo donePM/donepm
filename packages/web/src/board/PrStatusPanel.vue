@@ -73,15 +73,15 @@ async function setAuto(on: boolean) {
       <button v-if="conflicting && !writing" class="btn subtle ask" type="button" title="Ask the author to resolve the conflicts" @click="open">Ask author</button>
     </div>
     <form v-if="writing" class="comment" @submit.prevent="post">
-      <label :for="`pr-comment-${item.id}`" class="sr-only">Comment on the pull request</label>
+      <label :for="`pr-comment-${item.id}`" class="sr">Comment on the pull request</label>
       <textarea :id="`pr-comment-${item.id}`" v-model="body" class="textarea mono" rows="3"></textarea>
       <div class="actions">
-        <button class="btn btn-primary" type="submit" :disabled="posting || !body.trim()">{{ posting ? "Posting…" : "Post comment" }}</button>
+        <button class="btn primary" type="submit" :disabled="posting || !body.trim()">{{ posting ? "Posting…" : "Post comment" }}</button>
         <button class="btn subtle" type="button" :disabled="posting" @click="writing = false">Cancel</button>
       </div>
     </form>
     <div v-if="item.merge" class="merge">
-      <label :for="`merge-method-${item.id}`" class="sr-only">Merge method</label>
+      <label :for="`merge-method-${item.id}`" class="sr">Merge method</label>
       <select :id="`merge-method-${item.id}`" v-model="method" class="select" :disabled="merging">
         <option v-for="m in MERGE_METHODS" :key="m" :value="m">{{ m }}</option>
       </select>
@@ -106,13 +106,13 @@ async function setAuto(on: boolean) {
 <style scoped>
 .pr-status { display: flex; flex-direction: column; gap: 8px; }
 .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.chip { font-size: 11px; padding: 1px 7px; border-radius: 4px; border: 1px solid var(--border-soft); color: var(--ink-2); }
-.chip.tone-ok { color: var(--green); border-color: currentColor; }
+.chip { font-size: 11px; padding: 1px 7px; border-radius: 4px; border: 1px solid var(--border); color: var(--fg-2); }
+.chip.tone-ok { color: var(--ok); border-color: currentColor; }
 .chip.tone-bad { color: var(--danger); background: var(--danger-tint); border-color: transparent; }
-.chip.tone-wait { color: var(--amber); border-color: var(--amber-border); }
+.chip.tone-wait { color: var(--attn); border-color: var(--attn-border); }
 .ask { margin-left: auto; font-size: 12px; }
 .comment { display: flex; flex-direction: column; gap: 6px; }
 .actions { display: flex; gap: 6px; }
 .merge { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
-.auto { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-2); }
+.auto { display: inline-flex; align-items: center; gap: 4px; color: var(--fg-2); }
 </style>

@@ -99,7 +99,7 @@ watch([() => rows.value.length, live], async () => {
             <span class="id mono">{{ displayId(item.externalId) }}</span>
             <span class="title">{{ item.title }}</span>
             <span class="state" :class="{ asking: asking(item) }">
-              <span v-if="g.key === 'running'" class="dot dot-ok" aria-hidden="true"></span>{{ status(item) }}
+              <span v-if="g.key === 'running'" class="dot primary" aria-hidden="true"></span>{{ status(item) }}
             </span>
           </RouterLink>
         </template>
@@ -165,7 +165,7 @@ h2 {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--ink-2);
+  color: var(--fg-2);
 }
 .entry {
   display: flex;
@@ -173,18 +173,18 @@ h2 {
   gap: 4px;
   padding: 12px 16px;
   border-left: 3px solid transparent;
-  color: var(--ink);
+  color: var(--fg);
   text-decoration: none;
 }
-.entry:hover { background: var(--border-soft); color: var(--ink); }
-.entry.active { background: var(--blue-tint); border-left-color: var(--blue); }
-.entry .id { font-size: 12px; color: var(--ink-2); }
+.entry:hover { background: var(--muted); color: var(--fg); }
+.entry.active { background: var(--primary-tint); border-left-color: var(--primary); }
+.entry .id { font-size: 12px; color: var(--fg-2); }
 .entry .title { font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; }
-.entry .state { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); }
-.g-running .state { color: var(--blue); }
-.g-waiting .state { color: var(--amber); }
-.entry .state.asking { color: var(--amber); font-weight: 600; }
-.g-finished { color: var(--ink-2); }
+.entry .state { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-3); }
+.g-running .state { color: var(--primary); }
+.g-waiting .state { color: var(--attn); }
+.entry .state.asking { color: var(--attn); font-weight: 600; }
+.g-finished { color: var(--fg-2); }
 .g-finished .title { font-weight: 400; }
 .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .head {
@@ -198,12 +198,12 @@ h2 {
 }
 .titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .name { font-weight: 600; overflow-wrap: anywhere; }
-.sub { font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
+.sub { font-size: 12px; color: var(--fg-2); overflow-wrap: anywhere; }
 .actions { margin-left: auto; display: flex; gap: 8px; }
 .actions .btn { display: inline-flex; align-items: center; text-decoration: none; font-weight: 400; }
 .stop { color: var(--danger); }
 .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 20px; }
-.empty { margin: 0; padding: 0 16px; color: var(--ink-3); font-size: 13px; }
+.empty { margin: 0; padding: 0 16px; color: var(--fg-3); font-size: 13px; }
 .empty.pad { padding: 20px; }
 .scroll .empty { padding: 0; }
 .error { margin: 12px 20px 0; padding: 10px 14px; border-radius: 6px; background: var(--danger-tint); color: var(--danger); }

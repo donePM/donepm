@@ -72,14 +72,14 @@ onMounted(load);
 
 <style scoped>
 .group { margin-top: 16px; }
-h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--fg-2); }
 .list { list-style: none; margin: 0; padding: 0; }
-li { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--border-soft); }
+li { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--border); }
 li:last-child { border-bottom: 0; }
 .what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-code { padding: 0 4px; border-radius: 4px; background: var(--card-muted); border: 1px solid var(--border-soft); overflow-wrap: anywhere; }
-.raw { font-size: 11px; color: var(--ink-3); overflow-wrap: anywhere; }
-.meta { font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
+code { padding: 0 4px; border-radius: 4px; background: var(--muted); border: 1px solid var(--border); overflow-wrap: anywhere; }
+.raw { font-size: 11px; color: var(--fg-3); overflow-wrap: anywhere; }
+.meta { font-size: 12px; color: var(--fg-3); overflow-wrap: anywhere; }
 .none { margin-top: 12px; }
 .danger { flex: none; color: var(--danger); font-weight: 400; }
 .error { margin: 12px 0 0; color: var(--danger); }

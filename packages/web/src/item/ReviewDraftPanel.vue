@@ -89,12 +89,12 @@ const reject = () => run(async () => {
         <textarea v-model="reason" class="textarea" rows="3" placeholder="What should change (optional)"></textarea>
       </label>
       <div class="actions">
-        <button class="btn btn-danger" type="submit" :disabled="busy">Reject and send</button>
+        <button class="btn danger" type="submit" :disabled="busy">Reject and send</button>
         <button class="btn" type="button" :disabled="busy" @click="rejecting = false">Cancel</button>
       </div>
     </form>
     <div v-else class="actions">
-      <button class="btn btn-primary" type="button" :disabled="busy || posting" @click="approve">
+      <button class="btn primary" type="button" :disabled="busy || posting" @click="approve">
         {{ posting ? "Posting…" : publishError ? "Retry: approve and post" : "Approve and post" }}
       </button>
       <button
@@ -116,7 +116,7 @@ const reject = () => run(async () => {
 <style scoped>
 .draft {
   background: var(--card);
-  border: 1px solid var(--amber-border);
+  border: 1px solid var(--attn-border);
   border-radius: 8px;
   padding: 20px;
   display: flex;
@@ -125,16 +125,16 @@ const reject = () => run(async () => {
 }
 .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 h2 { margin: 0; font-size: 15px; font-weight: 600; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--ink-2); }
-.meta { font-size: 12px; color: var(--ink-3); }
-.verdict { font-size: 12px; font-weight: 500; padding: 1px 7px; border-radius: 4px; border: 1px solid var(--border-soft); color: var(--ink-2); }
-.v-APPROVE { color: #15803d; }
+h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--fg-2); }
+.meta { font-size: 12px; color: var(--fg-3); }
+.verdict { font-size: 12px; font-weight: 500; padding: 1px 7px; border-radius: 4px; border: 1px solid var(--border); color: var(--fg-2); }
+.v-APPROVE { color: var(--ok); }
 .v-REQUEST_CHANGES { color: var(--danger); }
-.dim { margin: 0; color: var(--ink-3); }
+.dim { margin: 0; color: var(--fg-3); }
 .comments { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
-.comments li { border-left: 2px solid var(--border-soft); padding-left: 12px; min-width: 0; }
-.where { font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
+.comments li { border-left: 2px solid var(--border); padding-left: 12px; min-width: 0; }
+.where { font-size: 12px; color: var(--fg-3); overflow-wrap: anywhere; }
 .reject { display: flex; flex-direction: column; gap: 10px; }
-.actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--border-soft); }
-.runs { margin-left: auto; font-size: 12px; color: var(--ink-3); }
+.actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--border); }
+.runs { margin-left: auto; font-size: 12px; color: var(--fg-3); }
 </style>

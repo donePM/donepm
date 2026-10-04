@@ -41,7 +41,7 @@ const shown = computed(() => filterArchive(archived.value, query.value));
   <div class="page">
     <header class="head">
       <h1>Archive</h1>
-      <label for="archive-search" class="sr-only">Search the archive</label>
+      <label for="archive-search" class="sr">Search the archive</label>
       <input id="archive-search" v-model="query" type="search" placeholder="Search by title or issue" class="search" />
     </header>
     <p v-if="error" class="error" role="alert">Could not load the archive: {{ error }}</p>
@@ -67,25 +67,24 @@ h1 { margin: 0; font-size: 18px; font-weight: 600; }
   min-width: 200px;
   height: 36px;
   padding: 0 12px;
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border-2);
   border-radius: 6px;
   background: var(--card);
-  color: var(--ink);
+  color: var(--fg);
   font: inherit;
   font-size: 13px;
 }
-.list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--card-muted); }
-.row { display: flex; align-items: baseline; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--border-soft); flex-wrap: wrap; }
+.list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--muted); }
+.row { display: flex; align-items: baseline; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--border); flex-wrap: wrap; }
 .row:first-child { border-top: none; }
-.id { flex: none; font-size: 12px; color: var(--ink-3); }
-.title { flex: 1; min-width: 0; color: var(--ink-2); text-decoration: none; overflow-wrap: anywhere; }
-.title:hover { color: var(--blue); text-decoration: underline; }
-.pr { font-size: 12px; color: var(--ink-3); text-decoration: none; }
-.pr:hover { color: var(--blue); text-decoration: underline; }
-.when { font-size: 12px; color: var(--ink-3); }
-.empty { margin: 0; padding: 12px 4px; color: var(--ink-3); font-size: 13px; }
+.id { flex: none; font-size: 12px; color: var(--fg-3); }
+.title { flex: 1; min-width: 0; color: var(--fg-2); text-decoration: none; overflow-wrap: anywhere; }
+.title:hover { color: var(--primary); text-decoration: underline; }
+.pr { font-size: 12px; color: var(--fg-3); text-decoration: none; }
+.pr:hover { color: var(--primary); text-decoration: underline; }
+.when { font-size: 12px; color: var(--fg-3); }
+.empty { margin: 0; padding: 12px 4px; color: var(--fg-3); font-size: 13px; }
 .error { margin: 0 0 12px; padding: 10px 14px; border-radius: 6px; background: var(--danger-tint); color: var(--danger); }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (max-width: 640px) {
   .page { padding: 16px; }
 }

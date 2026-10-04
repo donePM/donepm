@@ -36,7 +36,7 @@ async function act(fn: (id: string) => Promise<void>) {
     </div>
     <p class="hint">Fix with agent resumes its session with these checks and logs. It proposes the fix as a push draft.</p>
     <div class="actions">
-      <button class="btn btn-primary" type="button" :disabled="busy || !item.agentSessionId" @click="act(fixCi)">Fix with agent</button>
+      <button class="btn primary" type="button" :disabled="busy || !item.agentSessionId" @click="act(fixCi)">Fix with agent</button>
       <button v-if="failure.runs.length" class="btn" type="button" :disabled="busy" title="gh run rerun --failed" @click="act(rerunCi)">Rerun failed jobs</button>
       <button class="btn subtle" type="button" :disabled="busy" @click="act(markCiDone)">Mark done</button>
     </div>
@@ -54,19 +54,19 @@ async function act(fn: (id: string) => Promise<void>) {
 
 <style scoped>
 .needs, .panel { border-radius: 8px; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
-.needs { background: var(--amber-tint); border: 1px solid var(--amber-border); }
+.needs { background: var(--attn-tint); border: 1px solid var(--attn-border); }
 .panel { background: var(--card); border: 1px solid var(--border); }
 h2 { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
 h2 .lead { margin-right: 8px; vertical-align: middle; }
 h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
-.hint { margin: 0; font-size: 13px; color: var(--ink-2); }
+.hint { margin: 0; font-size: 13px; color: var(--fg-2); }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .log {
   margin: 0;
   padding: 10px 12px;
   border-radius: 6px;
   background: var(--code-bg);
-  color: var(--code-ink);
+  color: var(--code-fg);
   font-size: 12px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
