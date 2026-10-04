@@ -157,6 +157,14 @@ It needs the secret `HOMEBREW_TAP_TOKEN` (fine-grained, contents write on `homeb
 scripts/pack.sh 0.0.0       # the same tarball locally, in dist-release/
 ```
 
+### Dependency updates
+
+Dependabot opens one PR a week per ecosystem (npm, GitHub Actions) for minor and patch updates;
+majors get their own PR and stay open. `.github/workflows/dependabot-auto-merge.yml` turns on
+auto-merge for the minor and patch PRs, so they merge once CI is green. This needs "Allow
+auto-merge" in the repository settings and branch protection on `main` that requires the `test`
+checks; without required checks `gh pr merge --auto` merges immediately.
+
 ### Troubleshooting
 
 `pnpm dev` needs both ports free:
