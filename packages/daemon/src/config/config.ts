@@ -15,12 +15,14 @@ export function providerOf(origin: string): SourceProvider | undefined {
 
 /**
  * Per repository: which issues donePM collects (spec 4.6). `query` is the provider's search
- * string as pasted from its UI; without one the repo gets the default (assigned to me).
+ * string as pasted from its UI; without one the repo gets the default (assigned to me). `ignored`
+ * keeps the repo off the board: it is not polled and its items are hidden, nothing is deleted.
  */
 export const SourceSchema = z
   .object({
     query: z.string().trim().min(1).optional(),
     assignOnStart: z.boolean().default(false),
+    ignored: z.boolean().optional(),
   })
   .strict();
 
@@ -44,7 +46,7 @@ export const ConfigSchema = z
     maxConcurrentAgents: z.number().int().min(1).default(1),
     /** Remove a done item's clean worktree once the PR its draft opened is merged (D33). */
     removeWorktreeOnMerge: z.boolean().default(false),
-    /** Keyed by normalised origin. Replaced as a whole by `PUT /api/settings`. */
+    /** Keyed by normalised origin. Replaced as a whole by `PUT /api/settings`; `PUT /api/repos/:id` changes one entry. */
     sources: z.record(SourceKey, SourceSchema).default({}),
     /** WebFetch to these hosts (and their subdomains) is allowed by the daemon, not asked (D31). */
     allowedWebFetchDomains: z
