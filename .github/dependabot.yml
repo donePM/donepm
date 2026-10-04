@@ -1,0 +1,41 @@
+version: 2
+
+# Weekly, one PR per ecosystem for minor and patch updates; majors get their own PR.
+# dependabot-auto-merge.yml merges the minor/patch ones once CI is green.
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    commit-message:
+      prefix: deps
+    labels:
+      - dependencies
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+    ignore:
+      # packageManager is pinned by hand; a pnpm major changes the lockfile format and CI.
+      - dependency-name: pnpm
+        update-types: ["version-update:semver-major"]
+      # @types/node tracks engines.node (>=22) and the Node versions CI tests, not the latest Node.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    commit-message:
+      prefix: deps
+    labels:
+      - dependencies
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
