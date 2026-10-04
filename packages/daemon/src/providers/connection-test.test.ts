@@ -23,4 +23,15 @@ describe("testConnection", () => {
     );
     expect(r).toEqual({ ok: true, state: "ready", detail: "Dana Developer", deployment: "datacenter" });
   });
+
+  it("asks az, or the organization's API, who is signed in to Azure DevOps (issue #141)", async () => {
+    const exec = fakeExec({ "az --version": ok("azure-cli 2.70.0\n"), "az account show": ok(fixture("azure-devops/az-account-show.json")) });
+    const cli = { id: "ado", kind: "azure-devops", backend: "cli", host: "dev.azure.com", organization: "acme" } as const;
+    expect(await testConnection(cli, { exec, http: fakeHttp({}), tokens: memoryTokens() })).toEqual({ ok: true, state: "ready", detail: "jamal@acme.example" });
+
+    const http = fakeHttp({ "GET /acme/_apis/connectionData": json(fixture("azure-devops/connection-data.json")) });
+    const api = { ...cli, backend: "api" } as const;
+    expect(await testConnection(api, { exec: fakeExec({}), http, tokens: memoryTokens({ ado: "pat" }) })).toEqual({ ok: true, state: "ready", detail: "Jamal Hartnett" });
+    expect(await testConnection(api, { exec: fakeExec({}), http, tokens: memoryTokens() })).toMatchObject({ ok: false, state: "unauthorized" });
+  });
 });

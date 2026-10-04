@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { gitHubCliConnection } from "../gh/adapter.js";
 import { fakeExec } from "../test-support/fake-exec.js";
-import { hostOf, noConnection, providerRegistry } from "./registry.js";
+import { hostOf, noConnection, providerRegistry, type Connection } from "./registry.js";
 
 describe("hostOf", () => {
   it("reads the host of an origin and of a URL", () => {
@@ -30,5 +30,16 @@ describe("providerRegistry", () => {
 
   it("lists the ticket sources with their connection", () => {
     expect(providers.ticketSources().map((t) => t.connection.id)).toEqual(["github", "acme"]);
+  });
+
+  it("finds an Azure DevOps connection by organization, whichever host name a URL uses (issue #141)", () => {
+    const acmeAdo: Connection = { id: "ado", kind: "azure-devops", backend: "cli", host: "dev.azure.com", organization: "acme", codeHost: github.codeHost };
+    const other: Connection = { id: "ado2", kind: "azure-devops", backend: "cli", host: "dev.azure.com", organization: "contoso", codeHost: enterprise.codeHost };
+    const ado = providerRegistry([acmeAdo, other]);
+    expect(ado.codeHost("dev.azure.com/acme/platform/legacy")).toBe(github.codeHost);
+    expect(ado.codeHost("https://dev.azure.com/contoso/Web/_git/site/pullrequest/4")).toBe(enterprise.codeHost);
+    expect(ado.codeHost("https://acme.visualstudio.com/Platform/_git/legacy/pullrequest/4")).toBe(github.codeHost);
+    expect(ado.codeHost("dev.azure.com/fabrikam/web/site")).toBeUndefined();
+    expect(noConnection("dev.azure.com/fabrikam/web/site")).toBe("no connection for the Azure DevOps organization fabrikam");
   });
 });

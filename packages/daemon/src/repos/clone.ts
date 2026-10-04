@@ -1,6 +1,6 @@
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { normalizeOriginUrl, parseCloneOrigin, type CloneOrigin, type Ctx, type Repo } from "@donepm/core";
+import { cloneSegments, normalizeOriginUrl, parseCloneOrigin, type CloneOrigin, type Ctx, type Repo } from "@donepm/core";
 import type { Log } from "../log.js";
 import type { Exec } from "../process/exec.js";
 import { noConnection, type Providers } from "../providers/registry.js";
@@ -16,9 +16,12 @@ export class CloneError extends Error {
   }
 }
 
-/** `<root>/<owner>/<repo>`, where a clone of `origin` lands. */
+/**
+ * Where a clone of `origin` lands: `<root>/<owner>/<repo>` on github.com, `<root>/<host>/<path…>`
+ * on every other host (issue #141).
+ */
 export function cloneTarget(root: string, origin: CloneOrigin): string {
-  return join(root, origin.owner, origin.repo);
+  return join(root, ...cloneSegments(origin));
 }
 
 /** The origin parsed, when a connection serves its host as a code host (issues #37, #138). */
@@ -78,7 +81,7 @@ export interface CloneState {
 }
 
 /**
- * Clones a repository without a local clone into `<repoRoot>/<owner>/<repo>` through its code host
+ * Clones a repository without a local clone into its `cloneTarget` through its code host
  * and registers it directly, so the scan rules (hidden folders, `vendor`) do not matter. The click
  * is the user's decision and nothing is written to GitHub, so no draft (issue #37).
  */

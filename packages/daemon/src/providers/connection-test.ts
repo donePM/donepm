@@ -1,3 +1,4 @@
+import { azureDevOpsConnection } from "../azure/connection.js";
 import type { ConnectionConfig } from "../config/connections.js";
 import { detectGh } from "../gh/detect.js";
 import { jiraClient } from "../jira/client.js";
@@ -26,5 +27,10 @@ export async function testConnection(config: ConnectionConfig, deps: ProviderDep
     }
     case "jira":
       return testJira(jiraClient(config, deps.http, deps.tokens));
+    case "azure-devops": {
+      const c = azureDevOpsConnection({ ...deps, id: config.id, organization: config.organization, backend: config.backend });
+      const health = await c.health!();
+      return { ok: health.state === "ready", ...health };
+    }
   }
 }

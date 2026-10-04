@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { AGENT_KINDS, DEFAULT_WEB_FETCH_DOMAINS, isDomain, MERGE_METHODS, normalizeOriginUrl } from "@donepm/core";
+import { AGENT_KINDS, DEFAULT_WEB_FETCH_DOMAINS, isDomain, MERGE_METHODS, normalizeOriginUrl, parseAzureDevOpsOrigin } from "@donepm/core";
 import { z } from "zod";
 import { connectionFor, connectionsOf, ConnectionsSchema } from "./connections.js";
 
@@ -45,14 +45,20 @@ export const SourceSchema = z
 
 export type SourceSettings = z.infer<typeof SourceSchema>;
 
-/** A `sources` key: a normalised origin. Its host needs a connection; `ValidConfigSchema` checks that. */
-export const SourceKey = z.string().refine((k) => /^[^/\s]+\/[^/\s]+\/[^/\s]+$/.test(k) && normalizeOriginUrl(k) === k, {
+/**
+ * A `sources` key: a normalised origin, `host/owner/repo` or `dev.azure.com/org/project/repo`
+ * (issue #141), whose names may have blanks. Its host needs a connection; `ValidConfigSchema`
+ * checks that.
+ */
+export const SourceKey = z.string().refine((k) => normalizeOriginUrl(k) === k && (/^[^/\s]+\/[^/\s]+\/[^/\s]+$/.test(k) || parseAzureDevOpsOrigin(k) !== undefined), {
   message: "must be a normalised origin like github.com/owner/repo",
 });
 
 /** Why an origin cannot be a source or a clone: no connection serves its host (D50). */
 export function noConnectionFor(origin: string): string {
-  return `no connection for ${origin.split("/")[0]}; add one under "connections"`;
+  const azure = parseAzureDevOpsOrigin(origin);
+  const place = azure ? `the Azure DevOps organization ${azure.organization}` : origin.split("/")[0];
+  return `no connection for ${place}; add one under "connections"`;
 }
 
 export const ConfigSchema = z

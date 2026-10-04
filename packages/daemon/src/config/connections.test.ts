@@ -79,4 +79,42 @@ describe("connections", () => {
     const list = [...DEFAULT_CONNECTIONS, { id: "jira", kind: "jira", backend: "api", baseUrl: "https://acme.atlassian.net", deployment: "cloud", email: "dev@acme.test" } as const];
     expect(connectionFor(list, "acme.atlassian.net/acme/widgets")).toBeUndefined();
   });
+
+  it("takes an Azure DevOps organization through az or its API, on dev.azure.com (issue #141)", () => {
+    const r = parse([
+      { id: "github", kind: "github", host: "github.com" },
+      { id: "ado", kind: "azure-devops", organization: "Acme" },
+      { id: "contoso", kind: "azure-devops", backend: "api", organization: "contoso" },
+    ]);
+    expect(r.success && r.data.slice(1)).toEqual([
+      { id: "ado", kind: "azure-devops", backend: "cli", host: "dev.azure.com", organization: "acme" },
+      { id: "contoso", kind: "azure-devops", backend: "api", host: "dev.azure.com", organization: "contoso" },
+    ]);
+    expect(errors([{ id: "ado", kind: "azure-devops", organization: "acme", host: "acme.visualstudio.com" }])[0]).toMatch(/^0.host/);
+    expect(errors([{ id: "ado", kind: "azure-devops" }])[0]).toMatch(/^0.organization/);
+    expect(errors([{ id: "ado", kind: "azure-devops", organization: "acme corp" }])[0]).toMatch(/^0.organization/);
+  });
+
+  it("refuses an organization used twice, but lets organizations share dev.azure.com", () => {
+    expect(errors([
+      { id: "a", kind: "azure-devops", organization: "acme" },
+      { id: "b", kind: "azure-devops", organization: "contoso" },
+      { id: "c", kind: "azure-devops", backend: "api", organization: "acme" },
+    ])).toEqual(["2.organization: organization acme is used twice"]);
+  });
+
+  it("finds an Azure DevOps origin's connection by its organization", () => {
+    const list = [
+      { id: "github", kind: "github", backend: "cli", host: "github.com" },
+      { id: "ado", kind: "azure-devops", backend: "cli", host: "dev.azure.com", organization: "acme" },
+    ] as const;
+    expect(connectionFor(list, "dev.azure.com/acme/my project/legacy")?.id).toBe("ado");
+    expect(connectionFor(list, "dev.azure.com/contoso/web/site")).toBeUndefined();
+  });
+
+  it("takes Azure DevOps origins, blanks and all, as sources once a connection serves them", () => {
+    const config = (connection: object) => JSON.stringify({ connections: [connection], sources: { "dev.azure.com/acme/my project/legacy": { managed: true } } });
+    expect(parseConfig(config({ id: "ado", kind: "azure-devops", organization: "acme" })).sources).toHaveProperty(["dev.azure.com/acme/my project/legacy"]);
+    expect(() => parseConfig(config({ id: "github", kind: "github", host: "github.com" }))).toThrow(/Azure DevOps organization acme/);
+  });
 });
