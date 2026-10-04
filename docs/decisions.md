@@ -176,6 +176,19 @@ hold commits, drafts or a session the user still wants, so it keeps the badge an
 Dismiss, which moves it to Done (`item.dismissed`). Dismiss is refused while the agent runs; the
 user stops it first. Neither touches the worktree: removing it stays the user's button.
 
+**D33. A merged PR's worktree may go on its own, if the user opted in and nothing would be lost.**
+D13 keeps a worktree until its PR is merged; after that it only holds disk space and a stale
+checkout, and users forgot to press Remove (#47). With `removeWorktreeOnMerge` on (default off),
+each poll asks `gh pr view` for every done item that still has a worktree and an executed PR draft,
+until the PR is merged. Merged → the daemon removes the worktree with the same git call as the
+button and keeps the branch (`worktree.removed`, actor `system`, reason `pr_merged`). As with D28,
+turning the setting on is the user's approval; the PR state is a read and sends nothing out. The
+daemon never removes a worktree with uncommitted or untracked changes: it records
+`worktree.remove_skipped` once and the card says why; the next poll after the user cleans up removes
+it. Files that `.donepm/setup.yml` copied in (D25) do not count, since the setup copies them again.
+With the setting off the daemon only records `item.pr_merged` once, and the card says "PR merged".
+A worktree whose agent is running is never touched.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.
