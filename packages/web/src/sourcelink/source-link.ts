@@ -26,6 +26,7 @@ const RULES: readonly SourceRule[] = [
   { icon: "github", site: "GitHub", sources: ["github-issue", "github-pr"], hosts: ["github.com", "ghe.com"], anyHost: true },
   // Jira Data Center runs on a host of the company's choosing, like GitHub Enterprise Server.
   { icon: "ticket", site: "Jira", sources: ["jira-issue"], hosts: ["atlassian.net"], anyHost: true },
+  { icon: "ticket", site: "Azure Boards", sources: ["ado-work-item"], hosts: ["dev.azure.com", "visualstudio.com"] },
 ];
 
 function hostOf(url: string): string | undefined {

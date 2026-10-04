@@ -5,7 +5,8 @@ import { errorText, isPublishFailure } from "../api/errors";
 import type { TicketCommentDraft, TicketTransitionDraft } from "../api/types";
 
 /**
- * The agent asks to comment on its Jira ticket, or to move it to another status (issue #139).
+ * The agent asks to comment on its Jira ticket or Azure Boards work item, or to move it to another
+ * status (issues #139, #142).
  * Approving does it as the user and lets the agent go on; rejecting leaves the ticket as it is.
  */
 const props = defineProps<{
@@ -21,6 +22,8 @@ const emit = defineEmits<{ changed: [] }>();
 const move = computed(() => (props.draft.type === "ticket_transition" ? props.draft.payload : undefined));
 const key = computed(() => props.draft.payload.key);
 const url = computed(() => props.draft.payload.url);
+/** Where the ticket lives, named by its link. */
+const site = computed(() => (/(^|\.|\/)(dev\.azure\.com|visualstudio\.com)(\/|$)/.test(url.value ?? "") ? "Azure Boards" : "Jira"));
 const comment = computed(() => (props.draft.type === "ticket_comment" ? props.draft.payload.body : props.draft.payload.comment));
 const rejecting = ref(false);
 const reason = ref("");
@@ -73,8 +76,8 @@ const approveText = computed(() => {
       <span class="meta">Created by agent<template v-if="createdAt"> · {{ createdAt }}</template></span>
     </div>
     <p class="what">
-      <template v-if="move">Moves the ticket in Jira as you<template v-if="comment">, with this comment</template>.</template>
-      <template v-else>Posts this comment on the ticket in Jira as you.</template>
+      <template v-if="move">Moves the ticket in {{ site }} as you<template v-if="comment">, with this comment</template>.</template>
+      <template v-else>Posts this comment on the ticket in {{ site }} as you.</template>
       The agent then goes on with its work.
     </p>
     <p v-if="comment" class="body">{{ comment }}</p>

@@ -213,7 +213,7 @@ const TOOLS: ToolDef[] = [
     tool: {
       name: "ticket_transitions",
       description:
-        "List the transitions the Jira ticket of this item offers now: id, name and the status each leads to. " +
+        "List the transitions the Jira ticket or Azure Boards work item of this item offers now: id, name and the status each leads to. " +
         "Use it before draft_ticket_transition. Reads only.",
       inputSchema: { type: "object", properties: {} },
     },
@@ -236,7 +236,7 @@ const TOOLS: ToolDef[] = [
     tool: {
       name: "draft_ticket_comment",
       description:
-        "Propose a comment on this item's Jira ticket, e.g. a question for the reporter or a note on what you found. " +
+        "Propose a comment on this item's Jira ticket or Azure Boards work item, e.g. a question for the reporter or a note on what you found. " +
         "The user reviews it and donePM posts it; you cannot post yourself. Afterwards you get a message; go on with your work.",
       inputSchema: {
         type: "object",
@@ -255,7 +255,7 @@ const TOOLS: ToolDef[] = [
     tool: {
       name: "draft_ticket_transition",
       description:
-        "Propose moving this item's Jira ticket to another status, e.g. to In Review before you call draft_pr. " +
+        "Propose moving this item's Jira ticket or Azure Boards work item to another status, e.g. to In Review before you call draft_pr. " +
         "Name a transition ticket_transitions lists, by its id, its name or the status it leads to. The user reviews it and " +
         "donePM moves the ticket; you cannot do it yourself. Afterwards you get a message; go on with your work.",
       inputSchema: {

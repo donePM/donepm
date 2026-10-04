@@ -1,4 +1,4 @@
-import { isQuestionTool, parseRules, parseTicketId, priorityName, questionsOf, rawRule, repoName, toolSummary, type Event, type PermissionAsk } from "@donepm/core";
+import { isNumberKey, isQuestionTool, parseRules, parseTicketId, priorityName, questionsOf, rawRule, repoName, toolSummary, type Event, type PermissionAsk } from "@donepm/core";
 import { grantText } from "../asks/grant";
 import { askCopyText, askView } from "../asks/view";
 import { tokens } from "../time/duration";
@@ -132,7 +132,7 @@ export function splitActor(text: string, actor: Event["actor"]): { actor: string
 /** Where the item comes from, as its timeline names it: a ticket's tracker, or GitHub (issue #139). */
 interface Origin {
   site: string;
-  /** "issue" or "ticket" */
+  /** "issue", "ticket" or "work item" */
   noun: string;
   /** "on GitHub", "in Jira" */
   at: string;
@@ -140,11 +140,15 @@ interface Origin {
 
 const GITHUB: Origin = { site: "GitHub", noun: "issue", at: "on GitHub" };
 const JIRA: Origin = { site: "Jira", noun: "ticket", at: "in Jira" };
+const BOARDS: Origin = { site: "Azure Boards", noun: "work item", at: "in Azure Boards" };
 
 function originOf(events: readonly Event[]): Origin {
   const collected = events.find((e) => e.type === "item.collected");
   const id = collected && str(collected.payload.externalId);
-  return id && parseTicketId(id) ? JIRA : GITHUB;
+  const ticket = id ? parseTicketId(id) : undefined;
+  // A Jira key has letters; an Azure Boards work item is a number (issue #142).
+  if (!ticket) return GITHUB;
+  return isNumberKey(ticket.key) ? BOARDS : JIRA;
 }
 
 function entry(

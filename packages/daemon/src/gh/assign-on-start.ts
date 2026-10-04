@@ -14,7 +14,7 @@ export interface AssignDeps {
   ctx: Ctx;
   log: Log;
   sources: () => Config["sources"];
-  /** Jira searches; a ticket is assigned when one that found it for this repository opted in (issue #139). */
+  /** Ticket searches; a ticket is assigned when one that found it for this repository opted in (issues #139, #142). */
   ticketSources?: () => readonly TicketSourceConfig[];
 }
 
@@ -27,7 +27,7 @@ export async function assignOnStart(deps: AssignDeps, itemId: string, origin: st
   const stored = deps.items.get(itemId);
   // A pull request to review is someone else's; there is nothing to assign (D40).
   if (!stored || stored.item.source === "github-pr") return;
-  if (!optedIn(deps, stored.item.source, stored.item.externalId, origin)) return;
+  if (!optedIn(deps, stored.item.externalId, origin)) return;
   const tickets = ticketConnectionOf(deps.providers, { externalId: stored.item.externalId, origin })?.ticketSource;
   let result: Done;
   try {
@@ -47,8 +47,9 @@ export async function assignOnStart(deps: AssignDeps, itemId: string, origin: st
 }
 
 /** A GitHub issue follows its repository's setting; a ticket that of its connection's searches for this repository. */
-function optedIn(deps: AssignDeps, source: string, externalId: string, origin: string): boolean {
-  if (source !== "jira-issue") return deps.sources()[origin]?.assignOnStart === true;
+function optedIn(deps: AssignDeps, externalId: string, origin: string): boolean {
+  // Jira (issue #139) and Azure Boards (issue #142) tickets carry their connection in the id.
   const connection = parseTicketId(externalId)?.connection;
+  if (connection === undefined) return deps.sources()[origin]?.assignOnStart === true;
   return (deps.ticketSources?.() ?? []).some((e) => e.connection === connection && e.repos.includes(origin) && e.assignOnStart === true);
 }

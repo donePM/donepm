@@ -1,6 +1,7 @@
 import {
-  branchUpdatedMessage, branchUpdatePosted, draftApproved, draftExecuted, draftExecutionFailed, draftTitle, repliesPosted, reviewPosted,
-  ticketDraftPosted, ticketDraftPostedMessage, type CiPr, type Draft, type DraftReply, type PostedReply, type PrDraftPayload, type PrDraftResult, type WorkItem,
+  azureOrganizationOf, boardsWorkItemOf, branchUpdatedMessage, branchUpdatePosted, draftApproved, draftExecuted, draftExecutionFailed, draftTitle, repliesPosted,
+  reviewPosted, ticketDraftPosted, ticketDraftPostedMessage, type CiPr, type Draft, type DraftReply, type PostedReply, type PrDraftPayload, type PrDraftResult,
+  type WorkItem,
 } from "@donepm/core";
 import type { ResumeHow } from "../agent/start.js";
 import { requestBranchUpdate } from "../prs/update-branch.js";
@@ -71,7 +72,10 @@ export async function approveDraft(deps: ApproveDeps, draftId: string): Promise<
   let pr: CiPr;
   try {
     if (draft.type === "pr") {
-      result = await publish(deps.exec, codeHost(deps, "pr", repo.originUrl), { ...where, repo: repo.originUrl, payload: draft.userEdits ?? draft.payload });
+      // An Azure Repos PR links the work item of its own organization it was made for (issue #142).
+      const workItem = boardsWorkItemOf(item);
+      const linked = workItem && azureOrganizationOf(repo.originUrl) === workItem.organization ? { workItems: [workItem.id] } : {};
+      result = await publish(deps.exec, codeHost(deps, "pr", repo.originUrl), { ...where, repo: repo.originUrl, payload: draft.userEdits ?? draft.payload, ...linked });
       pr = result;
     } else if (draft.type === "push") {
       pr = { number: draft.payload.number, url: draft.payload.url };
@@ -256,10 +260,15 @@ async function pushCommits(exec: Exec, input: Where): Promise<{ sha: string }> {
   return { sha: head.stdout.trim() };
 }
 
-async function publish(exec: Exec, host: CodeHost, input: Where & { repo: string; payload: PrDraftPayload }): Promise<PrDraftResult> {
+async function publish(
+  exec: Exec,
+  host: CodeHost,
+  input: Where & { repo: string; payload: PrDraftPayload; workItems?: number[] },
+): Promise<PrDraftResult> {
   await commitAndPush(exec, input);
   const { title, body, base } = input.payload;
-  const created = await host.createPr({ origin: input.repo, head: input.branch, base, title, body, cwd: input.worktree });
+  const links = input.workItems ? { workItems: input.workItems } : {};
+  const created = await host.createPr({ origin: input.repo, head: input.branch, base, title, body, cwd: input.worktree, ...links });
   if (!created.ok) throw new ExecutionError("pr", created.error);
   return created.pr;
 }

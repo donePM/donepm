@@ -31,6 +31,11 @@ describe("sourceLink (#151)", () => {
     expect(sourceLink({ source: "jira-issue", externalUrl: "" })).toEqual({ icon: "ticket", site: "Jira" });
   });
 
+  it("marks Azure Boards work items (issue #142)", () => {
+    expect(sourceLink({ source: "ado-work-item", externalUrl: "https://dev.azure.com/acme/Platform/_workitems/edit/1234" })).toEqual({ icon: "ticket", site: "Azure Boards" });
+    expect(sourceLink({ source: "ado-work-item", externalUrl: "https://acme.visualstudio.com/Platform/_workitems/edit/1234" })).toEqual({ icon: "ticket", site: "Azure Boards" });
+  });
+
   it("falls back to the item's source when the URL has no host", () => {
     expect(sourceLink({ source: "github-pr", externalUrl: "" })).toEqual({ icon: "github", site: "GitHub" });
     expect(sourceLink({ source: "jira", externalUrl: "not a url" })).toEqual({ icon: "web", site: "the source" });

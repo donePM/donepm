@@ -1,5 +1,5 @@
 import {
-  draftCreated, draftEdited, draftRejected, draftTitle, executedPr, prTitleFor, replyThreads,
+  azureOrganizationOf, boardsWorkItemOf, draftCreated, draftEdited, draftRejected, draftTitle, executedPr, prTitleFor, replyThreads, withBoardsLink,
   type CommentDraft, type Ctx, type Draft, type DraftCommit, type DraftReply, type DraftType, type PrDraft, type PrDraftPayload,
   type PushDraft, type WorkItem,
 } from "@donepm/core";
@@ -42,11 +42,15 @@ export function createPrDraft(deps: DraftDeps, itemId: string, input: { title: s
 
   // A ticket's PR title starts with its key, which links the two in Jira (issue #139).
   const title = prTitleFor(item.externalId, input.title);
+  // A GitHub PR names its Azure Boards work item as AB#1234, which the Azure Boards app links;
+  // an Azure Repos one links it when it is created (issue #142).
+  const workItem = boardsWorkItemOf(item);
+  const body = workItem && azureOrganizationOf(repo.originUrl) === undefined ? withBoardsLink(input.body, workItem.id) : input.body;
   const draft: PrDraft = {
     id: deps.ctx.newId(),
     itemId,
     type: "pr",
-    payload: { title, body: input.body, base: repo.defaultBranch },
+    payload: { title, body, base: repo.defaultBranch },
     state: "pending",
   };
   deps.drafts.insert(draft, deps.ctx.now());

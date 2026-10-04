@@ -11,8 +11,8 @@ import { managedOrigins } from "../repos/managed.js";
 import type { RepoStore } from "../repos/store.js";
 import { TombstoneStore } from "../retention/tombstones.js";
 import type { SourcePollStatus, StatusStore } from "../status/status.js";
-import { hostOf, ticketConnectionOf, type Connection, type Providers } from "../providers/registry.js";
-import type { FetchedIssue, FetchResult, TicketRef, TicketSource, TicketState } from "../providers/ticket-source.js";
+import { hostOf, serves, ticketConnectionOf, type Connection, type Providers } from "../providers/registry.js";
+import type { FetchedIssue, FetchResult, Search, TicketRef, TicketSource, TicketState } from "../providers/ticket-source.js";
 import { detectHost, ghStatusOf } from "./host-status.js";
 import { githubHosts } from "./hosts.js";
 
@@ -35,8 +35,12 @@ export interface CollectDeps {
 
 const RAW_LOG_LIMIT = 10_000;
 
-/** Where a connection's tickets live: its host, or its id for one without a host. */
-const placeOf = (connection: Connection) => connection.host ?? connection.id;
+/**
+ * Where a connection's tickets live: its host, the organization on a host many share
+ * (`dev.azure.com/acme`, issue #142), or its id for one without a host.
+ */
+const placeOf = (connection: Connection) =>
+  connection.organization !== undefined && connection.host ? `${connection.host}/${connection.organization}` : connection.host ?? connection.id;
 
 /**
  * One poll cycle (spec 6.2): the default search (assigned to me), the pull requests that ask for
@@ -46,8 +50,9 @@ const placeOf = (connection: Connection) => connection.host ?? connection.id;
  * from the searches; the others found there are counted for Settings' discovered list.
  * Every GitHub host donePM works with is searched on its own (issue #140); a host whose `gh` is
  * logged out or fails is skipped and reported, and the others go on.
- * A Jira connection searches each of its `ticketSources` (issue #139); its tickets go to the
- * repositories named there, so they bypass the managed filter, and a 429 skips it for this poll.
+ * A Jira or Azure Boards connection searches each of its `ticketSources` (issues #139, #142); its
+ * tickets go to the repositories named there, so they bypass the managed filter, and a Jira 429
+ * skips it for this poll.
  * Never throws: failures are logged and recorded in the status, so Settings can show them.
  */
 export async function collectIssues(deps: CollectDeps): Promise<void> {
@@ -59,7 +64,19 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
     const stateOf = (host: string) => ghStatusOf(status.get(), host)?.state;
     for (const host of hosts) if (stateOf(host) !== "ready") await detectHost(exec, status, host);
     const isReady = (place: string) => !hosts.includes(place) || stateOf(place) === "ready";
-    const places = providers.ticketSources().map(({ connection }) => placeOf(connection));
+
+    const sourceConfig = deps.sources();
+    const managed = managedOrigins(sourceConfig);
+    // The searches are one call each per host however many repositories there are, and they find
+    // the repositories to offer; an unmanaged repository costs no call of its own.
+    const known = () => repos.all().map((r) => r.originUrl).filter((origin) => managed.has(origin));
+    const collected: Array<{ place: string; searches: Search[] }> = [];
+    for (const { connection, source } of providers.ticketSources()) {
+      const place = placeOf(connection);
+      if (isReady(place)) collected.push({ place, searches: await source.collect(known) });
+    }
+    // A connection with no search of its own (an Azure DevOps one without ticket sources) is no place to poll.
+    const places = [...new Set([...hosts, ...collected.filter((c) => c.searches.length > 0).map((c) => c.place)])];
     // github.com alone reads as before; with more hosts each label and error names its host.
     const named = (place: string, what?: string) =>
       places.length === 1 && place === GITHUB_COM ? what : what ? `${what} on ${place}` : place;
@@ -69,23 +86,20 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
       return;
     }
 
-    const sourceConfig = deps.sources();
     /** The place of a ticket id's connection (issue #139); undefined for a GitHub id. */
     const ticketPlace = (externalId: string): string | undefined => {
       const id = parseTicketId(externalId)?.connection;
       const c = id === undefined ? undefined : providers.connections.find((x) => x.id === id && x.ticketSource);
       return c && placeOf(c);
     };
-    const managed = managedOrigins(sourceConfig);
-    // The searches are one call each per host however many repositories there are, and they find
-    // the repositories to offer; an unmanaged repository costs no call of its own.
+    /** The place of a repository: that of the connection whose tickets it has, else its host. */
+    const originPlace = (origin: string): string => {
+      const c = providers.connections.find((x) => x.ticketSource && serves(x, origin));
+      return c ? placeOf(c) : hostOf(origin);
+    };
     const fetched: Array<{ place: string; origin?: string; label?: string; result: FetchResult }> = [];
     const mainOf = new Map<string, FetchResult>();
-    const known = () => repos.all().map((r) => r.originUrl).filter((origin) => managed.has(origin));
-    for (const { connection, source } of providers.ticketSources()) {
-      const place = placeOf(connection);
-      if (!isReady(place)) continue;
-      const searches = await source.collect(known);
+    for (const { place, searches } of collected) {
       if (searches[0]) mainOf.set(place, searches[0].result);
       for (const { label, result } of searches) {
         const text = named(place, label);
@@ -94,7 +108,7 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
     }
     for (const [origin, source] of Object.entries(sourceConfig)) {
       const tickets = providers.ticketSource(origin);
-      const place = hostOf(origin);
+      const place = originPlace(origin);
       if (source.query && managed.has(origin) && tickets && isReady(place)) fetched.push({ place, origin, result: await tickets.query(origin, source.query) });
     }
 
@@ -149,7 +163,7 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
     // have been asked. A ticket's place is its connection's, whatever repository it went to.
     const searched = new Set(fetched.map((f) => f.place));
     const answered = (ref: TicketRef) => {
-      const place = ticketPlace(ref.externalId) ?? hostOf(ref.origin);
+      const place = ticketPlace(ref.externalId) ?? (ref.origin ? originPlace(ref.origin) : undefined);
       return !!place && isReady(place) && searched.has(place) && !unanswered.has(place);
     };
     const missing = synced.missing.map((item) => {

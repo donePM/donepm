@@ -35,11 +35,11 @@ describe("azureApiHealth", () => {
 });
 
 describe("azureDevOpsConnection", () => {
-  it("serves one organization on dev.azure.com as a code host with a health check", () => {
+  it("serves one organization on dev.azure.com as a code host and ticket source with a health check", () => {
     const c = azureDevOpsConnection({ id: "ado", organization: "acme", backend: "api", exec: fakeExec({}), http: fakeHttp({}), tokens: memoryTokens() });
     expect(c).toMatchObject({ id: "ado", kind: "azure-devops", backend: "api", host: "dev.azure.com", organization: "acme" });
     expect(c.codeHost).toBeDefined();
-    expect(c.ticketSource).toBeUndefined();
+    expect(c.ticketSource).toBeDefined();
     expect(c.health).toBeTypeOf("function");
   });
 });

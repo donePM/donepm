@@ -1,0 +1,16 @@
+{
+  "queryType": "flat",
+  "queryResultType": "workItem",
+  "asOf": "2026-09-30T08:15:00.000Z",
+  "columns": [
+    { "referenceName": "System.Id", "name": "ID", "url": "https://dev.azure.com/acme/_apis/wit/fields/System.Id" }
+  ],
+  "sortColumns": [
+    { "field": { "referenceName": "System.ChangedDate", "name": "Changed Date", "url": "https://dev.azure.com/acme/_apis/wit/fields/System.ChangedDate" }, "descending": true }
+  ],
+  "workItems": [
+    { "id": 1234, "url": "https://dev.azure.com/acme/_apis/wit/workItems/1234" },
+    { "id": 1240, "url": "https://dev.azure.com/acme/_apis/wit/workItems/1240" },
+    { "id": 1250, "url": "https://dev.azure.com/acme/_apis/wit/workItems/1250" }
+  ]
+}

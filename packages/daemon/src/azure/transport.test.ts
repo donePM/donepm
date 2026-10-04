@@ -22,6 +22,14 @@ describe("azureApiTransport", () => {
     expect(http.requests[0]!.host).toBe("dev.azure.com");
   });
 
+  it("names the body's media type, JSON unless the call says otherwise", async () => {
+    const http = fakeHttp({ "PATCH /acme": json({ id: 7 }), "POST /acme": json({}) });
+    const send = azureApiTransport(http, "acme", memoryTokens({ ado: PAT }), "ado");
+    await send({ method: "PATCH", path: "_apis/wit/workitems/7", body: [], contentType: "application/json-patch+json" });
+    await send({ method: "POST", path: "_apis/wit/wiql", body: { query: "x" } });
+    expect(http.requests.map((r) => r.headers["content-type"])).toEqual(["application/json-patch+json", "application/json"]);
+  });
+
   it("calls nothing without a token", async () => {
     const http = fakeHttp({});
     expect(await azureApiTransport(http, "acme", memoryTokens(), "ado")({ method: "GET", path: "_apis/projects" }))
@@ -53,6 +61,12 @@ describe("azureCliTransport", () => {
       "rest", "--method", "POST", "--url", "https://dev.azure.com/acme/Platform/_apis/git/repositories/legacy/pullrequests?api-version=7.1",
       "--resource", AZURE_DEVOPS_RESOURCE, "--only-show-errors", "--headers", "Content-Type=application/json", "--body", '{"title":"-x"}',
     ]);
+  });
+
+  it("passes a named media type to az rest", async () => {
+    const exec = fakeExec({ "az rest": ok("{}") });
+    await azureCliTransport(exec, "acme")({ method: "PATCH", path: "_apis/wit/workitems/7", body: [], contentType: "application/json-patch+json" });
+    expect(exec.calls[0]!.args).toContain("Content-Type=application/json-patch+json");
   });
 
   it("fails with az's reason, or says az is missing", async () => {

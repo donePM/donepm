@@ -1,0 +1,9 @@
+{
+  "$id": "1",
+  "innerException": null,
+  "message": "TF51005: The query references a field that does not exist. The error is caused by «[System.Sprint]».",
+  "typeName": "Microsoft.TeamFoundation.WorkItemTracking.Server.Metadata.WorkItemTrackingFieldDefinitionNotFoundException, Microsoft.TeamFoundation.WorkItemTracking.Server",
+  "typeKey": "WorkItemTrackingFieldDefinitionNotFoundException",
+  "errorCode": 600171,
+  "eventId": 3200
+}

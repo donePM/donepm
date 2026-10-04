@@ -10,7 +10,7 @@ export type TicketDraftDeps = DraftDeps & { providers: Providers };
 /** The item's ticket and the source that can write to it; refused for an item that is no ticket. */
 export function ticketOf(providers: Providers, item: WorkItem): { ref: TicketRef; key: string; source: TicketSource } {
   const id = parseTicketId(item.externalId);
-  if (!id) throw new DraftError(409, "this item is not a Jira ticket; ticket drafts are for ticket items only");
+  if (!id) throw new DraftError(409, "this item is not a Jira ticket or Azure Boards work item; ticket drafts are for ticket items only");
   const ref = { externalId: item.externalId, origin: item.repoOrigin ?? "" };
   const source = ticketConnectionOf(providers, ref)?.ticketSource;
   if (!source?.comment || !source.transitions || !source.transition) throw new DraftError(409, `there is no connection "${id.connection}" that can write to the ticket`);

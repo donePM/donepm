@@ -121,7 +121,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
       <nav class="crumb" aria-label="Breadcrumb">
         <RouterLink to="/">← Board</RouterLink>
         <span aria-hidden="true">/</span>
-        <span class="mono">{{ displayId(detail.externalId).replace("#", " #") }}</span>
+        <span class="mono">{{ displayId(detail.externalId).replace(/(\S)#/, "$1 #") }}</span>
         <span class="badge state" :class="BADGE_TONE[detail.state]"><CiPendingDot v-if="detail.state === 'checking'" />{{ badge }}</span>
       </nav>
       <div class="title">
@@ -235,8 +235,8 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
               <p v-if="retryError" class="alert" role="alert">{{ retryError }}</p>
             </section>
             <section v-if="detail.body.trim()" class="panel" aria-labelledby="issue-h">
-              <h2 id="issue-h">{{ detail.source === "github-pr" ? "Pull request" : detail.source === "jira-issue" ? "Ticket" : "Issue" }}</h2>
-              <MarkdownView class="body" :source="detail.body" :repo="repo" :no-references="detail.source === 'jira-issue'" />
+              <h2 id="issue-h">{{ detail.source === "github-pr" ? "Pull request" : detail.source === "jira-issue" ? "Ticket" : detail.source === "ado-work-item" ? "Work item" : "Issue" }}</h2>
+              <MarkdownView class="body" :source="detail.body" :repo="repo" :no-references="detail.source === 'jira-issue' || detail.source === 'ado-work-item'" />
             </section>
           </template>
           <DiffPanel v-else-if="tab === 'changes' && detail.worktreePath" :diff="diff" :loading="diffLoading" :error="diffError" @refresh="reloadDiff" />

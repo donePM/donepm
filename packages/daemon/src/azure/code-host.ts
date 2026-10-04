@@ -57,6 +57,7 @@ export function azureDevOpsCodeHost(exec: Exec, transport: AzureTransport): Code
           targetRefName: `refs/heads/${input.base}`,
           title: input.title,
           description: azurePrDescription(input.body),
+          ...(input.workItems?.length ? { workItemRefs: input.workItems.map((id) => ({ id: String(id) })) } : {}),
         },
       });
       if (!r.ok) return r;

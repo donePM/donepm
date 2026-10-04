@@ -11,7 +11,10 @@ import { jiraConnection } from "../jira/connection.js";
 import { providerRegistry } from "../providers/registry.js";
 import { RepoStore } from "../repos/store.js";
 import { testCtx } from "../test-support/ctx.js";
-import { fixture } from "../test-support/fake-exec.js";
+import { azureDevOpsConnection } from "../azure/connection.js";
+import { DEFAULT_PROJECT_WIQL } from "../config/ticket-sources.js";
+import { boardsHttp, requestLines } from "../test-support/azure-boards.js";
+import { fakeExec, fixture } from "../test-support/fake-exec.js";
 import { fakeHttp, json } from "../test-support/fake-http.js";
 import { memoryTokens } from "../test-support/fake-tokens.js";
 import { ticketRoutes } from "./ticket-routes.js";
@@ -80,5 +83,16 @@ describe("ticket routes (issue #139)", () => {
     expect(new URL(`https://x${http.requests[0]!.path}`).searchParams.get("jql")).toBe("project = APP");
     const unknown = await server.inject({ method: "POST", url: "/api/ticket-sources/test", payload: { connection: "jira-2" } });
     expect(unknown.statusCode).toBe(409);
+  });
+
+  it("tests an Azure Boards source with the default WIQL in its project (issue #142)", async () => {
+    const http = boardsHttp();
+    const server = Fastify();
+    const ado = azureDevOpsConnection({ id: "ado", organization: "acme", backend: "api", exec: fakeExec({}), http, tokens: memoryTokens({ ado: "pat" }) });
+    ticketRoutes(server, { providers: providerRegistry([ado]), chooseRepo: () => { throw new Error("unused"); }, view: (i) => i });
+    const r = await server.inject({ method: "POST", url: "/api/ticket-sources/test", payload: { connection: "ado", project: "Platform" } });
+    expect(r.json()).toMatchObject({ ok: true, count: 2, issues: [{ externalId: "ado:1234" }, { externalId: "ado:1240" }] });
+    expect(requestLines(http.requests)[0]).toBe("POST /acme/platform/_apis/wit/wiql");
+    expect(http.requests[0]!.body).toEqual({ query: DEFAULT_PROJECT_WIQL });
   });
 });

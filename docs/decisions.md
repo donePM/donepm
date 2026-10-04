@@ -692,6 +692,25 @@ Markdown and converted per deployment with established libraries (`marklassian` 
 `jira2md` for Data Center's wiki markup). Neither draft ends the agent's work, so after one the
 agent goes on, as after `update_branch` (D47).
 
+**D57. Azure Boards work items: the same ticket source, categories decide what is finished.**
+Issue #142. A work item's id is `<connection>:<id>` (`ado:1234`) as for Jira (D55); a numeric key
+tells it apart and shows as `#1234`. Boards uses the `azure-devops` connection of D52 and its
+transport: `az rest` rather than `az boards`, so both backends send the same REST calls, the
+fixtures serve both, and no extension is needed.
+
+- WIQL cannot ask for a state category, so the default query leaves out the common finished
+  state names and the results are filtered by the category of their state, read per type and
+  kept. `Completed` and `Removed` are finished; an unknown category counts as open, so a custom
+  process loses nothing silently.
+- A work item is linked to its PR by the host's own mechanism: `AB#<id>` in a GitHub PR's
+  description, `workItemRefs` on an Azure Repos PR of the same organization. The agent's PR title
+  is left alone.
+- A state change with a comment is two calls (state patch, then the Markdown comments API), not
+  atomic: a failed comment says the state already moved.
+- Comments and state changes reach Azure Boards only as the ticket drafts of D56. Boards lets a
+  work item go to any state of its type, so every other state is offered as a transition, its
+  id the state's name.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

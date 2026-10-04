@@ -27,6 +27,8 @@ export interface PrCreate {
   body: string;
   /** The item's worktree. */
   cwd: string;
+  /** Azure Boards work items the PR links, on an Azure Repos repository of their organization (issue #142). */
+  workItems?: number[];
 }
 
 /**

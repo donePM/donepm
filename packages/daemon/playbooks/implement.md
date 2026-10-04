@@ -37,7 +37,7 @@ Labels: {{ labels }}
    comments with thread numbers. Change what needs changing, run the tests, commit, and call
    `draft_push` with `replies` that answer the reviewers. If no code needs to change, call
    `draft_comment` with the replies instead.
-10. For a Jira ticket you can also propose a comment on it with `draft_ticket_comment`, and a move
+10. For a Jira ticket or an Azure Boards work item you can also propose a comment on it with `draft_ticket_comment`, and a move
     to another status with `draft_ticket_transition` (`ticket_transitions` lists the moves it
     offers). The user approves each; then you go on. Propose a move before `draft_pr`, and only
     when the user or the ticket asks for one.
@@ -45,7 +45,7 @@ Labels: {{ labels }}
 ## Rules
 
 - Do not run `gh`, `git push`, or any command that sends data off this machine. The user will
-  review your draft and publish it. If you need something from GitHub or Jira that is not in the
+  review your draft and publish it. If you need something from GitHub, Jira or Azure Boards that is not in the
   issue, say so in your final message.
 - Do not change files outside this worktree.
 - If you need a decision from the user, stop and ask. Do not pick silently.

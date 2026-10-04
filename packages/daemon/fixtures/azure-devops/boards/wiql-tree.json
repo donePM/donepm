@@ -1,0 +1,13 @@
+{
+  "queryType": "tree",
+  "queryResultType": "workItemLink",
+  "asOf": "2026-09-30T08:15:00.000Z",
+  "columns": [
+    { "referenceName": "System.Id", "name": "ID", "url": "https://dev.azure.com/acme/_apis/wit/fields/System.Id" }
+  ],
+  "workItemRelations": [
+    { "rel": null, "source": null, "target": { "id": 1240, "url": "https://dev.azure.com/acme/_apis/wit/workItems/1240" } },
+    { "rel": "System.LinkTypes.Hierarchy-Forward", "source": { "id": 1240, "url": "https://dev.azure.com/acme/_apis/wit/workItems/1240" }, "target": { "id": 1234, "url": "https://dev.azure.com/acme/_apis/wit/workItems/1234" } },
+    { "rel": "System.LinkTypes.Hierarchy-Forward", "source": { "id": 1240, "url": "https://dev.azure.com/acme/_apis/wit/workItems/1240" }, "target": { "id": 1250, "url": "https://dev.azure.com/acme/_apis/wit/workItems/1250" } }
+  ]
+}

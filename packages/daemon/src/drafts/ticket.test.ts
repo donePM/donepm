@@ -64,7 +64,7 @@ describe("createTicketCommentDraft (issue #139)", () => {
   it("refuses a GitHub issue", () => {
     const t = draftStores();
     const deps = { ...t.deps, providers: providerRegistry([]) };
-    expect(() => createTicketCommentDraft(deps, "item-1", { body: "x" })).toThrow("this item is not a Jira ticket");
+    expect(() => createTicketCommentDraft(deps, "item-1", { body: "x" })).toThrow("this item is not a Jira ticket or Azure Boards work item");
     expect(t.state()).toBe("running");
   });
 

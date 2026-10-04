@@ -5,16 +5,23 @@ import type { TicketSourceSettings, TicketSourceTest } from "../../api/types";
 import { repoName } from "../../board/lanes";
 import IconTicket from "../../icons/IconTicket.vue";
 import { repos, saveErrorText, saveSettings, settings } from "../store";
-import { DEFAULT_JQL, entryProblem, jiraConnections, jiraSearchUrl, repoOrigins, withoutTicketSource, withTicketSource } from "./ticket-sources";
+import { defaultQuery, entryProblem, jiraSearchUrl, queryLanguage, repoOrigins, ticketConnections, withoutTicketSource, withTicketSource } from "./ticket-sources";
 
 /**
- * Jira queries and the repositories their tickets are worked in (issue #139). A ticket of one
- * repository goes there; of several, the user picks one on its card.
+ * Jira and Azure Boards queries and the repositories their tickets are worked in (issues #139,
+ * #142). A ticket of one repository goes there; of several, the user picks one on its card.
  */
-const connections = computed(() => jiraConnections(settings.value));
+const connections = computed(() => ticketConnections(settings.value));
 const list = computed(() => settings.value?.ticketSources ?? []);
 const origins = computed(() => repoOrigins(repos.value));
-const baseUrlOf = (id: string) => connections.value.find((c) => c.id === id)?.baseUrl;
+const connectionOf = (id: string) => connections.value.find((c) => c.id === id);
+const kindOf = (id: string) => connectionOf(id)?.kind;
+const baseUrlOf = (id: string) => {
+  const c = connectionOf(id);
+  return c?.kind === "jira" ? c.baseUrl : undefined;
+};
+const describe = (c: (typeof connections.value)[number]) => (c.kind === "jira" ? c.baseUrl : `Azure DevOps ${c.organization}`);
+const isAzure = computed(() => kindOf(form.connection) === "azure-devops");
 
 const busy = ref<string>();
 const error = ref<string>();
@@ -22,7 +29,7 @@ const tests = reactive<Record<string, TicketSourceTest | { ok: false; error: str
 
 /** The entry being edited: its index, or "new". */
 const editing = ref<number | "new">();
-const form = reactive<TicketSourceSettings>({ connection: "", query: "", repos: [], assignOnStart: false });
+const form = reactive<TicketSourceSettings>({ connection: "", query: "", project: "", repos: [], assignOnStart: false });
 const formProblem = computed(() => entryProblem(form));
 
 function edit(index: number | "new") {
@@ -30,6 +37,7 @@ function edit(index: number | "new") {
   Object.assign(form, {
     connection: e?.connection ?? connections.value[0]?.id ?? "",
     query: e?.query ?? "",
+    project: e?.project ?? "",
     repos: [...(e?.repos ?? [])],
     assignOnStart: e?.assignOnStart ?? false,
   });
@@ -54,15 +62,17 @@ async function save(key: string, ticketSources: TicketSourceSettings[]) {
 async function submit() {
   if (formProblem.value || editing.value === undefined) return;
   const index = editing.value === "new" ? undefined : editing.value;
-  if (await save("form", withTicketSource(list.value, { ...form, repos: [...form.repos] }, index))) editing.value = undefined;
+  const entry = { ...form, repos: [...form.repos], ...(isAzure.value ? {} : { project: "" }) };
+  if (await save("form", withTicketSource(list.value, entry, index))) editing.value = undefined;
 }
 
 const remove = (i: number) => save(`remove:${i}`, withoutTicketSource(list.value, i));
 
-async function test(key: string, connection: string, query: string | undefined) {
+async function test(key: string, connection: string, query: string | undefined, project: string | undefined) {
   busy.value = `test:${key}`;
   try {
-    tests[key] = await api.testTicketSource(connection, query?.trim() || undefined);
+    const inProject = kindOf(connection) === "azure-devops" ? project?.trim() || undefined : undefined;
+    tests[key] = await api.testTicketSource(connection, query?.trim() || undefined, inProject);
   } catch (e) {
     tests[key] = { ok: false, error: saveErrorText(e) };
   } finally {
@@ -80,20 +90,21 @@ function testText(t: TicketSourceTest | { ok: false; error: string }): string {
   <section v-if="connections.length" class="panel">
     <h2><IconTicket />Ticket sources</h2>
     <p class="sub">
-      Jira queries donePM collects tickets with, and the repositories their work goes to. A ticket of several repositories waits on the board until you
+      Jira and Azure Boards queries donePM collects tickets with, and the repositories their work goes to. A ticket of several repositories waits on the board until you
       choose one.
     </p>
     <p v-if="error" class="alert" role="alert">{{ error }}</p>
     <div v-for="(e, i) in list" :key="i" class="status-row">
       <div class="w">
         <div class="h">
-          <span class="mono">{{ e.query || DEFAULT_JQL }}</span>
+          <span class="mono">{{ e.query || defaultQuery(kindOf(e.connection), e.project) }}</span>
           <span class="badge muted mono">{{ e.connection }}</span>
+          <span v-if="e.project" class="badge muted">{{ e.project }}</span>
           <span v-if="e.assignOnStart" class="badge muted">assign on start</span>
         </div>
         <div class="d mono">{{ e.repos.map(repoName).join(", ") }}</div>
         <div class="row" style="margin-top: 6px">
-          <button class="btn sm" type="button" :disabled="busy !== undefined" @click="test(String(i), e.connection, e.query)">
+          <button class="btn sm" type="button" :disabled="busy !== undefined" @click="test(String(i), e.connection, e.query, e.project)">
             {{ busy === `test:${i}` ? "Testing…" : "Test" }}
           </button>
           <a v-if="baseUrlOf(e.connection)" class="btn sm" :href="jiraSearchUrl(baseUrlOf(e.connection)!, e.query)" target="_blank" rel="noreferrer">Open in Jira ↗</a>
@@ -110,12 +121,16 @@ function testText(t: TicketSourceTest | { ok: false; error: string }): string {
       <label v-if="connections.length > 1" class="field">
         <span>Connection</span>
         <select v-model="form.connection" class="select">
-          <option v-for="c in connections" :key="c.id" :value="c.id">{{ c.id }} · {{ c.baseUrl }}</option>
+          <option v-for="c in connections" :key="c.id" :value="c.id">{{ c.id }} · {{ describe(c) }}</option>
         </select>
       </label>
+      <label v-if="isAzure" class="field">
+        <span>Project</span>
+        <input v-model="form.project" class="input" type="text" placeholder="All projects of the organization" />
+      </label>
       <label class="field">
-        <span>JQL</span>
-        <textarea v-model="form.query" class="input mono" rows="2" :placeholder="DEFAULT_JQL"></textarea>
+        <span>{{ queryLanguage(kindOf(form.connection)) }}</span>
+        <textarea v-model="form.query" class="input mono" rows="2" :placeholder="defaultQuery(kindOf(form.connection), form.project)"></textarea>
       </label>
       <fieldset class="field repos">
         <legend>Repositories</legend>
@@ -125,11 +140,11 @@ function testText(t: TicketSourceTest | { ok: false; error: string }): string {
         <span v-if="!origins.length" class="help">No local clone yet: clone a repository first (Settings › Repositories).</span>
       </fieldset>
       <label class="check">
-        <input v-model="form.assignOnStart" type="checkbox" /> Assign the ticket to me in Jira when its agent starts
+        <input v-model="form.assignOnStart" type="checkbox" /> Assign the ticket to me in {{ isAzure ? "Azure Boards" : "Jira" }} when its agent starts
       </label>
       <div class="row">
         <button class="btn sm primary" type="submit" :disabled="busy !== undefined || !!formProblem" :title="formProblem">{{ busy === "form" ? "Saving…" : "Save" }}</button>
-        <button class="btn sm" type="button" :disabled="busy !== undefined || !form.connection" @click="test('form', form.connection, form.query)">
+        <button class="btn sm" type="button" :disabled="busy !== undefined || !form.connection" @click="test('form', form.connection, form.query, form.project)">
           {{ busy === "test:form" ? "Testing…" : "Test" }}
         </button>
         <a v-if="baseUrlOf(form.connection)" class="btn sm" :href="jiraSearchUrl(baseUrlOf(form.connection)!, form.query)" target="_blank" rel="noreferrer">Open in Jira ↗</a>
