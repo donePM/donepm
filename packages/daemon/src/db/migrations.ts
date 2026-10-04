@@ -232,4 +232,7 @@ export const MIGRATIONS: readonly Migration[] = [
   ALTER TABLE asks ADD COLUMN agent_kind TEXT;
   ALTER TABLE asks ADD COLUMN subject TEXT;
   `,
+  // Whose protocol a transcript line is in (issue #136). NULL: the daemon's own line, or Claude Code's
+  // from before agents had a kind.
+  `ALTER TABLE transcript ADD COLUMN agent_kind TEXT;`,
 ];

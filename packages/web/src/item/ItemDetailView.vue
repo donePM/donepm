@@ -155,6 +155,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
                 :ask-id="a.id"
                 :tool-name="a.toolName"
                 :input="a.input"
+                :subject="a.subject"
                 :rules="a.rules"
                 :reason="a.reason"
                 :worktree="detail.worktreePath"

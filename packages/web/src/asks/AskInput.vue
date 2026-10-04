@@ -1,12 +1,13 @@
 <script setup lang="ts">
+import type { AskSubject } from "@donepm/core";
 import { computed, ref } from "vue";
 import DiffView from "../transcript/DiffView.vue";
 import { askCopyText, askView } from "./view";
 
-const props = defineProps<{ toolName: string; input: unknown; worktree?: string }>();
+const props = defineProps<{ toolName: string; input: unknown; subject?: AskSubject; worktree?: string }>();
 
 /** Everything the agent wants to run or change, never cut (issue #67). */
-const view = computed(() => askView(props.toolName, props.input, props.worktree));
+const view = computed(() => askView(props.toolName, props.input, props.worktree, props.subject));
 
 const copied = ref(false);
 async function copy() {

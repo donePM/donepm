@@ -547,6 +547,7 @@ export class AgentRunner {
       sessionId: session.sessionId ?? "",
       at: this.deps.ctx.now(),
       kind,
+      ...(session.adapter ? { agentKind: session.adapter.kind } : {}),
       raw,
     };
     this.deps.transcript.append(msg);

@@ -35,7 +35,7 @@ function askCode(ask: PermissionAsk | undefined, fallbackTool: unknown): string 
 /** The ask's whole input for the tooltip, only when the one-line summary leaves something out. */
 function askFull(ask: PermissionAsk | undefined): { full?: string } {
   if (!ask) return {};
-  const full = askCopyText(askView(ask.toolName, ask.input));
+  const full = askCopyText(askView(ask.toolName, ask.input, undefined, ask.subject));
   return full && full !== toolSummary(ask.toolName, ask.input) ? { full } : {};
 }
 

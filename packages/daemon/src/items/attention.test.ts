@@ -17,7 +17,7 @@ const live = { agentAlive: true, hasSession: true };
 describe("attentionOf", () => {
   it("puts a pending question before a pending draft", () => {
     expect(attentionOf({ ...live, state: "needs_you", asks: [ask("allowed"), ask("pending")], drafts: [draft()], events: [] })).toEqual({
-      kind: "ask", askId: "ask-pending", toolName: "Bash", input: { command: "ls" }, rules: [],
+      kind: "ask", askId: "ask-pending", toolName: "Bash", input: { command: "ls" }, subject: { kind: "command", command: "ls" }, rules: [],
     });
   });
 

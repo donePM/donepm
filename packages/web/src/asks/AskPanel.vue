@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { isQuestionTool, questionsOf, type Answers } from "@donepm/core";
+import { claudeAskSubject, type Answers, type AskSubject } from "@donepm/core";
 import { computed, ref } from "vue";
 import { api } from "../api/client";
 import { errorText } from "../api/errors";
@@ -14,6 +14,8 @@ const props = defineProps<{
   askId: string;
   toolName: string;
   input: unknown;
+  /** What the ask is about (issue #136); absent: derived from Claude Code's tool name and input. */
+  subject?: AskSubject;
   rules?: PermissionRule[];
   /** The CLI's `decision_reason`. */
   reason?: string;
@@ -28,8 +30,9 @@ const emit = defineEmits<{ answered: [] }>();
 
 const reasonText = computed(() => askReason(props.reason));
 
-/** The Bash sandbox asks before any connection (D27); say so in words. */
-const network = computed(() => props.toolName === "SandboxNetworkAccess");
+const subject = computed(() => props.subject ?? claudeAskSubject(props.toolName, props.input));
+/** A connection that is not a fetch of one URL, e.g. the Bash sandbox's (D27); say so in words. */
+const network = computed(() => subject.value.kind === "network" && subject.value.url === undefined);
 const label = computed(() => (network.value ? "Network access" : props.toolName));
 
 /** What "Allow for this run" adds; no button when the CLI suggested nothing we may grant. */
@@ -39,8 +42,8 @@ const grantShown = computed(() => grantWords(props.rules ?? []));
 /** `owner/repo` for "Always allow in …"; no button without a repository. */
 const repoName = computed(() => (props.repo ? `${props.repo.owner}/${props.repo.name}` : undefined));
 
-/** AskUserQuestion: Allow alone is no answer; the user answers in a dialog or declines (spec 9.4). */
-const questions = computed(() => (isQuestionTool(props.toolName) ? questionsOf(props.input) : []));
+/** Questions: Allow alone is no answer; the user answers in a dialog or declines (spec 9.4). */
+const questions = computed(() => (subject.value.kind === "question" ? subject.value.questions : []));
 const asking = ref(false);
 
 const denying = ref(false);
@@ -79,7 +82,7 @@ async function answer(behavior: "allow" | "deny", scope?: "run" | "always", answ
     </ul>
     <template v-else>
       <p class="head"><span class="tool-name mono">{{ label }}</span><span v-if="reasonText" class="reason">{{ reasonText }}</span></p>
-      <AskInput :tool-name="toolName" :input="input" :worktree="worktree" />
+      <AskInput :tool-name="toolName" :input="input" :subject="subject" :worktree="worktree" />
     </template>
     <p v-if="network" class="hint">
       A command wants to connect to this host. Publishing goes through drafts; allow only what the work needs.

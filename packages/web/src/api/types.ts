@@ -1,5 +1,5 @@
 import type {
-  CheckLog, CiPr, CommentDraft, Draft, DraftReply, DraftType, Event, FailedCheck, FeedbackEntry, MergeMethod, PermissionAsk, PermissionRule, Playbook, PrDraft,
+  AskSubject, CheckLog, CiPr, CommentDraft, Draft, DraftReply, DraftType, Event, FailedCheck, FeedbackEntry, MergeMethod, PermissionAsk, PermissionRule, Playbook, PrDraft,
   PrDraftPayload, PushDraft, PrDraftResult, PrMerge, Repo, ReviewDraft, TranscriptMessage, UpdateBranchDraft, WorkItem,
 } from "@donepm/core";
 
@@ -32,7 +32,7 @@ export interface AgentView {
 
 /** What a Needs You card shows. */
 export type Attention =
-  | { kind: "ask"; askId: string; toolName: string; input: unknown; rules: PermissionRule[]; reason?: string }
+  | { kind: "ask"; askId: string; toolName: string; input: unknown; subject: AskSubject; rules: PermissionRule[]; reason?: string }
   | { kind: "draft"; draftId: string; draftType: DraftType; title: string; executing?: true; error?: string }
   | { kind: "ci_failed"; pr?: CiPr; failed: FailedCheck[]; logs: CheckLog[]; runs: string[] }
   | { kind: "pr_conflict"; pr: CiPr; base: string; files: string[] }

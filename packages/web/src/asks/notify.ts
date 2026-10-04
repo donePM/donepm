@@ -1,3 +1,4 @@
+import type { AskSubject } from "@donepm/core";
 import type { ItemView } from "../api/types";
 import { askCopyText, askView } from "./view";
 
@@ -16,8 +17,8 @@ export const NOTIFIED_LIMIT = 200;
 const oneLine = (text: string): string => text.split("\n").find((l) => l.trim() !== "")?.trim() ?? "";
 
 /** "Bash: pnpm test", "WebFetch: https://…", or just the tool when the input has no short form. */
-export function askSummary(toolName: string, input: unknown): string {
-  const view = askView(toolName, input);
+export function askSummary(toolName: string, input: unknown, subject?: AskSubject): string {
+  const view = askView(toolName, input, undefined, subject);
   const detail = view.kind === "json" ? "" : oneLine(askCopyText(view) ?? "");
   const text = detail.length > 120 ? `${detail.slice(0, 119)}…` : detail;
   return text ? `${toolName}: ${text}` : toolName;
@@ -28,7 +29,7 @@ export function pendingAsks(items: readonly ItemView[]): PendingAsk[] {
   const out: PendingAsk[] = [];
   for (const item of items) {
     const a = item.attention;
-    if (a?.kind === "ask") out.push({ askId: a.askId, itemId: item.id, title: item.title, summary: askSummary(a.toolName, a.input) });
+    if (a?.kind === "ask") out.push({ askId: a.askId, itemId: item.id, title: item.title, summary: askSummary(a.toolName, a.input, a.subject) });
   }
   return out;
 }

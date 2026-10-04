@@ -751,6 +751,17 @@ default branch).
 
 ## 9. Agent runner
 
+The runner speaks to every coding agent through one seam (issue #136, D49). An adapter
+(`daemon/src/agent/adapter.ts`) builds the process's arguments and maps each stdout line to neutral
+events (`AgentEvent` in `core`): session bound, turn started, message, raw, live, tool started and
+finished, ask, usage, turn ended. It also puts user turns and ask answers into the agent's own words.
+The runner acts on those events only; it holds no agent's protocol, tool names or program name.
+Asks are stored with the agent that asked and a neutral subject (command, file change, network,
+question, tool) that the ask panel draws from; transcript lines carry the agent whose protocol they
+are in. "Allow for this run" rules, "Always allow" grants and the WebFetch auto-allow apply only to
+an agent that reports rules or a fetch host and has the capability; any other agent asks every time.
+Claude Code is the first adapter (`agent/claude/`); the rest of this section describes it.
+
 ### 9.1 Start
 
 Working directory: the worktree.
