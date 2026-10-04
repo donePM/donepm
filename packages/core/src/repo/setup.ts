@@ -6,6 +6,7 @@ const nonEmpty = z.string().trim().min(1);
 
 const RepoSetupSchema = z
   .object({
+    dependencies: z.enum(["auto", "off"]).optional(),
     copy: z.array(nonEmpty).optional(),
     run: z.array(nonEmpty).optional(),
   })
@@ -38,6 +39,7 @@ export function parseRepoSetup(source: string): RepoSetup {
     }
   }
   const setup: RepoSetup = {};
+  if (result.data.dependencies) setup.dependencies = result.data.dependencies;
   if (result.data.copy) setup.copy = result.data.copy;
   if (result.data.run) setup.run = result.data.run;
   return setup;

@@ -123,9 +123,22 @@ function setupRow(m: TranscriptMessage): Row {
   const ok = raw.ok === true;
   const str = (v: unknown) => (typeof v === "string" ? v : "");
   const label =
-    raw.step === "copy" ? `copy ${str(raw.file)}` : raw.step === "run" ? `run ${str(raw.command)}` : "read .donepm/setup.yml";
-  const output = [str(raw.stdout), str(raw.stderr), str(raw.error)].filter((s) => s.trim() !== "").join("\n");
+    raw.step === "copy" ? `copy ${str(raw.file)}`
+    : raw.step === "run" ? `run ${str(raw.command)}`
+    : raw.step === "dependencies" ? dependenciesLabel(raw, str)
+    : "read .donepm/setup.yml";
+  const reason = raw.step === "dependencies" && raw.method === "install" ? str(raw.reason) : "";
+  const output = [reason && `(${reason})`, str(raw.stdout), str(raw.stderr), str(raw.error)]
+    .filter((s) => s.trim() !== "")
+    .join("\n");
   return { type: "setup", id: m.id, label, ok, output };
+}
+
+/** D34: dependencies cloned from the main clone, or installed by the daemon. */
+function dependenciesLabel(raw: Record<string, unknown>, str: (v: unknown) => string): string {
+  if (raw.method === "install") return `run ${str(raw.command)}`;
+  const dirs = Array.isArray(raw.dirs) ? raw.dirs.filter((d): d is string => typeof d === "string") : [];
+  return `copy ${dirs.join(", ") || "dependencies"} from the main clone (${str(raw.manager)})`;
 }
 
 function resultRow(m: TranscriptMessage): Row {

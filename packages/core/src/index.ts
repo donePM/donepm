@@ -13,6 +13,7 @@ export * from "./ask/web-fetch.js";
 export * from "./ask/question.js";
 export * from "./repo/types.js";
 export * from "./repo/setup.js";
+export * from "./repo/dependencies.js";
 export * from "./transcript/types.js";
 export * from "./origin/normalize.js";
 export * from "./branch/naming.js";

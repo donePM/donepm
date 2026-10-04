@@ -2,6 +2,7 @@ import { copyFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseRepoSetup, type RepoSetup } from "@donepm/core";
 import type { Exec } from "../process/exec.js";
+import { provideDependencies, type DependenciesStep } from "./dependencies.js";
 
 export const SETUP_FILE = ".donepm/setup.yml";
 export const SETUP_STEP_TIMEOUT_MS = 30 * 60_000;
@@ -10,7 +11,8 @@ export const SETUP_STEP_TIMEOUT_MS = 30 * 60_000;
 export type SetupStep =
   | { type: "donepm_setup"; step: "copy"; file: string; ok: boolean; error?: string }
   | { type: "donepm_setup"; step: "run"; command: string; ok: boolean; code: number; stdout: string; stderr: string }
-  | { type: "donepm_setup"; step: "config"; ok: false; error: string };
+  | { type: "donepm_setup"; step: "config"; ok: false; error: string }
+  | DependenciesStep;
 
 async function readSetup(worktree: string): Promise<RepoSetup | undefined> {
   let source: string;
@@ -35,8 +37,9 @@ export async function setupCopies(worktree: string): Promise<string[]> {
 }
 
 /**
- * Run `.donepm/setup.yml` from the worktree (spec 7.3): `copy` from the main clone, then `run`
- * in the worktree, in order. Stops at the first failure. Returns false when setup failed.
+ * Set up a new worktree (spec 7.3): dependencies (D34, unless `.donepm/setup.yml` says
+ * `dependencies: off`), then the setup file's `copy` from the main clone and `run` in the worktree,
+ * in order. Stops at the first failure. Returns false when setup failed.
  */
 export async function runSetup(input: {
   exec: Exec;
@@ -50,6 +53,9 @@ export async function runSetup(input: {
   } catch (e) {
     input.report({ type: "donepm_setup", step: "config", ok: false, error: (e as Error).message });
     return false;
+  }
+  if (setup?.dependencies !== "off") {
+    if (!(await provideDependencies(input))) return false;
   }
   if (!setup) return true;
 

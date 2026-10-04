@@ -288,9 +288,23 @@ Max 60 chars. If the branch exists: append `-2`, `-3`.
 
 ### 7.3 Setup per repo
 
+Setup runs in a new worktree before the agent starts: dependencies first, then the setup file.
+
+Dependencies (D34). Package managers are detected from the lockfiles in the worktree root:
+`pnpm-lock.yaml`, `bun.lock`/`bun.lockb`, `yarn.lock`, `package-lock.json` (the first one found,
+since they share `node_modules`) and `composer.lock`. The directories are every `node_modules` of a
+directory with a tracked `package.json`, or `vendor`, if gitignored and not yet in the worktree.
+When the main clone's lockfile is byte-identical and the main clone has the root directory, they
+are cloned copy-on-write (`cp -c -R` on macOS, `cp -R --reflink=auto` on Linux). Otherwise the
+daemon runs, in the worktree: `pnpm install --frozen-lockfile`, `bun install --frozen-lockfile`,
+`yarn install --immutable` (with `.yarnrc.yml`) or `--frozen-lockfile`, `npm ci`,
+`composer install --no-interaction`. Each step is a `system` transcript message
+`{ type: "donepm_setup", step: "dependencies", manager, method: "clone" | "install", … }`.
+
 Optional file in the repo: `.donepm/setup.yml`
 
 ```yaml
+dependencies: auto   # or off; default auto
 copy:
   - .env
   - storage/oauth-private.key
