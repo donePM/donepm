@@ -30,7 +30,7 @@ import { buildServer } from "./http/server.js";
 import { makeGuard } from "./http/guard.js";
 import { itemWriter } from "./items/commit.js";
 import { dismissItem } from "./items/dismiss.js";
-import { ItemStore } from "./items/store.js";
+import { ItemStore, type StoredItem } from "./items/store.js";
 import { relinkItems } from "./items/sync.js";
 import { agentHistory } from "./items/agent-info.js";
 import { attentionOf } from "./items/attention.js";
@@ -38,6 +38,7 @@ import { toItemView, type CurrentTool } from "./items/view.js";
 import type { Exec } from "./process/exec.js";
 import { ensureDefaultPlaybook } from "./playbooks/load.js";
 import { discoverRepos } from "./repos/discover.js";
+import { hiddenByIgnore, ignoreChanges, isIgnored } from "./repos/ignore.js";
 import { RepoStore } from "./repos/store.js";
 import { StatusStore } from "./status/status.js";
 import { TranscriptStore } from "./transcript/store.js";
@@ -134,7 +135,18 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       pr ? { ...pr, ...prMergeOf(itemEvents), ...conflictView(prConflictOf(itemEvents)) } : undefined,
     );
   };
-  const pushItem = (item: WorkItem) => hub.push("item.updated", view(item));
+  /** Issue #33: items of an ignored repository stay off the board unless they still need attention. */
+  const onBoard = ({ item, originUrl }: StoredItem) =>
+    !hiddenByIgnore({
+      ignored: isIgnored(config.sources, originUrl),
+      state: item.state,
+      hasPending: () => drafts.pending(item.id).length > 0 || asks.pending(item.id).length > 0,
+    });
+  const pushItem = (item: WorkItem) => {
+    const stored = items.get(item.id);
+    if (stored && !onBoard(stored)) hub.push("item.removed", { id: item.id });
+    else hub.push("item.updated", view(item));
+  };
   status.onChange((s) => hub.push("status.changed", s));
 
   const starting = new Set<Promise<void>>();
@@ -226,12 +238,17 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     drafts,
     asks,
     transcript,
+    onBoard,
     getConfig: () => config,
     saveConfig: async (next) => {
       await saveConfig(paths.configFile, next);
       const prev = config;
       config = next;
       if (next.pollIntervalSeconds !== prev.pollIntervalSeconds) poller.setInterval(next.pollIntervalSeconds * 1000);
+      // Hidden items leave the board and shown ones come back; nothing is read from gh for that.
+      const flipped = new Set(ignoreChanges(prev.sources, next.sources));
+      for (const { item, originUrl } of items.all()) if (flipped.has(originUrl)) pushItem(item);
+      if ([...flipped].some((origin) => !isIgnored(next.sources, origin))) void poller.runNow();
       if (next.repoRoot !== prev.repoRoot) void rescan().catch((e) => app.log.error({ err: e }, "rescan failed"));
       return { restartRequired: next.port !== prev.port };
     },

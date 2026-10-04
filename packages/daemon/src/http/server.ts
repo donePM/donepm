@@ -20,8 +20,9 @@ import type { DraftStore } from "../drafts/store.js";
 import type { ItemDiff } from "../diff/item-diff.js";
 import type { EventStore } from "../events/store.js";
 import type { FetchResult } from "../gh/issues.js";
-import type { ItemStore } from "../items/store.js";
+import type { ItemStore, StoredItem } from "../items/store.js";
 import type { ItemView } from "../items/view.js";
+import { isIgnored, withIgnored } from "../repos/ignore.js";
 import type { RepoStore } from "../repos/store.js";
 import type { StatusStore } from "../status/status.js";
 import type { TranscriptStore } from "../transcript/store.js";
@@ -37,8 +38,10 @@ export interface ServerDeps {
   transcript: TranscriptStore;
   repos: RepoStore;
   status: StatusStore;
+  /** The item belongs on the board: its repository is not ignored, or it still needs attention (issue #33). */
+  onBoard: (stored: StoredItem) => boolean;
   getConfig: () => Config;
-  /** Validated full config; returns what changed needs a restart. */
+  /** Validated full config; returns what changed needs a restart. Pushes the items an ignore change shows or hides. */
   saveConfig: (next: Config) => Promise<{ restartRequired: boolean }>;
   rescan: () => Promise<void>;
   /** Detect `gh` and `claude` again ("Check again" in Settings). */
@@ -113,6 +116,8 @@ const DraftEditSchema = z
 const OpenSchema = z.object({ target: z.enum(["finder", "terminal"]) }).strict();
 export type OpenTarget = z.infer<typeof OpenSchema>["target"];
 
+const RepoPatchSchema = z.object({ ignored: z.boolean() }).strict();
+
 const OrphanRemoveSchema = z.object({ path: z.string().min(1) }).strict();
 
 async function removeCall<T>(reply: FastifyReply, fn: () => Promise<T>) {
@@ -165,7 +170,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!allowed(req.headers)) return reply.code(403).send({ error: "forbidden" });
   });
 
-  app.get("/api/items", async () => deps.items.all().map(({ item }) => deps.view(item)));
+  app.get("/api/items", async () =>
+    deps.items.all().filter(deps.onBoard).map(({ item }) => deps.view(item)),
+  );
 
   app.get<{ Params: { id: string } }>("/api/items/:id", async (req, reply) => {
     const stored = deps.items.get(req.params.id);
@@ -314,11 +321,30 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     }
   });
 
-  app.get("/api/repos", async () => deps.repos.all());
+  const repoViews = () => {
+    const { sources } = deps.getConfig();
+    return deps.repos.all().map((r) => ({ ...r, ignored: isIgnored(sources, r.originUrl) }));
+  };
+
+  app.get("/api/repos", async () => repoViews());
 
   app.post("/api/repos/rescan", async () => {
     await deps.rescan();
-    return deps.repos.all();
+    return repoViews();
+  });
+
+  // The flag belongs to the origin, so every clone of it changes together.
+  app.put<{ Params: { id: string } }>("/api/repos/:id", async (req, reply) => {
+    const body = RepoPatchSchema.safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "body must be {ignored: boolean}" });
+    const repo = deps.repos.get(req.params.id);
+    if (!repo) return reply.code(404).send({ error: "repository not found" });
+    const settings = ConfigSchema.parse({
+      ...deps.getConfig(),
+      sources: withIgnored(deps.getConfig().sources, repo.originUrl, body.data.ignored),
+    });
+    await deps.saveConfig(settings);
+    return { repos: repoViews(), settings };
   });
 
   app.post("/api/sources/test", async (req, reply) => {
