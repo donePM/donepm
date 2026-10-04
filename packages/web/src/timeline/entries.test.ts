@@ -174,6 +174,7 @@ describe("timelineEntries", () => {
     const entries = timelineEntries([
       ev("pr.auto_merge_set", { on: true }, { actor: "user" }),
       ev("pr.merge_failed", { method: "squash", auto: true, error: "merge queue required" }),
+      ev("pr.merge_failed", { method: "squash", auto: true, staysOn: true, error: "not up to date with the base branch" }),
       ev("pr.merged", { method: "rebase", auto: false }, { actor: "user" }),
       ev("pr.merged", { method: "squash", auto: true }),
     ], []);
@@ -181,6 +182,7 @@ describe("timelineEntries", () => {
     expect(entries.map((e) => [e.tone, e.text, e.detail])).toEqual([
       ["system", "Merged automatically (squash)", undefined],
       ["user", "You merged the pull request (rebase)", undefined],
+      ["attention", "Automatic merge failed, stays on and tries again once the pull request changes", "not up to date with the base branch"],
       ["danger", "Automatic merge failed, turned off for this item", "merge queue required"],
       ["user", "You turned on automatic merge", undefined],
     ]);

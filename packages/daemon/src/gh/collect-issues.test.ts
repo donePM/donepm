@@ -351,7 +351,9 @@ describe("collectIssues", () => {
       // The recorded answer resolves the first pull request asked (#88, collected first) and not the second.
       const graphql = exec.calls.filter((c) => c.args[1] === "graphql");
       expect(graphql).toHaveLength(1);
-      expect(deps.items.byExternalId("donePM/donepm#88")!.item.prStatus).toEqual({ state: "OPEN", mergeable: "UNKNOWN", base: "main", checks: "SUCCESS" });
+      expect(deps.items.byExternalId("donePM/donepm#88")!.item.prStatus).toEqual({
+        state: "OPEN", mergeable: "MERGEABLE", mergeState: "BEHIND", head: "66d876d7066588704d137b3a93a093df60c4bd39", base: "main", checks: "SUCCESS",
+      });
       expect(deps.items.byExternalId("donePM/donepm#87")!.item.prStatus).toBeUndefined();
 
       // A reviewed pull request that left the searches is still read.

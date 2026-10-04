@@ -1,4 +1,4 @@
-import { autoMergeFailed, autoMergeOn, autoMergeSet, InvalidTransitionError, mergeBlockers, reviewedPrMerged, type MergeMethod, type WorkItem } from "@donepm/core";
+import { autoMergeDue, autoMergeFailed, autoMergeSet, InvalidTransitionError, mergeBlockers, reviewedPrMerged, type MergeMethod, type WorkItem } from "@donepm/core";
 import type { Config } from "../config/config.js";
 import type { Log } from "../log.js";
 import type { Exec } from "../process/exec.js";
@@ -62,7 +62,8 @@ export function setAutoMerge(deps: PrActionDeps, itemId: string, on: boolean): W
 /**
  * Part of each poll, after the pull request statuses were read (D47): merges every pull request
  * whose item has auto-merge on (its own choice, else the repository's) and that is ready. A failure
- * turns auto-merge off for that item and is recorded; it is not tried again on its own.
+ * is recorded; one that passes on its own (the branch is behind its base, …) keeps auto-merge on
+ * until the pull request's head or merge state changes, any other turns it off for that item.
  */
 export async function autoMergeReady(
   deps: MergeDeps & { log: Log },
@@ -72,7 +73,7 @@ export async function autoMergeReady(
   for (const { item, originUrl } of deps.items.all()) {
     if (item.source !== "github-pr" || item.archivedAt || !managed(originUrl)) continue;
     const defaults = mergeDefaults(sources, originUrl);
-    if (!autoMergeOn(item, defaults.auto) || mergeBlockers(item).length) continue;
+    if (!autoMergeDue(item, defaults.auto)) continue;
     try {
       const merged = await ghMerge(deps.exec, item, defaults.method);
       const t = merged.ok
@@ -80,7 +81,7 @@ export async function autoMergeReady(
         : autoMergeFailed(item, deps.ctx, { method: defaults.method, error: merged.error });
       deps.writer.commit(t);
       if (merged.ok) deps.log.info({ itemId: item.id, externalId: item.externalId, method: defaults.method }, "pull request merged automatically");
-      else deps.log.warn({ itemId: item.id, externalId: item.externalId, error: merged.error }, "automatic merge failed");
+      else deps.log.warn({ itemId: item.id, externalId: item.externalId, error: merged.error, staysOn: t.item.autoMerge !== false }, "automatic merge failed");
     } catch (e) {
       deps.log.warn({ itemId: item.id, err: e }, "automatic merge failed");
     }

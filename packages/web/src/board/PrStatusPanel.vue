@@ -96,7 +96,7 @@ async function setAuto(on: boolean) {
       >
         {{ merging ? "Merging…" : "Merge" }}
       </button>
-      <label class="check auto" title="Merge it on its own once you approved it, its checks passed and it is mergeable">
+      <label class="check auto" title="Merge it on its own once you approved it, its checks passed and it is mergeable and up to date with its base">
         <input type="checkbox" :checked="item.merge.auto" @change="setAuto(($event.target as HTMLInputElement).checked)" />
         Merge automatically
       </label>

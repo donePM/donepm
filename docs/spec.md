@@ -78,6 +78,7 @@ functions. `daemon` calls them and persists the result.
 | author | string? | `github-pr`: the PR author's login, `dependabot[bot]` for Dependabot (D47) |
 | prStatus | object? | `github-pr`: `{ state, closedAt?, mergeable, base, reviewDecision?, viewerReview?, checks? }` in GitHub's words, read each poll (6.2, D47) |
 | autoMerge | boolean? | `github-pr`: the card's "Merge automatically"; absent: the repo's `autoMerge` decides (6.2, D47) |
+| autoMergeHeld | object? | `github-pr`: `{ head, mergeState }` of the PR when an auto-merge failed for a passing reason; it waits until either changes (6.2, D47) |
 | archivedAt | datetime? | set once by `archived` (6.8); an archived item is off the board and in the Archive (12.5) |
 | createdAt, updatedAt | datetime | |
 
@@ -140,7 +141,8 @@ stays) and `worktree.remove_skipped` (merged, but the worktree has uncommitted c
 `pr.feedback_dismissed` (see 6.9), `pr.commented` (actor `user`, payload `{ body }`: the user posted a
 comment on someone else's PR from its card, 6.2, D47), `pr.merged` (payload `{ method, auto }`;
 actor `user` for the card's Merge, `system` for auto-merge), `pr.merge_failed` (actor `system`,
-payload `{ method, auto, error }`: auto-merge failed and was turned off for the item) and
+payload `{ method, auto, error, staysOn }`: auto-merge failed; `staysOn` false: it was turned off
+for the item, true: the reason passes and it stays on, held) and
 `pr.auto_merge_set` (actor `user`, payload `{ on }`), all 6.2 and D47, `item.archived` (actor `system`,
 payload `{ finishedAt }`, see 6.8), `item.refreshed` (actor `system`, payload `{ changed: {
 priority?, title?, labels? } }`, each `{ from, to }` and only the fields that changed, see 6.2). `agent.resumed` carries
@@ -284,7 +286,7 @@ On start and on Settings open:
   still read:
   ```
   gh api graphql -f query='query { pr0: repository(owner: "o", name: "r") { pullRequest(number: 88) {
-    number state closedAt mergeable reviewDecision viewerLatestReview { state } baseRefName
+    number state closedAt mergeable mergeStateStatus headRefOid reviewDecision viewerLatestReview { state } baseRefName
     commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } } ... }'
   ```
   The answer becomes the item's `prStatus`; a changed one is saved and pushed, without an event
@@ -292,12 +294,19 @@ On start and on Settings open:
   used. A failure leaves the stored status as it is.
 - Merge (D47). Someone else's PR may be merged once nothing blocks it (`mergeBlockers` in `core`):
   state `OPEN`, the item `ready` or `done`, the user's own review `APPROVED`, checks (if any)
-  `SUCCESS`, and `mergeable` `MERGEABLE`, all as of the last poll. The card's Merge runs
+  `SUCCESS`, `mergeable` `MERGEABLE`, and `mergeStateStatus` not `BEHIND` (branch protection wants
+  the branch up to date with its base: "the branch is behind <base>; waiting for it to be updated"),
+  all as of the last poll. The card's Merge runs
   `gh pr merge N --repo host/o/r --squash|--merge|--rebase` as the user, without
   `--delete-branch` (the author's branch is theirs), and commits `reviewedPrMerged`. After the PR
   status and the CI watch, each poll merges every such PR whose item has auto-merge on (its own
   `autoMerge`, else the repo's), with the repo's `mergeMethod`. A failed auto-merge records
-  `pr.merge_failed` and turns `autoMerge` off for that item, so it is not retried every poll.
+  `pr.merge_failed`. A refusal that passes on its own (`mergeFailurePasses` in `core`: not up to
+  date with the base branch, base or head branch modified, required checks pending or expected,
+  mergeability unknown) keeps `autoMerge` as it was and sets `autoMergeHeld` to the PR's `head`
+  and `mergeStateStatus`; it is tried again once either differs (`autoMergeDue`), or when the user
+  ticks the box again. Any other refusal turns `autoMerge` off for that item, so it is not retried
+  every poll.
 - Validate output with a schema (zod). On schema failure: log the raw output, do not crash, show
   an error badge in Settings.
 - Priority (D45). After all sources answered, one call per 100 polled issues reads GitHub's

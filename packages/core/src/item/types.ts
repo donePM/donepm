@@ -29,6 +29,12 @@ export interface WorkItem {
    * (D47). Absent: the repository's `autoMerge` setting decides.
    */
   autoMerge?: boolean;
+  /**
+   * The pull request's head and merge state when an automatic merge last failed for a reason that
+   * passes (D47, e.g. the branch was behind its base). Auto-merge stays on but waits until either
+   * changed, so the same refusal is not tried on every poll.
+   */
+  autoMergeHeld?: { head?: string; mergeState?: string };
   state: ItemState;
   /** Playbook name. */
   playbook: string;

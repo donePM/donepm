@@ -52,6 +52,7 @@ Recorded with `gh` 2.102.0 on 2026-10-03.
   with a misspelt field name and the name put back, since github.com has the field.
 - `pr-status.json`: `gh api graphql -f query=<prStatusQuery(refs)>` (`src/gh/pr-status.ts`) for
   donePM/donepm#88 (Dependabot, open), vuejs/core#15766 (open, base `minor`) and donePM/donepm#129
-  (merged) on 2026-10-04 with gh 2.102.0.
-- `pr-status-not-found.json`: the same for donePM/donepm#87 and a made-up #99999 (gh exits 1, the
-  found pull request is still there).
+  (merged) on 2026-10-04 with gh 2.102.0; re-recorded the same day with `mergeStateStatus` and
+  `headRefOid` (issue #146).
+- `pr-status-not-found.json`: the same for donePM/donepm#87 (behind its base, `BEHIND`) and a
+  made-up #99999 (gh exits 1, the found pull request is still there).
