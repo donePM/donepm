@@ -2,6 +2,7 @@
 import { computed, ref } from "vue";
 import { useRoute } from "vue-router";
 import { pending, resumeAgent, startAgent } from "../agents/actions";
+import AnsiText from "../ansi/AnsiText.vue";
 import { errorText } from "../api/errors";
 import AskPanel from "../asks/AskPanel.vue";
 import { displayId } from "../board/columns";
@@ -133,7 +134,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
           </section>
           <section v-if="failure" class="needs" aria-label="Failure">
             <h2>The agent failed: {{ failure.reason }}</h2>
-            <pre v-if="failure.stderrTail" class="stderr mono">{{ failure.stderrTail }}</pre>
+            <pre v-if="failure.stderrTail" class="stderr mono on-code"><AnsiText :text="failure.stderrTail" /></pre>
             <div>
               <button class="btn btn-primary" type="button" :disabled="pending.has(detail.id)" @click="retry(detail.id)">Retry</button>
             </div>

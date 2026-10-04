@@ -2,6 +2,7 @@
 import { computed, reactive } from "vue";
 import AskInput from "../asks/AskInput.vue";
 import AskPanel from "../asks/AskPanel.vue";
+import AnsiText from "../ansi/AnsiText.vue";
 import MarkdownView from "../markdown/MarkdownView.vue";
 import type { RepoRef } from "../markdown/render";
 import { clock } from "../time/duration";
@@ -64,7 +65,7 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
             <span class="dim">{{ row.output ? (open.has(row.id) ? "▾" : "▸") : "" }} {{ row.ok ? "ok" : "failed" }}</span>
             <span class="summary">{{ row.label }}</span>
           </button>
-          <pre v-if="open.has(row.id)" class="body">{{ row.output }}</pre>
+          <pre v-if="open.has(row.id)" class="body"><AnsiText :text="row.output ?? ''" /></pre>
         </div>
       </div>
 
@@ -97,7 +98,7 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
           <template v-if="open.has(row.id)">
             <DiffView v-if="row.diff" class="diff" :lines="row.diff" />
             <pre v-else class="body">{{ formatInput(row.input) }}</pre>
-            <pre v-if="row.result" class="body result">{{ row.result.text || "(no output)" }}</pre>
+            <pre v-if="row.result" class="body result"><AnsiText :text="row.result.text || '(no output)'" /></pre>
           </template>
         </div>
       </div>

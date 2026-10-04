@@ -25,6 +25,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "strip-ansi": "^7.2.0",
     "yaml": "^2.6.0",
     "zod": "^3.23.8"
   },
