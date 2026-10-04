@@ -19,6 +19,12 @@ describe("parseRepoSetup", () => {
     expect(parseRepoSetup("run: [pnpm install]\n")).toEqual({ run: ["pnpm install"] });
   });
 
+  it("parses dependencies", () => {
+    expect(parseRepoSetup("dependencies: off\n")).toEqual({ dependencies: "off" });
+    expect(parseRepoSetup("dependencies: auto\nrun: [make]\n")).toEqual({ dependencies: "auto", run: ["make"] });
+    expect(() => parseRepoSetup("dependencies: yes\n")).toThrow(/dependencies/);
+  });
+
   it("rejects unknown keys", () => {
     expect(() => parseRepoSetup("copy: [.env]\nbuild: [make]\n")).toThrow(RepoSetupError);
   });
