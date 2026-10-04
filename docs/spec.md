@@ -463,9 +463,12 @@ poll. Red CI after done is not feedback; the CI watch only runs while `checking`
 
 The card offers:
 
-- **Address with agent** (needs a worktree and a session): resumes the session (`agent.resumed`,
-  reason `pr_feedback`) with every entry, inline ones with `path:line`, thread number and the end
-  of their diff hunk. The agent changes what is needed, commits, and calls `draft_push` with
+- **Address with agent** (needs a worktree and a session): the daemon fetches the PR branch
+  (`git fetch origin <branch>`, the agent has no network), then resumes the session
+  (`agent.resumed`, reason `pr_feedback`) with every entry, inline ones with `path:line`, thread
+  number and the end of their diff hunk. The agent first merges `origin/<branch>`, which brings in
+  commits only GitHub has (a committed suggestion, "Update branch") so the push stays a
+  fast-forward, then changes what is needed, commits, and calls `draft_push` with
   `replies`; or, when nothing needs to change, `draft_comment`.
 - **Mark done**: `pr.feedback_dismissed` (actor `user`), item `done`. Those entries do not come back.
 
@@ -890,7 +893,7 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/items/:id/ci/fix` | red CI with a session; resumes the agent with the failures |
 | POST | `/api/items/:id/conflict/resolve` | waiting merge conflict with a session; fetches the base and the PR branch, resumes the agent (6.7). 202 |
 | POST | `/api/items/:id/conflict/dismiss` | waiting merge conflict → back where it was (6.7) |
-| POST | `/api/items/:id/feedback/address` | waiting review feedback with a worktree and session; resumes the agent with it (6.9). 202 |
+| POST | `/api/items/:id/feedback/address` | waiting review feedback with a worktree and session; fetches the PR branch, resumes the agent with it (6.9). 202 |
 | POST | `/api/items/:id/feedback/dismiss` | waiting review feedback → `done` (6.9) |
 | POST | `/api/items/:id/dismiss` | closed upstream, not running → `done` (D32); 409 otherwise |
 | GET | `/api/worktrees/orphaned` | worktrees under the root that no item uses |

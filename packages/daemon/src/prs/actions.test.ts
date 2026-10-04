@@ -75,7 +75,7 @@ function withFeedback(session = true) {
 }
 
 describe("addressFeedback", () => {
-  it("resumes the agent with the feedback as the message", async () => {
+  it("fetches the PR branch, then resumes the agent with the feedback as the message", async () => {
     const t = withFeedback();
     const resumed: Array<{ prompt: string; state: string; reason: unknown }> = [];
     await addressFeedback({ ...t.deps, resume: async (_id, how) => {
@@ -83,7 +83,8 @@ describe("addressFeedback", () => {
       resumed.push({ prompt: how.prompt, state: item.state, reason: events[0]?.payload.reason });
     } }, "item-1");
     expect(resumed).toEqual([{ prompt: expect.stringContaining("`src/a.ts:3` (thread 9)"), state: "running", reason: "pr_feedback" }]);
-    expect(t.exec.calls).toEqual([]);
+    expect(resumed[0]!.prompt).toContain("git merge origin/dp/45-fix");
+    expect(t.exec.calls.map((c) => [c.cmd, ...c.args].join(" "))).toEqual(["git -C /src/widgets fetch origin dp/45-fix"]);
   });
 
   it("refuses without waiting feedback or without a session", async () => {
@@ -91,6 +92,12 @@ describe("addressFeedback", () => {
     await expect(addressFeedback({ ...setup(false).deps, resume }, "item-1")).rejects.toMatchObject({ status: 409 });
     const t = withFeedback(false);
     await expect(addressFeedback({ ...t.deps, resume }, "item-1")).rejects.toMatchObject({ status: 409, message: "the item has no agent session to resume" });
+  });
+
+  it("refuses when the fetch fails", async () => {
+    const t = withFeedback();
+    const failing = { ...t.deps, exec: fakeExec({ "git -C /src/widgets fetch": fail("fatal: unable to access") }) };
+    await expect(addressFeedback({ ...failing, resume: async () => {} }, "item-1")).rejects.toMatchObject({ status: 502, message: "fatal: unable to access" });
   });
 });
 
