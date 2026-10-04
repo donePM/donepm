@@ -36,15 +36,19 @@ export function prConflictOf(events: readonly Event[]): PrConflict | undefined {
 }
 
 /**
- * The message that resumes the agent on a conflicting PR. The daemon fetched the base before, since
- * the agent has no network. A merge, not a rebase: the push must not rewrite what the PR has.
+ * The message that resumes the agent on a conflicting PR. The daemon fetched the base and the PR's
+ * `branch` before, since the agent has no network. A merge, not a rebase: the push must not rewrite
+ * what the PR has. The branch on GitHub can have commits the worktree lacks, e.g. from GitHub's
+ * "Update branch"; merged first, they make the push a fast-forward (#119).
  */
-export function conflictFixPrompt(c: Pick<PrConflict, "pr" | "base" | "files">): string {
-  const lines = [`Pull request #${c.pr.number} has merge conflicts with \`${c.base}\`. \`origin/${c.base}\` is fetched and up to date.`];
+export function conflictFixPrompt(c: Pick<PrConflict, "pr" | "base" | "files">, branch?: string): string {
+  const fetched = branch ? `\`origin/${c.base}\` and \`origin/${branch}\` are` : `\`origin/${c.base}\` is`;
+  const lines = [`Pull request #${c.pr.number} has merge conflicts with \`${c.base}\`. ${fetched} fetched and up to date.`];
   if (c.files.length) lines.push("", "Conflicting files:", ...c.files.map((f) => `- ${f}`));
+  lines.push("");
+  if (branch) lines.push(`First merge what the pull request has on GitHub and your branch not yet: \`git merge origin/${branch}\`.`);
   lines.push(
-    "",
-    `Merge it into your branch with \`git merge origin/${c.base}\`. Do not rebase and do not force push. Resolve the conflicts and commit the merge.`,
+    `Merge the base into your branch with \`git merge origin/${c.base}\`. Do not rebase and do not force push. Resolve the conflicts and commit the merge.`,
     "Then run the build and the tests: a merge without conflicts can still break them.",
     "When they pass, call the draft_push tool so the user can push the merge to the pull request.",
   );

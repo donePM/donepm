@@ -399,10 +399,12 @@ From the same `gh pr view` as 6.5 (decision D36). Only `mergeable: CONFLICTING` 
 
 The card offers:
 
-- **Resolve with agent** (needs a session): the daemon fetches the base (the agent has no network),
-  then resumes the session (`agent.resumed`, reason `pr_conflict`) with the base and the files as
-  message. The agent merges `origin/<base>` (no rebase, so the push does not rewrite the PR), runs
-  the tests, commits, and calls `draft_push`. After the push the item waits for CI (6.6).
+- **Resolve with agent** (needs a session): the daemon fetches the base and the PR branch
+  (`git fetch origin <base> <branch>`, the agent has no network), then resumes the session
+  (`agent.resumed`, reason `pr_conflict`) with the base and the files as message. The agent first
+  merges `origin/<branch>`, which brings in commits only GitHub has (e.g. from "Update branch") so
+  the push stays a fast-forward, then `origin/<base>` (no rebase, so the push does not rewrite the
+  PR), runs the tests, commits, and calls `draft_push`. After the push the item waits for CI (6.6).
 - **I'll do it myself**: `pr.conflict_dismissed` (actor `user`), item back to `from`. The card shows
   a quiet note "PR #n has merge conflicts with main" until the conflict ends.
 
@@ -874,7 +876,7 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/items/:id/ci/rerun` | red CI only; reruns the failed jobs (6.6) |
 | POST | `/api/items/:id/ci/done` | `checking` or red CI → `done` |
 | POST | `/api/items/:id/ci/fix` | red CI with a session; resumes the agent with the failures |
-| POST | `/api/items/:id/conflict/resolve` | waiting merge conflict with a session; fetches the base, resumes the agent (6.7). 202 |
+| POST | `/api/items/:id/conflict/resolve` | waiting merge conflict with a session; fetches the base and the PR branch, resumes the agent (6.7). 202 |
 | POST | `/api/items/:id/conflict/dismiss` | waiting merge conflict → back where it was (6.7) |
 | POST | `/api/items/:id/feedback/address` | waiting review feedback with a worktree and session; resumes the agent with it (6.9). 202 |
 | POST | `/api/items/:id/feedback/dismiss` | waiting review feedback → `done` (6.9) |
