@@ -1,11 +1,12 @@
-import DOMPurify from "dompurify";
+import DOMPurify, { type Config } from "dompurify";
 import MarkdownIt from "markdown-it";
 import taskLists from "markdown-it-task-lists";
 
 /**
  * GitHub-flavoured Markdown to safe HTML (spec 12). Issue bodies, PR drafts and agent text are
- * written by other people or by a model, so raw HTML is off in the parser and the output goes
- * through DOMPurify before it reaches `v-html`.
+ * written by other people or by a model. Like GitHub, embedded HTML renders (Dependabot's
+ * `<details>` release notes), so the output goes through DOMPurify before it reaches `v-html`,
+ * and links and images in raw HTML get the same treatment as Markdown ones.
  */
 
 /** The GitHub repository relative links and `#123` point into. */
@@ -22,7 +23,7 @@ export function repoOf(externalId: string): RepoRef | undefined {
 
 const GITHUB = "https://github.com";
 
-const md = new MarkdownIt({ html: false, linkify: true, breaks: false }).use(taskLists);
+const md = new MarkdownIt({ html: true, linkify: true, breaks: false }).use(taskLists);
 
 // `#12`, `owner/repo#12` and `@user` become links, like on GitHub. Only plain text outside links.
 const REFERENCE = /(^|[^\w/@#&])(?:(?:([\w.-]+)\/([\w.-]+))?#(\d+)|@([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))(?![\w/-]))/g;
@@ -36,6 +37,8 @@ md.core.ruler.push("github-references", (state) => {
     for (const token of block.children) {
       if (token.type === "link_open") inLink++;
       if (token.type === "link_close") inLink--;
+      if (token.type === "html_inline" && /^<a[\s>]/i.test(token.content)) inLink++;
+      if (token.type === "html_inline" && /^<\/a\s*>/i.test(token.content)) inLink--;
       if (token.type !== "text" || inLink > 0) {
         out.push(token);
         continue;
@@ -77,7 +80,7 @@ const IMAGE_HOSTS = [/^github\.com$/, /(^|\.)githubusercontent\.com$/, /^user-im
 const ABSOLUTE = /^[a-z][a-z0-9+.-]*:/i;
 const SAFE_LINK = /^(https?|mailto):/i;
 
-function resolve(url: string, repo: RepoRef | undefined, kind: "blob" | "raw"): string | undefined {
+function resolve(url: string, repo: RepoRef | undefined, kind: "blob" | "raw" = "blob"): string | undefined {
   if (url.startsWith("#")) return url;
   if (ABSOLUTE.test(url) || url.startsWith("//")) return SAFE_LINK.test(url) ? url : undefined;
   if (!repo) return undefined;
@@ -126,16 +129,67 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
 
 const purify = DOMPurify();
 
-// Every link leaves the app; DOMPurify drops `target` from input, so it is set after sanitizing.
-purify.addHook("afterSanitizeAttributes", (node) => {
-  if (node.tagName !== "A") return;
-  const href = node.getAttribute("href");
-  if (!href || href.startsWith("#")) return;
-  node.setAttribute("target", "_blank");
-  node.setAttribute("rel", "noopener noreferrer");
-});
+const SANITIZE: Config & { RETURN_DOM: true } = {
+  USE_PROFILES: { html: true },
+  // Things GitHub drops too: forms, styling, and media that would load from anywhere.
+  FORBID_TAGS: ["style", "form", "button", "select", "option", "optgroup", "textarea", "audio", "video", "source", "track", "picture"],
+  FORBID_ATTR: ["style", "srcset", "background", "poster", "action", "formaction"],
+  // `id` and `name` get a `user-content-` prefix so a body cannot clobber the app's own.
+  SANITIZE_NAMED_PROPS: true,
+  RETURN_DOM: true,
+};
+
+/**
+ * Links and images from raw HTML never passed the Markdown rules, so every one is checked here,
+ * after sanitizing: hrefs resolve like Markdown links, outside images become links, and every
+ * outside link opens in a new tab (DOMPurify drops `target` from input).
+ */
+function finish(root: HTMLElement, repo: RepoRef | undefined): void {
+  for (const img of root.querySelectorAll("img")) {
+    const src = resolve(img.getAttribute("src") ?? "", repo, "raw");
+    if (src && imageAllowed(src)) {
+      img.setAttribute("src", src);
+      img.setAttribute("referrerpolicy", "no-referrer");
+      if (!img.hasAttribute("loading")) img.setAttribute("loading", "lazy");
+      continue;
+    }
+    const label = img.getAttribute("alt") || src || "";
+    if (src && SAFE_LINK.test(src)) {
+      const a = img.ownerDocument.createElement("a");
+      a.setAttribute("href", src);
+      a.textContent = label;
+      img.replaceWith(a);
+    } else {
+      img.replaceWith(label);
+    }
+  }
+  // Only read-only task-list checkboxes come out of the parser; a raw `<input>` is not one.
+  for (const input of root.querySelectorAll("input")) {
+    if (input.getAttribute("type") === "checkbox" && input.classList.contains("task-list-item-checkbox")) {
+      input.setAttribute("disabled", "");
+    } else {
+      input.remove();
+    }
+  }
+  for (const a of root.querySelectorAll("a")) {
+    const raw = a.getAttribute("href");
+    if (raw === null) continue;
+    const href = resolve(raw, repo);
+    if (!href) {
+      a.removeAttribute("href");
+      continue;
+    }
+    a.setAttribute("href", href);
+    if (href.startsWith("#")) continue;
+    a.setAttribute("target", "_blank");
+    a.setAttribute("rel", "noopener noreferrer");
+  }
+}
 
 /** Safe HTML for `v-html`. `repo` resolves relative links and `#123`; without it they stay text. */
 export function renderMarkdown(source: string, repo?: RepoRef): string {
-  return purify.sanitize(md.render(source, { repo } satisfies Env));
+  // RETURN_DOM hands back the `<body>` the sanitized markup was parsed into.
+  const root = purify.sanitize(md.render(source, { repo } satisfies Env), SANITIZE) as HTMLElement;
+  finish(root, repo);
+  return root.innerHTML;
 }
