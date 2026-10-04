@@ -1,5 +1,6 @@
 import type { PrStatus } from "@donepm/core";
 import { z } from "zod";
+import type { PrRef } from "../providers/code-host.js";
 import type { Exec } from "../process/exec.js";
 
 /** Pull requests per `gh api graphql` call; each is one aliased `repository` field. */
@@ -35,11 +36,7 @@ export const PrStatusesSchema = z
   })
   .passthrough();
 
-/** A pull request by `owner/repo` and number, as an item's `externalId` names it. */
-export interface PrRef {
-  repository: string;
-  number: number;
-}
+export type { PrRef };
 
 const FIELDS =
   "number state closedAt mergeable mergeStateStatus headRefOid reviewDecision viewerLatestReview { state } baseRefName " +

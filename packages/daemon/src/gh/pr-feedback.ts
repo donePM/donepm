@@ -1,5 +1,6 @@
 import type { FeedbackEntry, PrDraftResult } from "@donepm/core";
 import { z } from "zod";
+import type { PrFeedbackResult } from "../providers/code-host.js";
 import type { Exec } from "../process/exec.js";
 import { parseJson } from "./issues.js";
 
@@ -70,7 +71,7 @@ export const PrFeedbackSchema = z.object({
   }),
 });
 
-export type PrFeedbackResult = { ok: true; entries: FeedbackEntry[] } | { ok: false; error: string };
+export type { PrFeedbackResult };
 
 /** Owner, name and host of a pull request URL such as `https://github.com/owner/repo/pull/45`. */
 function prRepo(url: string): { host: string; owner: string; name: string } | undefined {

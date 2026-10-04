@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { githubProviders } from "../gh/adapter.js";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -39,7 +40,7 @@ async function setup(exec: Exec, root?: string) {
   const pushes: [ClonePush, any][] = [];
   const changed: string[] = [];
   const cloner = new RepoCloner({
-    exec, repos, ctx: testCtx(), log: silentLog,
+    exec, providers: githubProviders(exec), repos, ctx: testCtx(), log: silentLog,
     root: () => r,
     push: (type, payload) => pushes.push([type, payload]),
     changed: (o) => changed.push(o),

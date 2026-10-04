@@ -25,7 +25,7 @@ import { ExecutionError } from "../drafts/execute.js";
 import type { DraftStore } from "../drafts/store.js";
 import type { ItemDiff } from "../diff/item-diff.js";
 import type { EventStore } from "../events/store.js";
-import type { FetchResult } from "../gh/issues.js";
+import type { FetchResult } from "../providers/ticket-source.js";
 import type { ItemStore, StoredItem } from "../items/store.js";
 import type { ItemView } from "../items/view.js";
 import { CloneError } from "../repos/clone.js";

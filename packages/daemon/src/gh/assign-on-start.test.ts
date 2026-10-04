@@ -1,4 +1,5 @@
 import type { WorkItem } from "@donepm/core";
+import { githubProviders } from "./adapter.js";
 import { describe, expect, it } from "vitest";
 import type { Config } from "../config/config.js";
 import { openDb } from "../db/database.js";
@@ -23,7 +24,7 @@ function setup(exec: Exec, sources: Config["sources"]) {
   const events = new EventStore(db);
   items.insert(ITEM, "github.com/acme/api");
   const writer = itemWriter({ db, items, events, onItem: () => {}, onEvent: () => {} });
-  return { deps: { items, writer, exec, ctx: testCtx(), log: silentLog, sources: () => sources }, events };
+  return { deps: { items, writer, providers: githubProviders(exec), ctx: testCtx(), log: silentLog, sources: () => sources }, events };
 }
 
 describe("assignOnStart", () => {

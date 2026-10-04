@@ -1,4 +1,5 @@
 import type { WorkItem } from "@donepm/core";
+import { githubProviders } from "../gh/adapter.js";
 import { describe, expect, it } from "vitest";
 import { openDb } from "../db/database.js";
 import { EventStore } from "../events/store.js";
@@ -20,7 +21,7 @@ function setup(source: WorkItem["source"] = "github-pr", exec = fakeExec({ "gh p
     stateSince: ctx.now(), createdAt: ctx.now(), updatedAt: ctx.now(),
   };
   items.insert(item, "github.com/acme/widgets");
-  return { deps: { items, events, writer, ctx, exec }, exec, events };
+  return { deps: { items, events, writer, ctx, providers: githubProviders(exec) }, exec, events };
 }
 
 describe("commentOnPr (D47)", () => {

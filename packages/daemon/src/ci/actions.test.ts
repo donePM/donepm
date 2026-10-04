@@ -1,4 +1,5 @@
 import { ciFailed, draftCreated, draftExecuted, start, type WorkItem } from "@donepm/core";
+import { githubProviders } from "../gh/adapter.js";
 import { describe, expect, it } from "vitest";
 import { openDb } from "../db/database.js";
 import { EventStore } from "../events/store.js";
@@ -32,7 +33,7 @@ function setup(red = true) {
   current = writer.commit(draftExecuted(current, ctx, "d-1", PR, { ...PR }));
   if (red) writer.commit(ciFailed(current, ctx, { ...PR, failed: FAILED, logs: [{ name: "test (node 22)", tail: "expected 1 to be 2" }] }));
   const exec = fakeExec({ "gh run rerun": ok("") });
-  return { deps: { items, events, writer, ctx, exec }, exec, item: () => items.get(item.id)!.item, last: () => events.forItem(item.id).at(-1)! };
+  return { deps: { items, events, writer, ctx, providers: githubProviders(exec) }, exec, item: () => items.get(item.id)!.item, last: () => events.forItem(item.id).at(-1)! };
 }
 
 describe("rerunCi", () => {
@@ -47,7 +48,7 @@ describe("rerunCi", () => {
     await expect(rerunCi(setup(false).deps, "item-1")).rejects.toMatchObject({ status: 409 });
     await expect(rerunCi(setup().deps, "nope")).rejects.toMatchObject({ status: 404 });
     const t = setup();
-    await expect(rerunCi({ ...t.deps, exec: fakeExec({ "gh run rerun": fail("run is still in progress") }) }, "item-1")).rejects.toEqual(
+    await expect(rerunCi({ ...t.deps, providers: githubProviders(fakeExec({ "gh run rerun": fail("run is still in progress") })) }, "item-1")).rejects.toEqual(
       new CiActionError(502, "run is still in progress"),
     );
     expect(t.item().state).toBe("needs_you");

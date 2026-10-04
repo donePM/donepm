@@ -27,7 +27,7 @@ import { EventStore } from "./events/store.js";
 import { collectIssues } from "./gh/collect-issues.js";
 import { detectGh } from "./gh/detect.js";
 import { detectHelpers } from "./helpers/detect.js";
-import { fetchQueryIssues } from "./gh/issues.js";
+import { githubProviders } from "./gh/adapter.js";
 import { Poller } from "./gh/poller.js";
 import { buildServer, type WorktreeChoice } from "./http/server.js";
 import { makeGuard } from "./http/guard.js";
@@ -41,6 +41,7 @@ import { agentHistory, liveHistory } from "./items/agent-info.js";
 import { attentionOf } from "./items/attention.js";
 import { toItemView, type CiCheckView, type CurrentTool, type ItemView, type MergeView } from "./items/view.js";
 import type { Exec } from "./process/exec.js";
+import { noConnection, type Providers } from "./providers/registry.js";
 import { PlaybookCatalog } from "./playbooks/catalog.js";
 import { ensureDefaultPlaybooks } from "./playbooks/load.js";
 import { listPlaybooks } from "./playbooks/list.js";
@@ -70,6 +71,8 @@ import { Hub } from "./ws/hub.js";
 export interface DaemonOptions {
   home: string;
   exec: Exec;
+  /** The provider adapters (issue #138); github.com through `gh` by default. */
+  providers?: Providers;
   ctx: Ctx;
   version: string;
   /** Overrides the configured port (tests use 0). */
@@ -130,6 +133,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const bridgeSessions = new BridgeSessions();
   let bridge: { close: () => Promise<void> } | undefined;
   const status = new StatusStore(opts.version, opts.ctx.now());
+  const providers = opts.providers ?? githubProviders(opts.exec);
   const boundPort = () => {
     const a = app.server.address();
     return typeof a === "object" && a ? a.port : port;
@@ -266,7 +270,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     return found;
   };
   const startDeps = (): StartDeps => ({
-    items, repos, writer, runner, transcript, exec: opts.exec, ctx: opts.ctx, log: app.log,
+    items, repos, writer, runner, transcript, exec: opts.exec, providers, ctx: opts.ctx, log: app.log,
     push: (type, payload) => hub.push(type, payload),
     playbooksDir: paths.playbooksDir,
     worktreeRoot,
@@ -282,6 +286,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
 
   const cloner = new RepoCloner({
     exec: opts.exec,
+    providers,
     repos,
     ctx: opts.ctx,
     log: { info: (o, m) => app.log.info(o, m), warn: (o, m) => app.log.warn(o, m), error: (o, m) => app.log.error(o, m) },
@@ -310,15 +315,15 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       // Playbook files may have changed since the last poll; new items start with an allowed one (#153).
       await refreshCatalog();
       await collectIssues({
-        db, exec: opts.exec, items, events, repos, status, ctx: opts.ctx, log: app.log, sources: () => config.sources, onItemUpdated: pushItem,
+        db, exec: opts.exec, providers, items, events, repos, status, ctx: opts.ctx, log: app.log, sources: () => config.sources, onItemUpdated: pushItem,
         allowedPlaybooks: (origin, source) => allowedFor(origin, source, catalog.get(repos.byOrigin(origin)?.path)),
       });
       if (status.get().gh?.state === "ready") {
         for (const id of ciChecks.keys()) if (items.get(id)?.item.state !== "checking") ciChecks.delete(id);
-        await watchCi({ items, events, writer, exec: opts.exec, ctx: opts.ctx, log: app.log, onChecks });
-        await autoMergeReady({ items, events, writer, exec: opts.exec, ctx: opts.ctx, log: app.log }, config.sources, (o) => isManaged(config.sources, o));
+        await watchCi({ items, events, writer, providers, ctx: opts.ctx, log: app.log, onChecks });
+        await autoMergeReady({ items, events, writer, providers, ctx: opts.ctx, log: app.log }, config.sources, (o) => isManaged(config.sources, o));
         await watchPrs({
-          items, events, drafts, repos, writer, exec: opts.exec, ctx: opts.ctx, log: app.log,
+          items, events, drafts, repos, writer, exec: opts.exec, providers, ctx: opts.ctx, log: app.log,
           removeOnMerge: () => config.removeWorktreeOnMerge,
           agentActive: (i) => runner.isRunning(i),
         });
@@ -395,7 +400,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     removeOrphan: (path) => removeOrphan({ exec: opts.exec, orphans }, path),
     stopItem: (id) => runner.stop(id),
     dismissItem: (id) => dismissItem({ items, writer, ctx: opts.ctx, agentActive: (i) => runner.isRunning(i) }, id),
-    rerunCi: (id) => rerunCi({ items, events, writer, ctx: opts.ctx, exec: opts.exec }, id),
+    rerunCi: (id) => rerunCi({ items, events, writer, ctx: opts.ctx, providers }, id),
     markCiDone: (id) => markCiDone({ items, events, writer, ctx: opts.ctx, agentActive: (i) => runner.isRunning(i) }, id),
     fixCi: (id) =>
       fixCi({ items, events, writer, ctx: opts.ctx, resume: async (itemId, how) => track(await resumeItem(startDeps(), itemId, how)) }, id),
@@ -408,9 +413,9 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     addressFeedback: (id) =>
       addressFeedback({ items, events, writer, repos, ctx: opts.ctx, exec: opts.exec, resume: async (itemId, how) => track(await resumeItem(startDeps(), itemId, how)) }, id),
     dismissFeedback: (id) => dismissFeedback({ items, events, writer, ctx: opts.ctx }, id),
-    commentOnPr: (id, body) => commentOnPr({ items, events, writer, ctx: opts.ctx, exec: opts.exec }, id, body),
-    mergePr: (id, method) => mergePr({ items, events, writer, ctx: opts.ctx, exec: opts.exec }, id, method),
-    updatePrBranch: (id) => updatePrBranch({ items, events, writer, ctx: opts.ctx, exec: opts.exec }, id),
+    commentOnPr: (id, body) => commentOnPr({ items, events, writer, ctx: opts.ctx, providers }, id, body),
+    mergePr: (id, method) => mergePr({ items, events, writer, ctx: opts.ctx, providers }, id, method),
+    updatePrBranch: (id) => updatePrBranch({ items, events, writer, ctx: opts.ctx, providers }, id),
     setAutoMerge: (id, on) => setAutoMerge({ items, events, writer, ctx: opts.ctx }, id, on),
     changePlaybook: (id, playbook) =>
       changePlaybook(
@@ -433,7 +438,10 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     grants: () => grants.active(),
     revokeGrant: (id) => revokeGrant({ grants, items, writer, ctx: opts.ctx }, id),
     diff: (input) => itemDiff(opts.exec, input),
-    testSource: (origin, query) => fetchQueryIssues(opts.exec, origin, query),
+    testSource: async (origin, query) => {
+      const tickets = providers.ticketSource(origin);
+      return tickets ? tickets.query(origin, query) : { ok: false, kind: "command", error: noConnection(origin) };
+    },
     openPath: async (path, target) => {
       const r = await opts.exec("open", target === "terminal" ? ["-a", "Terminal", path] : [path]);
       if (r.code !== 0) throw new Error(r.stderr.trim() || `open exited with ${r.code}`);
@@ -443,6 +451,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       approveDraft({
         ...draftDeps,
         exec: opts.exec,
+        providers,
         stopAgent: async (itemId) => {
           if (runner.hasProcess(itemId)) await runner.stop(itemId);
         },

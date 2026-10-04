@@ -3,13 +3,13 @@ import type { Config } from "../config/config.js";
 import type { ItemWriter } from "../items/commit.js";
 import type { ItemStore } from "../items/store.js";
 import type { Log } from "../log.js";
-import type { Exec } from "../process/exec.js";
-import { assignIssueToMe } from "./issues.js";
+import type { Providers } from "../providers/registry.js";
+import type { Done } from "../providers/result.js";
 
 export interface AssignDeps {
   items: ItemStore;
   writer: ItemWriter;
-  exec: Exec;
+  providers: Providers;
   ctx: Ctx;
   log: Log;
   sources: () => Config["sources"];
@@ -25,10 +25,10 @@ export async function assignOnStart(deps: AssignDeps, itemId: string, origin: st
   const stored = deps.items.get(itemId);
   // A pull request to review is someone else's; there is nothing to assign (D40).
   if (!stored || stored.item.source !== "github-issue") return;
-  const [repository, number] = stored.item.externalId.split("#");
-  let result: Awaited<ReturnType<typeof assignIssueToMe>>;
+  const tickets = deps.providers.ticketSource(origin);
+  let result: Done;
   try {
-    result = await assignIssueToMe(deps.exec, repository!, Number(number));
+    result = tickets ? await tickets.assignToMe({ externalId: stored.item.externalId, origin }) : { ok: false, error: `no ticket source for ${origin}` };
   } catch (e) {
     result = { ok: false, error: (e as Error).message };
   }

@@ -2,11 +2,12 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CiPr, DraftReply } from "@donepm/core";
+import type { ReplyResult } from "../providers/code-host.js";
 import type { Exec } from "../process/exec.js";
 
 const REPLY_TIMEOUT_MS = 60_000;
 
-export type ReplyResult = { ok: true; url: string } | { ok: false; error: string };
+export type { ReplyResult };
 
 /**
  * Post one approved reply to review feedback (decision D39), as the user, never from the agent's

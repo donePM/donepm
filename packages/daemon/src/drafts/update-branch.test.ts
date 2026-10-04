@@ -1,4 +1,5 @@
 import type { PrStatus } from "@donepm/core";
+import { githubProviders } from "../gh/adapter.js";
 import { describe, expect, it } from "vitest";
 import type { ResumeHow } from "../agent/start.js";
 import { draftStores } from "../test-support/draft-stores.js";
@@ -23,7 +24,7 @@ function setup(author = "octocat", routes: Parameters<typeof fakeExec>[0] = {}, 
   const continued: ResumeHow[] = [];
   const stopped: string[] = [];
   const deps = {
-    ...t.deps, exec,
+    ...t.deps, exec, providers: githubProviders(exec),
     stopAgent: async (id: string) => void stopped.push(id),
     continueAgent: async (id: string, how: ResumeHow) => {
       continued.push(how);

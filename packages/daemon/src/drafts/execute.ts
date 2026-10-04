@@ -1,15 +1,12 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   branchUpdatedMessage, branchUpdatePosted, draftApproved, draftExecuted, draftExecutionFailed, repliesPosted, reviewPosted,
   type CiPr, type Draft, type DraftReply, type PostedReply, type PrDraftPayload, type PrDraftResult, type WorkItem,
 } from "@donepm/core";
-import { postReply } from "../gh/pr-replies.js";
-import { postReview } from "../gh/pr-review.js";
 import type { ResumeHow } from "../agent/start.js";
 import { requestBranchUpdate } from "../prs/update-branch.js";
 import type { Exec, ExecResult } from "../process/exec.js";
+import type { CodeHost } from "../providers/code-host.js";
+import { noConnection, type Providers } from "../providers/registry.js";
 import type { DraftResult } from "./store.js";
 import { setupCopies } from "../worktrees/setup.js";
 import { DraftError, type DraftDeps } from "./actions.js";
@@ -33,6 +30,7 @@ export class ExecutionError extends Error {
 
 export interface ApproveDeps extends DraftDeps {
   exec: Exec;
+  providers: Providers;
   /** Ends the agent once its work is published. */
   stopAgent: (itemId: string) => Promise<void>;
   /**
@@ -71,7 +69,7 @@ export async function approveDraft(deps: ApproveDeps, draftId: string): Promise<
   let pr: CiPr;
   try {
     if (draft.type === "pr") {
-      result = await publish(deps.exec, { ...where, repo: repo.originUrl, payload: draft.userEdits ?? draft.payload });
+      result = await publish(deps.exec, codeHost(deps, "pr", repo.originUrl), { ...where, repo: repo.originUrl, payload: draft.userEdits ?? draft.payload });
       pr = result;
     } else if (draft.type === "push") {
       pr = { number: draft.payload.number, url: draft.payload.url };
@@ -82,7 +80,7 @@ export async function approveDraft(deps: ApproveDeps, draftId: string): Promise<
         : pushed;
     } else if (draft.type === "review") {
       pr = { number: draft.payload.number, url: draft.payload.url };
-      const posted = await postReview(deps.exec, draft.payload);
+      const posted = await codeHost(deps, "review", pr.url).postReview(draft.payload);
       if (!posted.ok) throw new ExecutionError("review", `posting the review failed: ${posted.error}`);
       result = posted.result;
     } else {
@@ -119,7 +117,7 @@ export async function approveDraft(deps: ApproveDeps, draftId: string): Promise<
 async function updateBranch(deps: ApproveDeps, draft: Extract<Draft, { type: "update_branch" }>, item: WorkItem): Promise<Draft> {
   deps.drafts.setState(draft.id, "approved", deps.ctx.now());
   let current = deps.writer.commit(draftApproved(item, deps.ctx, draft.id));
-  const done = await requestBranchUpdate(deps.exec, current).catch((e: Error) => ({ ok: false as const, error: e.message }));
+  const done = await requestBranchUpdate(deps.providers, current).catch((e: Error) => ({ ok: false as const, error: e.message }));
   if (!done.ok) {
     const err = new ExecutionError("update_branch", `updating the branch failed: ${done.error}`);
     deps.drafts.setState(draft.id, "failed", deps.ctx.now());
@@ -151,7 +149,7 @@ async function postReplies(
   const posted = [...already];
   for (const [index, reply] of replies.entries()) {
     if (posted.some((p) => p.index === index)) continue;
-    const r = await postReply(deps.exec, pr, reply);
+    const r = await codeHost(deps, "reply", pr.url).reply(pr, reply);
     if (!r.ok) throw new ExecutionError("reply", `posting reply ${index + 1} of ${replies.length} failed: ${r.error}`);
     posted.push({ index, url: r.url });
     deps.drafts.setProgress(draftId, progress(posted), deps.ctx.now());
@@ -213,38 +211,23 @@ async function pushCommits(exec: Exec, input: Where): Promise<{ sha: string }> {
   return { sha: head.stdout.trim() };
 }
 
-async function publish(exec: Exec, input: Where & { repo: string; payload: PrDraftPayload }): Promise<PrDraftResult> {
+async function publish(exec: Exec, host: CodeHost, input: Where & { repo: string; payload: PrDraftPayload }): Promise<PrDraftResult> {
   await commitAndPush(exec, input);
+  const { title, body, base } = input.payload;
+  const created = await host.createPr({ origin: input.repo, head: input.branch, base, title, body, cwd: input.worktree });
+  if (!created.ok) throw new ExecutionError("pr", created.error);
+  return created.pr;
+}
 
-  const dir = mkdtempSync(join(tmpdir(), "donepm-pr-"));
-  try {
-    const bodyFile = join(dir, "body.md");
-    writeFileSync(bodyFile, input.payload.body, { mode: 0o600 });
-    const pr = await exec(
-      "gh",
-      [
-        "pr", "create", "--repo", input.repo, "--head", input.branch, "--base", input.payload.base,
-        "--title", input.payload.title, "--body-file", bodyFile,
-      ],
-      { cwd: input.worktree, timeoutMs: PUSH_TIMEOUT_MS },
-    );
-    check(pr, "pr", "gh pr create");
-    return prResult(pr.stdout);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+/** The code host of the item's repository or pull request; none fails the step. */
+function codeHost(deps: ApproveDeps, step: ExecutionStep, where: string): CodeHost {
+  const host = deps.providers.codeHost(where);
+  if (!host) throw new ExecutionError(step, noConnection(where));
+  return host;
 }
 
 function check(r: ExecResult, step: ExecutionStep, what: string): void {
   if (r.code === 0) return;
   const out = (r.stderr || r.stdout).trim();
   throw new ExecutionError(step, out ? `${what} failed: ${out}` : `${what} exited with code ${r.code}`);
-}
-
-/** `gh pr create` prints the new pull request's URL as its last line. */
-export function prResult(stdout: string): PrDraftResult {
-  const url = stdout.trim().split("\n").at(-1)?.trim() ?? "";
-  const m = /\/pull\/(\d+)$/.exec(url);
-  if (!m) throw new ExecutionError("pr", `gh pr create printed no pull request URL: ${stdout.trim() || "(nothing)"}`);
-  return { url, number: Number(m[1]) };
 }

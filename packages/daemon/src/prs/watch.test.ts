@@ -1,4 +1,5 @@
 import { existsSync, writeFileSync } from "node:fs";
+import { githubProviders } from "../gh/adapter.js";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -56,7 +57,7 @@ async function setup(opts: { removeOnMerge: boolean; prView?: () => string; ghFa
   const exec: Exec = (cmd, args, o) =>
     cmd === "gh" ? (args[0] === "api" ? api(cmd, args, o) : gh(cmd, args, o)) : realExec(cmd, args, o);
   const deps = {
-    items, events, drafts, repos, writer, exec, ctx, log: silentLog,
+    items, events, drafts, repos, writer, exec, providers: githubProviders(exec), ctx, log: silentLog,
     removeOnMerge: () => opts.removeOnMerge, agentActive: () => false,
   };
   const types = () => events.forItem(item.id).map((e) => e.type).slice(opts.checking ? 4 : 5);

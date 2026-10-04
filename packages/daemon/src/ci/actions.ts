@@ -4,10 +4,9 @@ import {
 } from "@donepm/core";
 import type { ResumeHow } from "../agent/start.js";
 import type { EventStore } from "../events/store.js";
-import { prRepository } from "../gh/pr-state.js";
 import type { ItemWriter } from "../items/commit.js";
 import type { ItemStore } from "../items/store.js";
-import type { Exec } from "../process/exec.js";
+import { noConnection, type Providers } from "../providers/registry.js";
 
 export class CiActionError extends Error {
   constructor(
@@ -35,20 +34,28 @@ function failureOf(deps: CiActionDeps, itemId: string): { item: WorkItem; failur
 }
 
 /**
- * The user's "Rerun failed jobs" on a red CI (decision D35): `gh run rerun --failed` for each run a
- * failed check belongs to, then the item waits for CI again. The user's click is the approval.
+ * The user's "Rerun failed jobs" on a red CI (decision D35): the CI source reruns the failed jobs of
+ * each run a failed check belongs to, then the item waits for CI again. The user's click is the approval.
  */
-export async function rerunCi(deps: CiActionDeps & { exec: Exec }, itemId: string): Promise<WorkItem> {
+export async function rerunCi(deps: CiActionDeps & { providers: Providers }, itemId: string): Promise<WorkItem> {
   const { item, failure } = failureOf(deps, itemId);
-  const repository = failure.pr && prRepository(failure.pr.url);
-  if (!failure.pr || !repository) throw new CiActionError(409, "the failure names no pull request");
+  if (!failure.pr || !prUrl(failure.pr.url)) throw new CiActionError(409, "the failure names no pull request");
   if (failure.runs.length === 0) throw new CiActionError(409, "no failed check belongs to a GitHub Actions run");
-  for (const run of failure.runs) {
-    const r = await deps.exec("gh", ["run", "rerun", run, "--failed", "--repo", repository]);
-    if (r.code !== 0) throw new CiActionError(502, r.stderr.trim() || `gh run rerun exited with ${r.code}`);
-  }
+  const ci = deps.providers.ciSource(failure.pr.url);
+  if (!ci) throw new CiActionError(502, noConnection(failure.pr.url));
+  const done = await ci.rerunFailed(failure.pr, failure.runs);
+  if (!done.ok) throw new CiActionError(502, done.error);
   const now = deps.items.get(itemId)?.item ?? item;
   return commit(deps, () => ciRerun(now, deps.ctx, failure.pr!, failure.runs));
+}
+
+/** A pull request URL: `https://host/owner/repo/pull/N`. */
+function prUrl(url: string): boolean {
+  try {
+    return new URL(url).pathname.split("/").filter(Boolean).length >= 2;
+  } catch {
+    return false;
+  }
 }
 
 /** The user's "Mark done" while CI runs or after it failed: the item moves to Done as it is. */

@@ -1,17 +1,16 @@
-import { ciFailed, ciPassed, ciVerdict, ciWaitOf, failedRuns, type CheckLog, type CiCheck, type Ctx, type FailedCheck, type WorkItem } from "@donepm/core";
+import { ciFailed, ciPassed, ciVerdict, ciWaitOf, failedRuns, type CheckLog, type CiCheck, type CiPr, type Ctx, type FailedCheck, type WorkItem } from "@donepm/core";
 import type { EventStore } from "../events/store.js";
-import { fetchFailedLogs, fetchPrChecks } from "../gh/pr-checks.js";
-import { prRepository } from "../gh/pr-state.js";
 import type { ItemWriter } from "../items/commit.js";
 import type { ItemStore } from "../items/store.js";
 import type { Log } from "../log.js";
-import type { Exec } from "../process/exec.js";
+import type { CiSource } from "../providers/ci-source.js";
+import type { Providers } from "../providers/registry.js";
 
 export interface CiWatchDeps {
   items: ItemStore;
   events: EventStore;
   writer: ItemWriter;
-  exec: Exec;
+  providers: Providers;
   ctx: Ctx;
   log: Log;
   /** The checks each poll read, pending ones included; the card shows them while CI runs. */
@@ -37,7 +36,12 @@ export async function watchCi(deps: CiWatchDeps): Promise<void> {
 async function check(deps: CiWatchDeps, item: WorkItem): Promise<void> {
   const wait = ciWaitOf(deps.events.forItem(item.id));
   if (!wait) return;
-  const checks = await fetchPrChecks(deps.exec, wait.pr);
+  const ci = deps.providers.ciSource(wait.pr.url);
+  if (!ci) {
+    deps.log.warn({ itemId: item.id, pr: wait.pr.url }, "no CI source for the pull request");
+    return;
+  }
+  const checks = await ci.checks(wait.pr);
   if (!checks.ok) {
     deps.log.warn({ itemId: item.id, pr: wait.pr.url, error: checks.error }, "gh pr checks failed");
     return;
@@ -45,7 +49,7 @@ async function check(deps: CiWatchDeps, item: WorkItem): Promise<void> {
   deps.onChecks?.(item.id, checks.checks);
   const verdict = ciVerdict(checks.checks, wait.since, deps.ctx.now());
   if (verdict.kind === "pending") return;
-  const logs = verdict.kind === "failed" ? await failedLogs(deps.exec, wait.pr.url, verdict.failed) : [];
+  const logs = verdict.kind === "failed" ? await failedLogs(ci, wait.pr, verdict.failed) : [];
   // Re-read: the user may have marked it done while gh ran.
   const now = deps.items.get(item.id)?.item;
   if (now?.state !== "checking") return;
@@ -56,11 +60,8 @@ async function check(deps: CiWatchDeps, item: WorkItem): Promise<void> {
   );
 }
 
-/** The log ends of the failed checks, fetched per Actions run; checks of other CI have none. */
-async function failedLogs(exec: Exec, prUrl: string, failed: readonly FailedCheck[]): Promise<CheckLog[]> {
-  const repository = prRepository(prUrl);
-  if (!repository) return [];
+/** The log ends of the failed checks, fetched per run; checks of other CI have none. */
+async function failedLogs(ci: CiSource, pr: CiPr, failed: readonly FailedCheck[]): Promise<CheckLog[]> {
   const names = new Set(failed.map((c) => c.name));
-  const logs = (await Promise.all(failedRuns(failed).map((run) => fetchFailedLogs(exec, repository, run)))).flat();
-  return logs.filter((l) => names.has(l.name));
+  return (await ci.failedLogs(pr, failedRuns(failed))).filter((l) => names.has(l.name));
 }

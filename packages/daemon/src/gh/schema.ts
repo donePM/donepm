@@ -1,5 +1,6 @@
 import type { SourceIssue } from "@donepm/core";
 import { z } from "zod";
+import type { FetchedIssue } from "../providers/ticket-source.js";
 
 const Label = z.object({ name: z.string() }).passthrough();
 
@@ -50,7 +51,7 @@ export const PrStateSchema = z.object({
 });
 
 /** A polled issue plus its node id, until the issue fields are read (`withPriorityFields`, D45). */
-export type FetchedIssue = SourceIssue & { nodeId?: string };
+export type { FetchedIssue };
 
 export function toSourceIssue(i: z.infer<typeof ListIssueSchema>, repository: string): FetchedIssue {
   return {

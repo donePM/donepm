@@ -1,4 +1,5 @@
 import type { WorkItem } from "@donepm/core";
+import { githubProviders } from "./adapter.js";
 import type { Config } from "../config/config.js";
 import { describe, expect, it } from "vitest";
 import { openDb } from "../db/database.js";
@@ -35,7 +36,7 @@ function setup(exec: Exec, log: Log = silentLog, sources: Config["sources"] = {}
   const pushed: WorkItem[] = [];
   const all = managedSources(sources);
   const deps = {
-    db, exec, log, ctx: testCtx(), sources: () => all,
+    db, exec, providers: githubProviders(exec), log, ctx: testCtx(), sources: () => all,
     items: new ItemStore(db), events: new EventStore(db), repos: new RepoStore(db), status: new StatusStore("0.0.0", "2026-09-01T00:00:00.000Z"),
     onItemUpdated: (i: WorkItem) => pushed.push(i),
   };
@@ -406,7 +407,7 @@ describe("collectIssues", () => {
       const repos = new RepoStore(db);
       repos.upsert({ id: "r1", path: "/c/widgets", originUrl: "github.com/acme/widgets", defaultBranch: "main" }, "t");
       const deps = {
-        db, exec, log: silentLog, ctx: testCtx(), sources: () => ({}),
+        db, exec, providers: githubProviders(exec), log: silentLog, ctx: testCtx(), sources: () => ({}),
         items: new ItemStore(db), events: new EventStore(db), repos, status: new StatusStore("0.0.0", "2026-09-01T00:00:00.000Z"),
         onItemUpdated: () => {},
       };
