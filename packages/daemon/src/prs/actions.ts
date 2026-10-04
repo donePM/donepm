@@ -74,18 +74,24 @@ function waitingFeedback(deps: PrActionDeps, itemId: string): { item: WorkItem; 
 }
 
 /**
- * "Address with agent" (decision D39): resumes the session with the feedback as the message. Code
- * changes reach the PR as a push draft, answers to reviewers as replies on a draft, both approved
- * by the user.
+ * "Address with agent" (decision D39): fetches the PR branch, since the agent has no network and
+ * GitHub may have commits the worktree lacks (#121), then resumes the session with the feedback as
+ * the message. Code changes reach the PR as a push draft, answers to reviewers as replies on a
+ * draft, both approved by the user.
  */
 export async function addressFeedback<T>(
-  deps: PrActionDeps & { resume: (itemId: string, how: ResumeHow) => Promise<T> },
+  deps: PrActionDeps & { exec: Exec; repos: RepoStore; resume: (itemId: string, how: ResumeHow) => Promise<T> },
   itemId: string,
 ): Promise<T> {
   const { item, feedback } = waitingFeedback(deps, itemId);
-  if (!item.worktreePath) throw new PrActionError(409, "the item has no worktree");
+  const repo = item.repoId ? deps.repos.get(item.repoId) : undefined;
+  if (!repo || !item.worktreePath) throw new PrActionError(409, "the item has no worktree");
   if (!item.agentSessionId) throw new PrActionError(409, "the item has no agent session to resume");
-  return deps.resume(itemId, { transition: prFeedbackFix, prompt: feedbackFixPrompt(feedback) });
+  if (item.branch) {
+    const fetched = await deps.exec("git", ["-C", repo.path, "fetch", "origin", item.branch], { timeoutMs: 5 * 60_000 });
+    if (fetched.code !== 0) throw new PrActionError(502, fetched.stderr.trim() || `git fetch exited with ${fetched.code}`);
+  }
+  return deps.resume(itemId, { transition: prFeedbackFix, prompt: feedbackFixPrompt(feedback, item.branch) });
 }
 
 /** "Mark done": the user deals with the feedback, or it needs nothing. The item is done again. */
