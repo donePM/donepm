@@ -24,6 +24,17 @@ export const SourceSchema = z
     assignOnStart: z.boolean().default(false),
     /** Playbook new issues of this repository start with, instead of `implement` (issue #127). */
     playbook: z.string().trim().min(1).optional(),
+    /**
+     * The playbooks each ingest may run here (issue #153). Missing: every playbook that is not
+     * read-only for issues, `review` for pull requests (core `allowedPlaybooks`).
+     */
+    playbooks: z
+      .object({
+        issue: z.array(z.string().trim().min(1)).min(1).optional(),
+        pr: z.array(z.string().trim().min(1)).min(1).optional(),
+      })
+      .strict()
+      .optional(),
     /** donePM collects, shows and starts work for this repository only when true (issue #94, D46). */
     managed: z.boolean().optional(),
     /** Default of the per-item "Merge automatically" choice for others' pull requests (D47). Off. */
@@ -33,7 +44,11 @@ export const SourceSchema = z
     /** Issue #33's flag, replaced by `managed`; only read once to migrate (D46). */
     ignored: z.boolean().optional(),
   })
-  .strict();
+  .strict()
+  .refine((s) => !s.playbook || !s.playbooks?.issue || s.playbooks.issue.includes(s.playbook), {
+    path: ["playbook"],
+    message: "the default playbook must be one of the playbooks offered for issues",
+  });
 
 export type SourceSettings = z.infer<typeof SourceSchema>;
 

@@ -438,6 +438,19 @@ rebase of the author's commits. Both are requests to GitHub as the user; donePM 
 to someone else's branch. The agent's draft does not end its run, so its review still follows. A reviewed PR stays on the board until GitHub
 says it is merged or closed, so the merge stays in reach.
 
+**D48. Each repository chooses which playbooks each ingest offers; pull requests only read-only
+ones.** Issue #153. A repository's `sources` entry may list `playbooks.issue` and `playbooks.pr`.
+The card's dropdown and `PUT /api/items/:id/playbook` only take a playbook from the item's list, and
+a newly collected item starts with one of them. Without a list, issues get every playbook that is
+not read-only and pull requests get `review`, which is what the defaults (D40, D43, D47) already
+implied; a user who adds a second playbook to the global folder sees it offered on issue cards
+without configuring anything. Pull requests take only read-only playbooks even when a writing one
+is listed, because donePM never pushes to someone else's branch (D47): a writing playbook on a
+pull request would produce a PR draft it can never execute. The rule is a pure function in `core`
+(`allowedPlaybooks`), and `playbookChanged` throws for a name outside the set, so the daemon does
+not decide it. The daemon keeps each repository's loaded playbooks in memory, refreshed on start
+and on each poll, so the item view stays synchronous.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

@@ -243,6 +243,17 @@ describe("collectIssues", () => {
       expect(deps.items.byExternalId("vuejs/core#15766")!.item.author).toBe("edison1105");
     });
 
+    it("starts pull requests with a playbook the repository offers them (#153)", async () => {
+      const exec = fakeExec({
+        ...ready,
+        "gh search issues": ok(fixture("gh/search-issues-empty.json")),
+        "gh search prs": ok(fixture("gh/search-prs.json")),
+      });
+      const { deps } = setup(exec);
+      await collectIssues({ ...deps, allowedPlaybooks: (_origin, source) => (source === "github-pr" ? ["audit"] : ["implement"]) });
+      expect(deps.items.all().map((s) => s.item.playbook)).toEqual(["audit", "audit"]);
+    });
+
     it("keeps the issues and skips missing checks when the review request search fails", async () => {
       let out = fixture("gh/search-issues.json");
       const exec = fakeExec({ ...ready, "gh search issues": () => ok(out), "gh search prs --review-requested=@me": fail("HTTP 502") });

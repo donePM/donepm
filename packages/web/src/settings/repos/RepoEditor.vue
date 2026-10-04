@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { MERGE_METHODS, type MergeMethod } from "@donepm/core";
-import { computed, reactive, ref } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { api } from "../../api/client";
 import { errorText } from "../../api/errors";
 import type { PlaybookList, RepoView, SourceTest } from "../../api/types";
 import { repos, saveErrorText, saveSettings, settings } from "../store";
+import { ingestChoices, ingestConfig, ingestSelection } from "./ingest-playbooks";
 import { playbookChoices } from "./repos";
 import { DEFAULT_QUERY, issueSearchUrl, withSource } from "./sources";
 
@@ -21,8 +22,32 @@ const form = reactive({
   ignored: !props.repo.managed,
 });
 
+/** The playbooks each ingest offers (issue #153), filled once the playbooks are loaded. */
+const offered = reactive<{ issue: string[]; pr: string[] }>({ issue: [], pr: [] });
+const offeredReady = ref(false);
+watch(
+  () => props.playbooks,
+  (list) => {
+    if (!list || offeredReady.value) return;
+    offered.issue = ingestSelection(list, props.repo.originUrl, "issue", source?.playbooks);
+    offered.pr = ingestSelection(list, props.repo.originUrl, "pr", source?.playbooks);
+    offeredReady.value = true;
+  },
+  { immediate: true },
+);
+const issueChoices = computed(() => ingestChoices(props.playbooks, props.repo.originUrl, "issue", source?.playbooks?.issue));
+const prChoices = computed(() => ingestChoices(props.playbooks, props.repo.originUrl, "pr", source?.playbooks?.pr));
+// The default playbook is one the issues are offered.
+watch(
+  () => offered.issue.slice(),
+  (issue) => {
+    if (offeredReady.value && form.playbook && !issue.includes(form.playbook)) form.playbook = "";
+  },
+);
+
 const choices = computed(() => {
-  const list = playbookChoices(props.playbooks, props.repo.originUrl);
+  const all = playbookChoices(props.playbooks, props.repo.originUrl);
+  const list = offeredReady.value ? all.filter((c) => offered.issue.includes(c.name)) : all;
   // A configured playbook that no longer exists stays selectable, so saving does not drop it unseen.
   return form.playbook && !list.some((c) => c.name === form.playbook) ? [...list, { name: form.playbook, label: `${form.playbook} (not found)` }] : list;
 });
@@ -47,11 +72,18 @@ async function runTest() {
 }
 
 async function save() {
+  if (offeredReady.value && (offered.issue.length === 0 || offered.pr.length === 0)) {
+    error.value = "Offer at least one playbook for issues and one for pull requests.";
+    return;
+  }
   saving.value = true;
   error.value = undefined;
   try {
     const { ignored, ...rest } = form;
-    await saveSettings({ sources: withSource(settings.value?.sources ?? {}, props.repo.originUrl, { ...rest, managed: !ignored }) });
+    const playbooks = offeredReady.value ? ingestConfig(props.playbooks, props.repo.originUrl, offered) : source?.playbooks;
+    await saveSettings({
+      sources: withSource(settings.value?.sources ?? {}, props.repo.originUrl, { ...rest, managed: !ignored, ...(playbooks ? { playbooks } : {}) }),
+    });
     repos.value = await api.repos();
     emit("close");
   } catch (e) {
@@ -86,8 +118,22 @@ async function save() {
           <option value="">Chosen by the issue's labels</option>
           <option v-for="c in choices" :key="c.name" :value="c.name">{{ c.label }}</option>
         </select>
-        <span class="help">New issues of this repository start with it.</span>
+        <span class="help">New issues of this repository start with it, if it is offered for issues.</span>
       </div>
+      <fieldset v-if="offeredReady" class="field ingest">
+        <legend>Playbooks offered for issues</legend>
+        <div class="checks">
+          <label v-for="c in issueChoices" :key="c.name" class="check"><input v-model="offered.issue" type="checkbox" :value="c.name" /><span>{{ c.label }}</span></label>
+        </div>
+        <span class="help">A card can switch between these before its first start.</span>
+      </fieldset>
+      <fieldset v-if="offeredReady" class="field ingest">
+        <legend>Playbooks offered for pull requests</legend>
+        <div class="checks">
+          <label v-for="c in prChoices" :key="c.name" class="check"><input v-model="offered.pr" type="checkbox" :value="c.name" /><span>{{ c.label }}</span></label>
+        </div>
+        <span class="help">Only read-only playbooks: donePM never pushes to someone else's pull request.</span>
+      </fieldset>
     </div>
     <div class="col">
       <label class="switch"><input v-model="form.assignOnStart" type="checkbox" /><span>Assign the issue to me when an agent starts</span></label>
@@ -112,6 +158,10 @@ async function save() {
 .editor { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 .col { display: flex; flex-direction: column; gap: 12px; }
 .found { margin: 0; padding-left: 18px; font-size: 12px; color: var(--fg-2); }
+.ingest { border: 0; padding: 0; margin: 0; min-width: 0; }
+.ingest legend { padding: 0; margin-bottom: 4px; font-size: 12px; font-weight: 500; color: var(--fg-2); }
+.checks { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.check { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
 @media (max-width: 720px) {
   .editor { grid-template-columns: minmax(0, 1fr); }
 }

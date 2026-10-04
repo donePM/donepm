@@ -29,6 +29,12 @@ describe("playbookOptions", () => {
     ]);
   });
 
+  it("offers only the playbooks the repository allows for the item's ingest (#153)", () => {
+    const entries = [entry("implement", "opus", { kind: "global" }), entry("review", "opus", { kind: "global" }), entry("fix", "haiku", { kind: "global" })];
+    expect(playbookOptions(entries, undefined, "implement", ["fix", "implement"]).map((o) => o.name)).toEqual(["fix", "implement"]);
+    expect(playbookOptions(entries, undefined, "review", ["fix"]).map((o) => o.name)).toEqual(["fix", "review"]);
+  });
+
   it("keeps the current playbook when no file defines it", () => {
     expect(playbookOptions([], undefined, "implement")).toEqual([{ name: "implement", label: "implement" }]);
   });

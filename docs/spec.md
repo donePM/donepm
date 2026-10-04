@@ -206,7 +206,8 @@ config under `sources`, keyed by `originUrl`, not in `.donepm/` (see 14). Per re
 | managed | boolean | default `false`: donePM collects and starts work only in managed repos (D46) |
 | autoMerge | boolean? | default `false`: default of the card's "Merge automatically" for others' PRs (6.2, D47) |
 | mergeMethod | `squash` \| `merge` \| `rebase`? | default `squash`: how others' PRs are merged here (6.2, D47) |
-| playbook | string? | default playbook of issues newly collected here (8.3); absent: chosen by `match`. Pull requests keep `review` (D40) |
+| playbook | string? | default playbook of issues newly collected here (8.3); absent: chosen by `match`. Must be one of `playbooks.issue` when that is set. Pull requests keep `review` (D40) |
+| playbooks | `{ issue?: string[], pr?: string[] }`? | the playbooks each ingest may run here (8.3, D48). Absent `issue`: every playbook that is not read-only. Absent `pr`: `["review"]`. `pr` only ever takes read-only playbooks (D47) |
 
 The provider follows from the host. Only `github.com` is supported; GitLab (issue list params via
 `glab api`) and Jira (JQL) can be added without changing the format. Other hosts are rejected.
@@ -698,7 +699,13 @@ default branch).
   `choosePlaybook(item, candidates)` with providers (rules, jev.ai, Claude). Not in MVP.
 - A repo's `sources[origin].playbook` (4.6) wins for its newly collected issues; existing items
   keep theirs.
-- User changes via dropdown → `item.playbook_changed` event.
+- A repo's `sources[origin].playbooks` (4.6, D48) limits what each ingest may run: issues get the
+  listed ones (default: every playbook that is not read-only), pull requests the listed read-only
+  ones (default: `review`). A new item starts with the repo's default playbook if it is allowed,
+  else the built-in default (`implement`, `review`) if allowed, else the first allowed by name.
+  Core's `allowedPlaybooks` computes the set; the item view carries it as `allowedPlaybooks`.
+- User changes via dropdown → `item.playbook_changed` event. The transition throws for a playbook
+  outside the allowed set.
 
 ## 9. Agent runner
 
@@ -954,7 +961,7 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | GET | `/api/archive` | archived items, newest archived first (12.5) |
 | GET | `/api/items/:id` | item + events + drafts + asks; archived items too |
 | POST | `/api/items/:id/start` | create worktree, run setup, start agent; 409 when the repo is not managed (D46) |
-| PUT | `/api/items/:id/playbook` | `{ playbook }`: the card's playbook choice, `item.playbook_changed`; only on a `ready` item that never started (409 otherwise), 400 for a playbook the item's repo does not have |
+| PUT | `/api/items/:id/playbook` | `{ playbook }`: the card's playbook choice, `item.playbook_changed`; only on a `ready` item that never started (409 otherwise), 400 for a playbook the item's repo does not have, 409 for one the repo does not offer the item's ingest (D48) |
 | POST | `/api/items/:id/say` | `{ text }`: a note from the user to the running agent, written to its stdin as the next user message; it joins the running turn. 409 when the agent is not running, 400 for an empty or too long note |
 | GET | `/api/items/:id/transcript?after=<id>` | paged transcript |
 | POST | `/api/asks/:id/answer` | `{ behavior: allow\|deny, scope?: run\|always, answers?, message? }` |
@@ -1061,7 +1068,8 @@ for the whole view on a phone). Every scroll container is positioned, so visuall
   merged (green badge, PR link, "worktree removed · $0.65"); no clone and closed upstream are ghost
   cards with a dashed border.
 - Ready card: a select "implement · opus" (global playbooks plus the repo's own, a repo playbook
-  overriding a global one of the same name) and "Start" with a play icon. The select is enabled
+  overriding a global one of the same name, limited to the item's `allowedPlaybooks`, D48; a plain
+  label when there is only one) and "Start" with a play icon. The select is enabled
   only on a ready item that never started; a change is saved at once (`PUT
   /api/items/:id/playbook`). Cards without local repo: greyed out, with
   "No local clone under <repoRoot>" and a Clone button (5) whose tooltip names the target. While
@@ -1205,10 +1213,12 @@ page with a title, one lead line and panels; each panel saves on its own.
   managed clones (D46) with a filter, "Show ignored (n)" for the unmanaged ones (muted, badge
   "ignored"; shown without asking while nothing is managed, so a fresh install can pick) and
   Rescan. Columns: repository with its path, base branch, source query (or "assigned to you") with
-  the last poll's result or error, options as badges (assigns on start, the default playbook, merges
-  automatically, `setup.yml`), the number of worktrees, Edit. Edit opens a row below with the query
+  the last poll's result or error, options as badges (assigns on start, the default playbook, the
+  playbooks offered per ingest when not the default, merges automatically, `setup.yml`), the number of worktrees, Edit. Edit opens a row below with the query
   field, Test (count) and "Open in GitHub" (the repo's issue list with this query, to refine it
-  there and paste it back), the default playbook (8.3), and switches for assign on start (6.4),
+  there and paste it back), the default playbook (8.3, only among those offered for issues),
+  checkboxes for the playbooks offered for issues (any) and for pull requests (read-only ones,
+  D48), and switches for assign on start (6.4),
   "Ignore this repository" (= not managed), and for others' PRs "Merge automatically" with the merge
   method (D47); Save and Cancel. "Without a clone" lists managed repos that have no local clone
   ("Stop managing") and repos the poll found on GitHub without a clone, with their item count and
@@ -1301,7 +1311,8 @@ and `PATH`, because launchd starts jobs with a bare `PATH` and the daemon needs 
 
 ```json
 "sources": {
-  "github.com/spatie/bloom": { "managed": true, "query": "is:issue state:open no:assignee", "assignOnStart": true }
+  "github.com/spatie/bloom": { "managed": true, "query": "is:issue state:open no:assignee", "assignOnStart": true },
+  "github.com/acme/widgets": { "managed": true, "assignOnStart": false, "playbook": "fix", "playbooks": { "issue": ["implement", "fix"], "pr": ["review"] } }
 }
 ```
 

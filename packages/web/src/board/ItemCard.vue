@@ -75,7 +75,9 @@ const worktreeGone = computed(() => props.item.state === "done" && !!props.item.
 
 /** The playbook a Ready item runs; it can change until the first start. */
 const choosable = computed(() => props.item.state === "ready" && !props.item.startedAt && !noClone.value);
-const playbooks = computed(() => playbookOptions(playbookEntries.value, props.item.repo?.id, props.item.playbook));
+const playbooks = computed(() => playbookOptions(playbookEntries.value, props.item.repo?.id, props.item.playbook, props.item.allowedPlaybooks));
+/** Nothing to choose: the playbook shows as a plain label (issue #153). */
+const onePlaybook = computed(() => playbooks.value.length <= 1);
 onMounted(() => {
   if (choosable.value) void loadPlaybookEntries();
 });
@@ -282,8 +284,10 @@ async function act(fn: (id: string) => Promise<void>) {
       <span class="dim"><template v-if="worktreeGone">worktree removed</template><template v-if="worktreeGone && cost"> · </template>{{ cost }}</span>
     </div>
     <div v-if="startable" class="acts">
-      <label :for="`pb-${item.id}`" class="sr">Playbook</label>
+      <span v-if="onePlaybook" class="pb-label" title="Playbook">{{ playbooks[0]?.label ?? item.playbook }}</span>
+      <label v-if="!onePlaybook" :for="`pb-${item.id}`" class="sr">Playbook</label>
       <select
+        v-if="!onePlaybook"
         :id="`pb-${item.id}`"
         class="select"
         :value="item.playbook"
@@ -351,6 +355,7 @@ h3 { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; overflow-wr
 .acts { display: flex; gap: 8px; align-items: center; margin-top: 2px; min-width: 0; }
 .acts.wrap { flex-wrap: wrap; }
 .acts .select { flex: 1; min-width: 0; }
+.acts .pb-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--fg-2); }
 .acts .btn { text-decoration: none; }
 .end { margin-left: auto; }
 </style>

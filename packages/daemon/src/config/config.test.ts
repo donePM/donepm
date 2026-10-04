@@ -90,6 +90,25 @@ describe("sources", () => {
     expect(parseConfig('{"sources":{"github.com/o/r":{}}}').sources["github.com/o/r"]).not.toHaveProperty("ignored");
   });
 
+  it("accepts the playbooks offered per ingest (#153)", () => {
+    const c = parseConfig(JSON.stringify({
+      sources: { "github.com/o/r": { playbook: "fix", playbooks: { issue: ["implement", "fix"], pr: ["review"] } } },
+    }));
+    expect(c.sources["github.com/o/r"]).toEqual({
+      playbook: "fix",
+      playbooks: { issue: ["implement", "fix"], pr: ["review"] },
+      assignOnStart: false,
+    });
+  });
+
+  it("rejects empty or unknown ingest lists and a default outside the issue playbooks (#153)", () => {
+    expect(() => parseConfig('{"sources":{"github.com/o/r":{"playbooks":{"issue":[]}}}}')).toThrow(/playbooks/);
+    expect(() => parseConfig('{"sources":{"github.com/o/r":{"playbooks":{"mr":["x"]}}}}')).toThrow(ConfigError);
+    expect(() => parseConfig('{"sources":{"github.com/o/r":{"playbook":"fix","playbooks":{"issue":["implement"]}}}}')).toThrow(
+      /default playbook must be one of/,
+    );
+  });
+
   it("rejects an ignored flag that is not a boolean", () => {
     expect(() => parseConfig('{"sources":{"github.com/o/r":{"ignored":"yes"}}}')).toThrow(/ignored/);
   });
