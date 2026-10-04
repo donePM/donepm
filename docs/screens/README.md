@@ -8,11 +8,11 @@ to each other. They are the reference for layout, spacing, palette and component
 
 | screen | shows | issues |
 |---|---|---|
-| `board-*.png` | swimlanes per repo, four columns, card variants: ready, running, waiting for CI, PR draft, conflict, permission, merged; collapsed lane with Dependabot PRs | #100, #101 |
-| `item-*.png` | item detail: tabs, editable PR draft with Write/Preview, approve/reject, diff, timeline with tokens and cost, worktree block | #100, #101 |
-| `agents-*.png` | multiplexer: running / waiting for CI / waiting for you / finished, transcript with tools, subagent, live Bash | #100, #101 |
-| `settings-repos-*.png` | settings navigation, repository table with inline editor (query, test, default playbook, assign on start, ignore, Dependabot), orphaned worktrees | #100, #102 |
-| `settings-agents-*.png` | agents and access: slots, poll interval, worktree automation, notifications, always-allow rules, deny list, web access, tools | #100, #102 |
+| `board-*.png` | swimlanes per repo, four columns, card variants: ready, running, waiting for CI, PR draft, conflict, permission, merged; collapsed lane with Dependabot PRs | #126, #128 |
+| `item-*.png` | item detail: tabs, editable PR draft with Write/Preview, approve/reject, diff, timeline with tokens and cost, worktree block | #126, #128 |
+| `agents-*.png` | multiplexer: running / waiting for CI / waiting for you / finished, transcript with tools, subagent, live Bash | #126, #128 |
+| `settings-repos-*.png` | settings navigation, repository table with inline editor (query, test, default playbook, assign on start, ignore, Dependabot), orphaned worktrees | #126, #127 |
+| `settings-agents-*.png` | agents and access: slots, poll interval, worktree automation, notifications, always-allow rules, deny list, web access, tools | #126, #127 |
 
 ## Palette
 
