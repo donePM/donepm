@@ -5,6 +5,7 @@ import type { Settings } from "../api/types";
 import { recheck, status } from "../status/status";
 import GeneralForm from "./GeneralForm.vue";
 import GrantsPanel from "./GrantsPanel.vue";
+import NotificationsPanel from "./NotificationsPanel.vue";
 import OrphansPanel from "./OrphansPanel.vue";
 import ReposPanel from "./ReposPanel.vue";
 import SourcesPanel from "./SourcesPanel.vue";
@@ -37,6 +38,7 @@ onMounted(async () => {
     <div class="side">
       <GeneralForm v-if="settings" :settings="settings" @saved="settings = $event" />
       <WebAccessPanel v-if="settings" :domains="settings.allowedWebFetchDomains" @saved="settings = $event" />
+      <NotificationsPanel />
       <section class="panel">
         <h2>Daemon</h2>
         <p class="sub mono">donepm {{ status?.version ?? "…" }}<template v-if="settings"> · :{{ settings.port }}</template></p>
