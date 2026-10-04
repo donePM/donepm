@@ -35,11 +35,11 @@ describe("codexArgv", () => {
   it("adds donePM's MCP server as TOML, its tools approved", () => {
     const args = codexArgv({ mcp: { command: "/usr/bin/node", args: ["/a b/shim.js"], env: { DONEPM_SOCKET: "/s", DONEPM_TOKEN_FILE: "/t" } } });
     expect(args.slice(11)).toEqual([
-      "-c", 'mcp_servers.donepm.command="/usr/bin/node"',
-      "-c", 'mcp_servers.donepm.args=["/a b/shim.js"]',
-      "-c", 'mcp_servers.donepm.env={"DONEPM_SOCKET"="/s","DONEPM_TOKEN_FILE"="/t"}',
-      "-c", "mcp_servers.donepm.enabled=true",
-      "-c", 'mcp_servers.donepm.default_tools_approval_mode="approve"',
+      "-c", 'mcp_servers.donepm-draft-gate.command="/usr/bin/node"',
+      "-c", 'mcp_servers.donepm-draft-gate.args=["/a b/shim.js"]',
+      "-c", 'mcp_servers.donepm-draft-gate.env={"DONEPM_SOCKET"="/s","DONEPM_TOKEN_FILE"="/t"}',
+      "-c", "mcp_servers.donepm-draft-gate.enabled=true",
+      "-c", 'mcp_servers.donepm-draft-gate.default_tools_approval_mode="approve"',
     ]);
   });
 
@@ -57,7 +57,7 @@ describe("codex.launch", () => {
     });
     const file = join(dir, "token-item-1");
     expect(launched.args.join(" ")).not.toContain("secret-token");
-    expect(launched.args).toContain(`mcp_servers.donepm.env={"DONEPM_SOCKET"="/s","DONEPM_TOKEN_FILE"=${JSON.stringify(file)}}`);
+    expect(launched.args).toContain(`mcp_servers.donepm-draft-gate.env={"DONEPM_SOCKET"="/s","DONEPM_TOKEN_FILE"=${JSON.stringify(file)}}`);
     expect((await readFile(file, "utf8")).trim()).toBe("secret-token");
     expect(statSync(file).mode & 0o777).toBe(0o600);
     launched.cleanup?.();

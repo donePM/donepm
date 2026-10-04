@@ -1,4 +1,4 @@
-import { claudeAskSubject, type AskSubject } from "@donepm/core";
+import { AGENT_CAPABILITIES, DEFAULT_AGENT, claudeAskSubject, type AgentKind, type AskSubject } from "@donepm/core";
 import { parsePatch } from "diff";
 import stripAnsi from "strip-ansi";
 import { toolDiff, type DiffLine } from "../transcript/rows";
@@ -67,4 +67,14 @@ export function askCopyText(view: AskView): string | undefined {
 export function askReason(reason: string | undefined): string | undefined {
   const text = reason && stripAnsi(reason).trim();
   return text || undefined;
+}
+
+/**
+ * Which "allow" buttons besides Allow an ask gets (issue #137). "For this run" grants the rules the
+ * agent suggested, or, for an agent without rules (Codex), lets the agent itself allow requests like
+ * this one until the run ends. "Always allow" writes rules for the repository, so it needs both.
+ */
+export function allowScopes(input: { grant?: string | undefined; repoName?: string | undefined; agentKind?: AgentKind | undefined }): { run: boolean; always: boolean } {
+  const caps = AGENT_CAPABILITIES[input.agentKind ?? DEFAULT_AGENT];
+  return { run: !!input.grant || caps.runAccept, always: !!input.grant && !!input.repoName && caps.alwaysAllow };
 }

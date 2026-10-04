@@ -9,7 +9,9 @@ import CloneButton from "./CloneButton.vue";
 import CiPendingDot from "../ci/CiPendingDot.vue";
 import { repoOf } from "../markdown/render";
 import { diffFiles, diffStats, type DiffStats } from "../diff/files";
-import { agentElapsed, clock, money } from "../time/duration";
+import { AGENT_CAPABILITIES, agentOf, type AgentKind } from "@donepm/core";
+import { status } from "../status/status";
+import { agentElapsed, clock, money, usageLabel } from "../time/duration";
 import { since } from "../time/relative";
 import IconAlert from "../icons/IconAlert.vue";
 import IconCheck from "../icons/IconCheck.vue";
@@ -52,8 +54,15 @@ const startable = computed(() => (props.item.state === "ready" || props.item.sta
 /** The user removes a finished or failed item's worktree; only a merged PR's goes on its own (D33). */
 const removable = computed(() => (props.item.state === "done" || props.item.state === "failed") && !!props.item.worktreePath && !props.item.agent.running && !finished.value);
 const merge = computed(() => mergeNote(props.item, props.removeOnMerge ?? false));
-/** Cost shows on the card (#89); tokens are on the item page. */
-const cost = computed(() => (props.item.agent.costUsd ? money(props.item.agent.costUsd) : undefined));
+/**
+ * Cost shows on the card (#89); tokens are on the item page. An agent that reports no price shows
+ * its tokens instead, never "$0.00" (issue #137).
+ */
+const cost = computed(() => {
+  const { costUsd, usage } = props.item.agent;
+  if (costUsd) return money(costUsd);
+  return AGENT_CAPABILITIES[agentOf(props.item)].reportsCost ? undefined : usageLabel(usage);
+});
 const elapsed = computed(() => {
   const ms = agentElapsed(props.item.agent, props.now);
   return ms === undefined ? undefined : clock(ms);
@@ -81,6 +90,22 @@ const onePlaybook = computed(() => playbooks.value.length <= 1);
 onMounted(() => {
   if (choosable.value) void loadPlaybookEntries();
 });
+/** The agent dropdown (issue #137): only once Codex is installed, or when the item already runs with it. */
+const AGENT_LABELS: Record<AgentKind, string> = { "claude-code": "Claude Code", codex: "Codex" };
+const agentChoice = computed(() => props.item.runsWith ?? agentOf(props.item));
+const agentChoosable = computed(() => {
+  const codex = status.value?.codex?.state;
+  return (codex !== undefined && codex !== "not_installed") || agentChoice.value === "codex";
+});
+async function chooseAgent(agent: string) {
+  error.value = undefined;
+  try {
+    upsert(await api.setAgent(props.item.id, agent as AgentKind));
+  } catch (e) {
+    error.value = errorText(e);
+  }
+}
+
 async function choosePlaybook(name: string) {
   error.value = undefined;
   try {
@@ -200,6 +225,7 @@ async function act(fn: (id: string) => Promise<void>) {
       :reason="attention.reason"
       :worktree="item.worktreePath"
       :repo="repoOf(item.externalId)"
+      :agent-kind="item.agentKind"
       compact
     />
     <template v-else-if="attention?.kind === 'draft'">
@@ -285,6 +311,19 @@ async function act(fn: (id: string) => Promise<void>) {
       <span class="dim"><template v-if="worktreeGone">worktree removed</template><template v-if="worktreeGone && cost"> · </template>{{ cost }}</span>
     </div>
     <div v-if="startable" class="acts">
+      <template v-if="agentChoosable">
+        <label :for="`agent-${item.id}`" class="sr">Agent</label>
+        <select
+          :id="`agent-${item.id}`"
+          class="select agent"
+          :value="agentChoice"
+          :disabled="busy"
+          :title="item.agentSessionId ? 'Agent; another one starts a fresh session' : 'Agent'"
+          @change="chooseAgent(($event.target as HTMLSelectElement).value)"
+        >
+          <option v-for="(label, kind) in AGENT_LABELS" :key="kind" :value="kind">{{ label }}</option>
+        </select>
+      </template>
       <span v-if="onePlaybook" class="pb-label" title="Playbook">{{ playbooks[0]?.label ?? item.playbook }}</span>
       <label v-if="!onePlaybook" :for="`pb-${item.id}`" class="sr">Playbook</label>
       <select
@@ -356,6 +395,7 @@ h3 { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; overflow-wr
 .acts { display: flex; gap: 8px; align-items: center; margin-top: 2px; min-width: 0; }
 .acts.wrap { flex-wrap: wrap; }
 .acts .select { flex: 1; min-width: 0; }
+.acts .select.agent { flex: 0 1 auto; }
 .acts .pb-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--fg-2); }
 .acts .btn { text-decoration: none; }
 .end { margin-left: auto; }

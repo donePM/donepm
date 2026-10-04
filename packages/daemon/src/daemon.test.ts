@@ -819,6 +819,29 @@ describe("daemon", { timeout: 30_000 }, () => {
     expect((await get(d, "/api/items/nope/dismiss", { method: "POST" })).status).toBe(404);
   });
 
+  it("lets the card pick Codex before a start, and starts the item with it (#137)", async () => {
+    const spawn = fakeProcesses();
+    const h = await homeWithHistory();
+    const d = await start(h, undefined, undefined, spawn);
+    const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
+    const put = (body: unknown, id = item.id) =>
+      get(d, `/api/items/${id}/agent`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    expect(item.runsWith).toBe("claude-code");
+    expect(await put({ agent: "codex" })).toMatchObject({ status: 200, body: { agentKind: "codex", runsWith: "codex", state: "ready" } });
+    expect((await get(d, `/api/items/${item.id}`)).body.events.at(-1)).toMatchObject({
+      type: "agent.kind_changed", actor: "user", payload: { from: null, to: "codex" },
+    });
+    expect((await put({ agent: "gpt" })).status).toBe(400);
+    expect((await put({ agent: "codex" }, "nope")).status).toBe(404);
+
+    await get(d, `/api/items/${item.id}/start`, { method: "POST" });
+    await waitFor(() => expect(spawn.spawned).toHaveLength(1));
+    expect(spawn.last().cmd).toMatch(/codex$/);
+    expect(spawn.last().args.slice(0, 3)).toEqual(["app-server", "--listen", "stdio://"]);
+    expect(await put({ agent: "claude-code" })).toMatchObject({ status: 409, body: { error: "the agent is still running" } });
+  });
+
   it("changes the playbook of a Ready item until it starts, and passes the composer's note to the running agent", async () => {
     const spawn = fakeProcesses();
     const h = await homeWithHistory();

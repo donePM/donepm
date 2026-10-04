@@ -16,6 +16,8 @@ export interface AgentCapabilities {
   effortLevels?: readonly string[];
   /** "Allow for this run" can grant rules the agent suggested (D30). */
   sessionRules: boolean;
+  /** "Allow for this run" needs no rules: the agent itself allows requests like this one until the run ends. */
+  runAccept: boolean;
   /** "Always allow" grants per repository can answer its asks (D38). */
   alwaysAllow: boolean;
   /** The agent reports a price per turn; without one the UI shows tokens only, never "$0.00". */
@@ -29,6 +31,7 @@ export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
     permissionModes: PERMISSION_MODES,
     // No `effortLevels`: the CLI checks `--effort` itself, and donePM passes it through as before.
     sessionRules: true,
+    runAccept: false,
     alwaysAllow: true,
     reportsCost: true,
     resumeInSameProcess: true,
@@ -40,6 +43,7 @@ export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
     effortLevels: CODEX_EFFORT_LEVELS,
     // Codex suggests no rules. "For this run" is its own `acceptForSession`, kept by the process.
     sessionRules: false,
+    runAccept: true,
     alwaysAllow: false,
     // Tokens only: Codex reports no price anywhere.
     reportsCost: false,

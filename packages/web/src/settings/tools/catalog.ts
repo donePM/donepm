@@ -1,5 +1,5 @@
 import type { Status } from "../../api/types";
-import { claudeHint, ghHint, helperHint, type CliHint } from "./hints";
+import { claudeHint, codexHint, ghHint, helperHint, type CliHint } from "./hints";
 
 /**
  * What a tool is for (issue #152). Coding agents live in Agents & access; source clients (how work
@@ -42,7 +42,6 @@ const HELPERS: { id: string; name: string; purpose: string; install: string }[] 
 ];
 
 export const PLANNED: PlannedTool[] = [
-  { id: "codex", category: "agent", name: "Codex", note: "A second coding agent, driven over its app server.", issue: 137 },
   { id: "jira", category: "source", name: "Jira CLI", note: "Will use acli or jira-cli, or a token in the keychain.", issue: 139 },
   { id: "az", category: "source", name: "Azure DevOps CLI", note: "Will use az for Azure Boards, Repos and Pipelines.", issue: 141 },
 ];
@@ -51,6 +50,7 @@ export const PLANNED: PlannedTool[] = [
 export function toolRows(status: Status | undefined): ToolRow[] {
   const gh = status?.gh;
   const claude = status?.claude;
+  const codex = status?.codex;
   const rows: ToolRow[] = [
     {
       id: "claude",
@@ -60,6 +60,15 @@ export function toolRows(status: Status | undefined): ToolRow[] {
       hint: claude && claudeHint(claude.state),
       ready: "ready",
       detail: [claude?.path, "runs the agents"].filter(Boolean).join(" · "),
+    },
+    {
+      id: "codex",
+      category: "agent",
+      name: "Codex",
+      tag: codex?.version ? `codex ${codex.version}` : "codex",
+      hint: status && codexHint(codex?.state),
+      ready: "ready",
+      detail: [codex?.path, "runs items whose card or playbook picks it"].filter(Boolean).join(" · "),
     },
     {
       id: "gh",

@@ -10,7 +10,7 @@ describe("agent capabilities", () => {
   });
 
   it("says Claude Code reports a price and has rules", () => {
-    expect(AGENT_CAPABILITIES["claude-code"]).toMatchObject({ reportsCost: true, sessionRules: true, alwaysAllow: true });
+    expect(AGENT_CAPABILITIES["claude-code"]).toMatchObject({ reportsCost: true, sessionRules: true, runAccept: false, alwaysAllow: true });
   });
 
   it("refuses plan and bypassPermissions for Codex instead of widening them (#137)", () => {
@@ -24,7 +24,7 @@ describe("agent capabilities", () => {
   });
 
   it("says Codex reports no price and has no rule grammar", () => {
-    expect(AGENT_CAPABILITIES.codex).toMatchObject({ reportsCost: false, sessionRules: false, alwaysAllow: false, resumeInSameProcess: true });
+    expect(AGENT_CAPABILITIES.codex).toMatchObject({ reportsCost: false, sessionRules: false, runAccept: true, alwaysAllow: false, resumeInSameProcess: true });
   });
 
   it("names a mode or effort the agent does not take", () => {

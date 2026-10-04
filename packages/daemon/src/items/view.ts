@@ -1,4 +1,4 @@
-import type { MergeMethod, PrDraftResult, PrMerge, Repo, WorkItem } from "@donepm/core";
+import type { AgentKind, MergeMethod, PrDraftResult, PrMerge, Repo, WorkItem } from "@donepm/core";
 import type { CloneState } from "../repos/clone.js";
 import type { AgentHistory } from "./agent-info.js";
 import type { Attention } from "./attention.js";
@@ -37,6 +37,8 @@ export interface ItemView extends WorkItem {
   ci?: CiView;
   /** The playbooks its repository offers the item's ingest, the card's choice (issue #153). */
   allowedPlaybooks: string[];
+  /** The agent the next start uses: the item's, else its playbook's, else the repository's (D49). */
+  runsWith?: AgentKind;
 }
 
 /** One check as the last `gh pr checks` reported it; `bucket` is gh's: pass, fail, pending, skipping, cancel. */

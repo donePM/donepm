@@ -191,7 +191,7 @@ export class CodexConnection implements AgentConnection {
       const blocked = blockedCommand(subject.command);
       if (blocked) {
         return [raw, this.answer(id, { decision: "decline" }), ...this.reason(
-          `donePM does not let the agent run \`${blocked}\`. Anything that leaves this machine goes through donePM's draft tools (mcp donepm), for the user to approve.`,
+          `donePM does not let the agent run \`${blocked}\`. Anything that leaves this machine goes through donePM's draft tools (MCP server donepm-draft-gate), for the user to approve.`,
         )];
       }
     }

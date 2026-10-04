@@ -160,6 +160,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
                 :reason="a.reason"
                 :worktree="detail.worktreePath"
                 :repo="repo"
+                :agent-kind="a.agentKind"
                 @answered="reload"
               />
             </section>

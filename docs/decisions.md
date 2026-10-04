@@ -619,6 +619,49 @@ Repos), never from both sides, so one build is never counted twice by asking two
   builds are read by branch and the worktree's `HEAD`, the commit the PR was pushed from, and
   replace the PR's checks rather than adding to them.
 
+**D54. Codex runs through `codex app-server`, with what it cannot do refused.** Issue #137. Codex is
+the second agent behind the adapter of D49 (`daemon/src/agent/codex/`).
+
+- **App server, not `codex exec`.** `exec` runs one prompt and exits. Its approvals cannot be
+  answered from outside, and it has no steering or interrupt. `app-server --listen stdio://` is
+  JSON-RPC with the same lifecycle as Claude Code's stream-json:
+  - one process per item;
+  - `thread/start` or `thread/resume`, then `turn/start`;
+  - `turn/steer` for the composer;
+  - `turn/interrupt` for Stop;
+  - server requests for approvals, which become asks with the neutral subject.
+
+  Unknown messages are stored raw, as for Claude Code.
+- **Permission modes:**
+  - `default` maps to the `:read-only` permission profile and `acceptEdits` to `:workspace`. Both
+    use approval policy `on-request`, with the reviewer `user`.
+  - `plan` and `bypassPermissions` are refused, not widened. Codex has no plan mode, and bypass
+    would mean `never` with full access, which opens the network.
+  - Network is off in both profiles. D50 has the Keychain deny that rides on the same profile.
+- **Asks:**
+  - "Allow for this run" is Codex's own `acceptForSession`, so it needs no rules
+    (`runAccept`).
+  - "Always allow" is not offered, because Codex has no rule grammar donePM could write per
+    repository (D38).
+  - A decline carries no text, so the user's reason follows as a `turn/steer`.
+  - The daemon declines an escalation that would run `gh`, `git push`, `az`, `acli` or `security`.
+    That is defence in depth; the sandbox is the barrier.
+- **MCP registration:**
+  - donePM's draft tools reach Codex as the server `donepm-draft-gate`, through
+    `-c mcp_servers.donepm-draft-gate.*`.
+  - The name is one nobody types. `-c` merges into a user's server of the same name leaf by leaf,
+    and Codex reports such a mix as healthy.
+  - Its tools run without a question (`default_tools_approval_mode="approve"`), because they only
+    create drafts the user approves anyway.
+- **Token:** the bridge token is never on argv, because the agent can run `ps`. The daemon writes it
+  to a 0600 file and passes only the path (`DONEPM_TOKEN_FILE`) to the shim, which reads it. The
+  file is removed when the process exits.
+- **Cost:** Codex reports tokens and no price. Cards and the item page show tokens for it, never
+  "$0.00" (`reportsCost`).
+- **Choosing Codex:** the card picks the agent on a Ready or Failed item (`PUT /api/items/:id/agent`,
+  through `agentKindChanged`). The dropdown appears once Codex is installed. Playbooks and
+  repositories can name it too (D49).
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

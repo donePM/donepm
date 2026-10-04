@@ -38,6 +38,18 @@ export function claudeHint(state: CliState): CliHint {
   }
 }
 
+/** Codex is a second agent and optional: missing is muted; found but logged out still blocks its runs (issue #137). */
+export function codexHint(state: CliState | undefined): CliHint {
+  switch (state) {
+    case "ready":
+      return { label: "ready", tone: "ok" };
+    case "not_logged_in":
+      return { label: "found, not logged in", tone: "warn", why: "Items cannot run with Codex until it is logged in. Run this in a terminal, then check again:", command: "codex login" };
+    default:
+      return { label: "not installed", tone: "muted", why: "Optional. To run items with Codex, run this in a terminal, then check again:", command: "npm install -g @openai/codex" };
+  }
+}
+
 /** A helper is optional: missing is muted, not a warning. */
 export function helperHint(found: HelperStatus | undefined, install: string): CliHint {
   if (found?.installed) return { label: "installed", tone: "ok" };
