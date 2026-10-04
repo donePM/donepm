@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,6 +48,14 @@ function execWith(search: () => string, view = () => fixture("gh/issue-view-open
     "gh pr create": ok("https://github.com/acme/widgets/pull/200\n"),
     "gh pr checks": { code: 1, stdout: fixture("gh/pr-checks-fail.json"), stderr: "" },
     "gh run view": ok(fixture("gh/run-view-log-failed.txt")),
+    // A clone the way gh leaves it: origin on github.com. No network (issue #37).
+    "gh repo clone": ({ args }) => {
+      const [, , slug, target] = args as [string, string, string, string];
+      if (slug === "acme/api") return { code: 1, stdout: "", stderr: "GraphQL: Could not resolve to a Repository with the name 'acme/api'.\n" };
+      execFileSync("git", ["init", "-q", target]);
+      execFileSync("git", ["-C", target, "remote", "add", "origin", `git@github.com:${slug}.git`]);
+      return ok("");
+    },
   });
   return (cmd, args, opts) => {
     // origin points at github.com; the clone already has origin/main, so fetching is skipped.
@@ -152,6 +160,58 @@ describe("daemon", { timeout: 30_000 }, () => {
       ["Acme/API#12", "ready", ["no-local-clone"]],
     ]);
     expect(body[0].repo.path).toBe(join(h, "Code", "acme", "widgets"));
+  });
+
+  it("clones a missing repository from the board and links its items without a rescan", async () => {
+    const h = await home();
+    const d = await start(h);
+    const target = join(h, "Code", "solo", "tool");
+    const tool = () => get(d, "/api/items").then((r) => r.body.find((i: any) => i.externalId === "solo/tool#61"));
+    expect((await tool()).clone).toEqual({ origin: "github.com/solo/tool", target });
+    expect((await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161").clone).toBeUndefined();
+
+    const ws = new WebSocket(d.address().replace("http", "ws") + "/ws");
+    await new Promise((r) => ws.once("open", r));
+    const pushed: string[] = [];
+    ws.on("message", (m) => {
+      const msg = JSON.parse(String(m));
+      if (msg.type.startsWith("repo.")) pushed.push(msg.type);
+    });
+
+    const post = (origin: unknown) =>
+      get(d, "/api/repos/clone", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ origin }) });
+    const res = await post("github.com/solo/tool");
+    expect(res).toEqual({ status: 202, body: { origin: "github.com/solo/tool", path: target, result: "started" } });
+    await waitFor(async () => expect((await tool()).badges).toEqual([]));
+    const item = await tool();
+    expect(item.repo.path).toBe(target);
+    expect(item.clone).toBeUndefined();
+    await waitFor(() => expect(pushed).toEqual(["repo.cloning", "repo.cloned"]));
+    ws.close();
+
+    expect((await post("github.com/solo/tool")).status).toBe(409);
+    expect((await post("gitlab.com/solo/tool")).status).toBe(400);
+    expect((await post(42)).status).toBe(400);
+  });
+
+  it("refuses an occupied clone target and shows a failed clone on the card", async () => {
+    const h = await home();
+    const d = await start(h);
+    const api = () => get(d, "/api/items").then((r) => r.body.find((i: any) => i.externalId === "Acme/API#12"));
+    const post = () =>
+      get(d, "/api/repos/clone", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ origin: "github.com/acme/api" }) });
+
+    const target = join(h, "Code", "acme", "api");
+    await mkdir(target);
+    await writeFile(join(target, "notes.txt"), "mine");
+    expect(await post()).toEqual({ status: 409, body: { error: `${target} is a folder with files in it, not a clone` } });
+    expect(await readFile(join(target, "notes.txt"), "utf8")).toBe("mine");
+
+    await rm(join(target, "notes.txt"));
+    expect((await post()).status).toBe(202);
+    await waitFor(async () => expect((await api()).clone.error).toBe("GraphQL: Could not resolve to a Repository with the name 'acme/api'."));
+    expect((await api()).badges).toEqual(["no-local-clone"]);
+    expect((await get(d, "/api/repos")).body.map((r: any) => r.originUrl)).toEqual(["github.com/acme/widgets"]);
   });
 
   it("returns one item with events, drafts and asks, and 404 for unknown ids", async () => {

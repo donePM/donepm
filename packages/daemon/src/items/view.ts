@@ -1,4 +1,5 @@
 import type { PrDraftResult, PrMerge, Repo, WorkItem } from "@donepm/core";
+import type { CloneState } from "../repos/clone.js";
 import type { AgentHistory } from "./agent-info.js";
 import type { Attention } from "./attention.js";
 
@@ -28,6 +29,8 @@ export interface ItemView extends WorkItem {
   pr?: PrView;
   /** When the item finished: done, and its PR merged if it has one (D37). Its card is muted. */
   finishedAt?: string;
+  /** No local clone, and donePM can make one: where it lands, and how the last try went (issue #37). */
+  clone?: CloneState;
 }
 
 export type PrView = PrDraftResult &
