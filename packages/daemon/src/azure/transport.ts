@@ -17,6 +17,8 @@ export interface AzureCall {
   /** Besides `api-version`, which is always set. */
   query?: Record<string, string>;
   body?: unknown;
+  /** The body's media type; `application/json` unless named (`application/json-patch+json` for a work item update). */
+  contentType?: string;
 }
 
 export type AzureAnswer = { ok: true; body: string } | { ok: false; error: string; reason?: "unauthorized" | "unreachable" };
@@ -59,7 +61,11 @@ export function azureApiTransport(http: HttpClient, organization: string, tokens
     const r = await http({
       method: call.method,
       url: azureUrl(organization, call),
-      headers: { authorization: `Basic ${Buffer.from(`:${token}`).toString("base64")}`, accept: "application/json" },
+      headers: {
+        authorization: `Basic ${Buffer.from(`:${token}`).toString("base64")}`,
+        accept: "application/json",
+        ...(call.body !== undefined ? { "content-type": call.contentType ?? "application/json" } : {}),
+      },
       ...(call.body !== undefined ? { body: call.body } : {}),
     });
     if (r.status === 0) return { ok: false, error: `Azure DevOps is unreachable: ${r.body}`, reason: "unreachable" };
@@ -79,7 +85,7 @@ const STDERR_TAIL_LINES = 10;
 export function azureCliTransport(exec: Exec, organization: string): AzureTransport {
   return async (call) => {
     const args = ["rest", "--method", call.method, "--url", azureUrl(organization, call), "--resource", AZURE_DEVOPS_RESOURCE, "--only-show-errors"];
-    if (call.body !== undefined) args.push("--headers", "Content-Type=application/json", "--body", JSON.stringify(call.body));
+    if (call.body !== undefined) args.push("--headers", `Content-Type=${call.contentType ?? "application/json"}`, "--body", JSON.stringify(call.body));
     const r = await exec("az", args);
     if (r.code === -1) return { ok: false, error: "az is not installed" };
     if (r.code !== 0) {

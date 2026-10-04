@@ -1,0 +1,24 @@
+{
+  "count": 3,
+  "value": [
+    {
+      "id": 1234,
+      "rev": 7,
+      "fields": { "System.Id": 1234, "System.TeamProject": "Platform", "System.WorkItemType": "Bug", "System.State": "Active" },
+      "url": "https://dev.azure.com/acme/_apis/wit/workItems/1234"
+    },
+    {
+      "id": 1250,
+      "rev": 9,
+      "fields": { "System.Id": 1250, "System.TeamProject": "Platform", "System.WorkItemType": "Task", "System.State": "Shipped" },
+      "url": "https://dev.azure.com/acme/_apis/wit/workItems/1250"
+    },
+    {
+      "id": 1260,
+      "rev": 4,
+      "fields": { "System.Id": 1260, "System.TeamProject": "Platform", "System.WorkItemType": "Bug", "System.State": "Closed" },
+      "url": "https://dev.azure.com/acme/_apis/wit/workItems/1260"
+    },
+    null
+  ]
+}

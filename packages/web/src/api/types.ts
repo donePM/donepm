@@ -302,11 +302,13 @@ export interface Settings {
 /** One query against a ticket connection, and the repositories its tickets are worked in (issue #139). */
 export interface TicketSourceSettings {
   connection: string;
-  /** JQL. Absent: tickets assigned to me that are not done. */
+  /** JQL for Jira, WIQL for Azure Boards. Absent: tickets assigned to me that are not done. */
   query?: string;
+  /** Azure Boards only: the project the query runs in, for `@project`. */
+  project?: string;
   /** Normalised origins. One: its tickets go there; several: the user picks per ticket. */
   repos: string[];
-  /** Assign the ticket to me in Jira when its agent starts. */
+  /** Assign the ticket to me in Jira or Azure Boards when its agent starts. */
   assignOnStart?: boolean;
 }
 

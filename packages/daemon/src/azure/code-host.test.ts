@@ -41,6 +41,12 @@ describe("azureDevOpsCodeHost (issue #141)", () => {
     });
   });
 
+  it("links the work items it is given (issue #142)", async () => {
+    const { host: ado, http } = host({ [`POST ${PULLS}`]: json(fixture("azure-devops/pr-created.json"), 201) });
+    await ado.createPr({ origin: "dev.azure.com/acme/my project/old app", head: "h", base: "main", title: "T", body: "", cwd: "/wt", workItems: [1234] });
+    expect(http.requests[0]!.body).toMatchObject({ workItemRefs: [{ id: "1234" }] });
+  });
+
   it("shortens a description longer than Azure Repos takes", async () => {
     const { host: ado, http } = host({ [`POST ${PULLS}`]: json(fixture("azure-devops/pr-created.json"), 201) });
     await ado.createPr({ origin: "dev.azure.com/acme/my project/old app", head: "h", base: "main", title: "T", body: "x".repeat(6000), cwd: "/wt" });

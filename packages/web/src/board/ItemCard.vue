@@ -213,7 +213,7 @@ async function act(fn: (id: string) => Promise<void>) {
       <CloneButton v-if="item.clone" :clone="item.clone" />
     </div>
     <div v-if="closedUpstream" class="note">
-      Closed {{ item.source === "jira-issue" ? "in Jira" : "on GitHub" }}
+      Closed {{ item.source === "jira-issue" ? "in Jira" : item.source === "ado-work-item" ? "in Azure Boards" : "on GitHub" }}
       <button
         v-if="dismissable"
         class="btn ghost sm dismiss"

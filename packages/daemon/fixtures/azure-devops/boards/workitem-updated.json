@@ -1,0 +1,17 @@
+{
+  "id": 1234,
+  "rev": 8,
+  "fields": {
+    "System.Id": 1234,
+    "System.TeamProject": "Platform",
+    "System.WorkItemType": "Bug",
+    "System.State": "Active",
+    "System.AssignedTo": {
+      "displayName": "Jamal Hartnett",
+      "uniqueName": "jamal@acme.example",
+      "id": "6f2f2b8e-1c1d-4a55-9a1e-3c8d1f0b7a21"
+    },
+    "System.Title": "Login fails after a password reset"
+  },
+  "url": "https://dev.azure.com/acme/_apis/wit/workItems/1234"
+}

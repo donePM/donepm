@@ -1,0 +1,51 @@
+{
+  "count": 3,
+  "value": [
+    {
+      "id": 1234,
+      "rev": 7,
+      "fields": {
+        "System.Id": 1234,
+        "System.TeamProject": "Platform",
+        "System.WorkItemType": "Bug",
+        "System.State": "Active",
+        "System.Title": "Login fails after a password reset",
+        "System.CreatedDate": "2026-09-21T09:30:12.417Z",
+        "System.Tags": "auth; regression",
+        "System.Description": "<div>Users who reset their password are sent back to the <b>login page</b>.</div><script>alert(1)</script>",
+        "Microsoft.VSTS.TCM.ReproSteps": "<ol><li>Reset the password</li><li>Sign in with the new one</li></ol>",
+        "Microsoft.VSTS.Common.Priority": 1
+      },
+      "url": "https://dev.azure.com/acme/_apis/wit/workItems/1234"
+    },
+    {
+      "id": 1240,
+      "rev": 3,
+      "fields": {
+        "System.Id": 1240,
+        "System.TeamProject": "Platform",
+        "System.WorkItemType": "User Story",
+        "System.State": "New",
+        "System.Title": "Export the board as CSV",
+        "System.CreatedDate": "2026-09-24T14:02:55.103Z",
+        "System.Description": "<p>As a lead I want the board as a spreadsheet.</p>",
+        "Microsoft.VSTS.Common.AcceptanceCriteria": "<ul><li>One row per card</li><li>UTF-8</li></ul>",
+        "Microsoft.VSTS.Common.Priority": 3
+      },
+      "url": "https://dev.azure.com/acme/_apis/wit/workItems/1240"
+    },
+    {
+      "id": 1250,
+      "rev": 9,
+      "fields": {
+        "System.Id": 1250,
+        "System.TeamProject": "Platform",
+        "System.WorkItemType": "Task",
+        "System.State": "Shipped",
+        "System.Title": "Remove the legacy feature flag",
+        "System.CreatedDate": "2026-09-02T11:45:00.000Z"
+      },
+      "url": "https://dev.azure.com/acme/_apis/wit/workItems/1250"
+    }
+  ]
+}

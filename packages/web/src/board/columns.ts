@@ -1,4 +1,4 @@
-import { parseTicketId, type ItemState } from "@donepm/core";
+import { parseTicketId, ticketLabel, type ItemState } from "@donepm/core";
 import type { ItemView } from "../api/types";
 
 export type ColumnKey = "ready" | "in_progress" | "needs_you" | "done";
@@ -69,17 +69,17 @@ export function groupByColumn(items: readonly ItemView[]): Record<ColumnKey, Ite
   return out;
 }
 
-/** `owner/repo#12` → `owner/repo #12`, as on the cards. */
+/** `owner/repo#12` → `owner/repo #12`, as on the cards; `APP-123` and `#1234` for tickets. */
 export function displayId(externalId: string): string {
   const ticket = parseTicketId(externalId);
-  if (ticket) return ticket.key;
+  if (ticket) return ticketLabel(ticket);
   return externalId.replace(/#(\d+)$/, " #$1");
 }
 
 /** `owner/repo#12` → `#12`, for cards in a lane that already names the repo. */
 export function shortId(externalId: string): string {
   const ticket = parseTicketId(externalId);
-  if (ticket) return ticket.key;
+  if (ticket) return ticketLabel(ticket);
   return externalId.replace(/^.*(?=#\d+$)/, "");
 }
 

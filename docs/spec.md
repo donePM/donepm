@@ -58,8 +58,8 @@ functions. `daemon` calls them and persists the result.
 | field | type | notes |
 |---|---|---|
 | id | uuid | |
-| source | `github-issue` \| `github-pr` \| `jira-issue` | `github-pr`: a pull request that requests the user's review (D40); `jira-issue`: a Jira ticket (6.12) |
-| externalId | string | `owner/repo#123`; `host/owner/repo#123` on a GitHub host other than github.com (6.10); `<connection>:<KEY>` for a ticket (`jira:APP-123`, 6.12) |
+| source | `github-issue` \| `github-pr` \| `jira-issue` \| `ado-work-item` | `github-pr`: a pull request that requests the user's review (D40); `jira-issue`: a Jira ticket (6.12); `ado-work-item`: an Azure Boards work item (6.13) |
+| externalId | string | `owner/repo#123`; `host/owner/repo#123` on a GitHub host other than github.com (6.10); `<connection>:<KEY>` for a ticket (`jira:APP-123`, 6.12; `ado:1234`, 6.13) |
 | repoCandidates | string[]? | a ticket's repositories by normalised origin, the union of its ticket sources' `repos` (6.12); absent for GitHub items |
 | repoOrigin | string? | a ticket's repository: the only candidate, or the user's choice (`item.repo_chosen`); fixed once the agent started |
 | externalUrl | string | |
@@ -441,7 +441,8 @@ When the item's repo has `assignOnStart`, `start` also runs
 `gh issue edit <n> --repo <owner/repo> --add-assignee @me` in the background and records
 `item.assigned` or `item.assign_failed` (with the reason). Neither changes the state; a failure does
 not stop the agent. The daemon runs this, never the agent (decision D28). Only for `github-issue`
-items: a PR under review is someone else's.
+items: a PR under review is someone else's. Jira tickets (6.12) and Azure Boards work items (6.13)
+are assigned through their ticket source when its entry has `assignOnStart`.
 
 ### 6.5 PR state
 
@@ -715,6 +716,41 @@ the repository's code host.
   draft needs no worktree, `draft.executed` moves the item `needs_you` → `running` and the agent
   goes on. A failure stops the draft with step `ticket`.
 - The agent never reaches Jira: the daemon holds the token (D51); outward effects are drafts.
+
+### 6.13 Azure Boards work items
+
+Issue #142, D57. An `azure-devops` connection (6.11) is also a ticket source: `ticketSources` (14)
+entries may name it like a Jira connection. All calls go through the connection's transport
+(`az rest` or the REST API with the Keychain token), `api-version=7.1`.
+
+- **Ticket sources.** Each entry's WIQL (default: assigned to `@Me`, state not `Closed`, `Done`,
+  `Removed`, `Completed` or `Cut`, newest change first) runs as `POST {project}/_apis/wit/wiql?$top=200`,
+  in the entry's `project` when it has one (the default then adds `[System.TeamProject] =
+  @project`), else across the organization. A link query's targets are the work items. The ids
+  of all entries are read together with `POST _apis/wit/workitemsbatch`, 200 at a time,
+  `errorPolicy: omit` (a work item that cannot be read is left out), with the fields listed.
+- **Finished.** A state's category, read once per project and work item type from `GET
+  {project}/_apis/wit/workitemtypes/{type}/states`, decides: `Completed` and `Removed` are
+  finished, anything else is open, also a category donePM does not know. Finished work items are
+  not collected and close their item upstream (6.2); one whose category cannot be read stays
+  undecided.
+- **Mapping.** `externalId` `<connection>:<id>`, shown as `#1234`; `externalUrl` the work item's
+  `_links.html`, else `https://dev.azure.com/{org}/{project}/_workitems/edit/{id}`. The body is the
+  description, then the acceptance criteria and the repro steps under their own headings, each
+  HTML turned into Markdown as for Jira. Labels are the tags and the work item type.
+  `Microsoft.VSTS.Common.Priority` 1–4 is tier 0–3, anything else 2.
+- **Repository and naming** as for Jira (6.12): candidates from the entries' `repos`, branch
+  `dp/<id>-<slug>`. The PR title is the agent's; the work item is linked instead: a GitHub PR's
+  description gets `AB#<id>` on its own line (the Azure Boards app for GitHub links it), an Azure
+  Repos PR of the same organization is created with `workItemRefs`.
+- **Assign on start** (6.4): `GET _apis/connectionData` for the signed-in user's account, then
+  `PATCH _apis/wit/workitems/{id}` (`application/json-patch+json`) setting `System.AssignedTo`.
+- **Ticket drafts** (`draft_ticket_comment`, `draft_ticket_transition`, D56) work on work items
+  too. `ticket_transitions` lists every other state of the work item's type, each with the state's
+  name as its id. Approved, a comment is `POST
+  {project}/_apis/wit/workItems/{id}/comments?format=markdown` (`7.1-preview.4`); a move is a
+  `System.State` patch, then its comment as a second call. Nothing reaches Azure DevOps before the
+  user approves, and the agent never reaches it (6.11).
 
 ## 7. Worktrees
 
@@ -1535,14 +1571,16 @@ connection has an https `baseUrl` (a context path is fine), `deployment` `cloud`
 and for `cloud` the `email` the API token belongs to (D51). An `api` connection's token is in the macOS Keychain, service `donepm`, account `id`.
 It is never in this file.
 
-`ticketSources` (6.12): default `[]`. Each entry names a `jira` connection, an optional JQL
-`query` (absent: `assignee = currentUser() AND statusCategory != Done`), its `repos` (normalised
-origins, at least one, each served by a code host connection) and `assignOnStart`. Changes apply
-at once and poll now.
+`ticketSources` (6.12, 6.13): default `[]`. Each entry names a `jira` or `azure-devops`
+connection, an optional `query` (JQL or WIQL; absent: the tickets assigned to me that are not
+done), for Azure Boards an optional `project` the query runs in, its `repos` (normalised origins,
+at least one, each served by a code host connection) and `assignOnStart`. Changes apply at once
+and poll now.
 
 ```json
 "ticketSources": [
-  { "connection": "jira", "query": "project = APP AND sprint in openSprints()", "repos": ["github.com/acme/app", "github.com/acme/api"], "assignOnStart": true }
+  { "connection": "jira", "query": "project = APP AND sprint in openSprints()", "repos": ["github.com/acme/app", "github.com/acme/api"], "assignOnStart": true },
+  { "connection": "ado", "project": "Platform", "repos": ["dev.azure.com/acme/platform/web"] }
 ]
 ```
 

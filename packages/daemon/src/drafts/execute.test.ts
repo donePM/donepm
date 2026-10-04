@@ -3,7 +3,11 @@ import { githubProviders } from "../gh/adapter.js";
 import { agentFailed, ciFailed, ciFix, ciPassed, prFeedback, prFeedbackFix } from "@donepm/core";
 import { describe, expect, it } from "vitest";
 import { draftStores } from "../test-support/draft-stores.js";
-import { fail, fakeExec, ok, type FakeCall } from "../test-support/fake-exec.js";
+import { azureDevOpsConnection } from "../azure/connection.js";
+import { providerRegistry } from "../providers/registry.js";
+import { fail, fakeExec, fixture, ok, type FakeCall } from "../test-support/fake-exec.js";
+import { fakeHttp, json } from "../test-support/fake-http.js";
+import { memoryTokens } from "../test-support/fake-tokens.js";
 import { createCommentDraft, createPrDraft, createPushDraft, editDraft } from "./actions.js";
 import { approveDraft, ExecutionError, failInterrupted, WIP_MESSAGE } from "./execute.js";
 
@@ -207,5 +211,19 @@ describe("failInterrupted", () => {
     expect(t.state()).toBe("needs_you");
     await approveDraft(t.deps, t.draft.id);
     expect(t.state()).toBe("checking");
+  });
+});
+
+describe("approveDraft for an Azure Boards work item (issue #142)", () => {
+  it("links the work item when it opens the PR on an Azure Repos repository of its organization", async () => {
+    const t = draftStores({ source: "ado-work-item", externalId: "ado:1234", externalUrl: "https://dev.azure.com/acme/Platform/_workitems/edit/1234" }, "dev.azure.com/acme/platform/legacy");
+    const http = fakeHttp({ "POST /acme/platform/_apis/git/repositories/legacy/pullrequests": json(fixture("azure-devops/pr-created.json"), 201) });
+    const exec = fakeExec({ "git -C /wt/1 status --porcelain": ok(""), "git -C /wt/1 push": ok("") });
+    const ado = azureDevOpsConnection({ id: "ado", organization: "acme", backend: "api", exec, http, tokens: memoryTokens({ ado: "pat" }) });
+    const deps = { ...t.deps, exec, providers: providerRegistry([ado]), stopAgent: async () => undefined, continueAgent: async () => undefined };
+    const draft = createPrDraft(t.deps, "item-1", { title: "Fix the login", body: "Resets work again." });
+
+    expect(await approveDraft(deps, draft.id)).toMatchObject({ state: "executed" });
+    expect(http.requests[0]!.body).toMatchObject({ title: "Fix the login", description: "Resets work again.", workItemRefs: [{ id: "1234" }] });
   });
 });

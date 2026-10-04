@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type { RepoView, Settings } from "../../api/types";
-import { cleanEntry, DEFAULT_JQL, entryProblem, jiraConnections, jiraSearchUrl, repoOrigins, withoutTicketSource, withTicketSource } from "./ticket-sources";
+import {
+  cleanEntry,
+  DEFAULT_JQL,
+  DEFAULT_PROJECT_WIQL,
+  DEFAULT_WIQL,
+  defaultQuery,
+  entryProblem,
+  jiraConnections,
+  jiraSearchUrl,
+  queryLanguage,
+  repoOrigins,
+  ticketConnections,
+  withoutTicketSource,
+  withTicketSource,
+} from "./ticket-sources";
 
 const APP = "github.com/acme/app";
 const API = "github.com/acme/api";
@@ -22,6 +36,33 @@ describe("ticket sources (issue #139)", () => {
     } as Settings;
     expect(jiraConnections(settings).map((c) => c.id)).toEqual(["jira"]);
     expect(jiraConnections(undefined)).toEqual([]);
+  });
+
+  it("offers Jira and Azure DevOps connections as ticket sources (issue #142)", () => {
+    const settings = {
+      connections: [
+        { id: "github", kind: "github", backend: "cli", host: "github.com" },
+        { id: "jira", kind: "jira", backend: "api", baseUrl: "https://acme.atlassian.net", deployment: "cloud", email: "dana@acme.com" },
+        { id: "ado", kind: "azure-devops", backend: "cli", host: "dev.azure.com", organization: "acme" },
+      ],
+    } as Settings;
+    expect(ticketConnections(settings).map((c) => c.id)).toEqual(["jira", "ado"]);
+  });
+
+  it("names the query language and default query by connection kind", () => {
+    expect(queryLanguage("jira")).toBe("JQL");
+    expect(queryLanguage("azure-devops")).toBe("WIQL");
+    expect(defaultQuery("jira")).toBe(DEFAULT_JQL);
+    expect(defaultQuery("azure-devops")).toBe(DEFAULT_WIQL);
+    expect(defaultQuery("azure-devops", "Platform")).toBe(DEFAULT_PROJECT_WIQL);
+    expect(DEFAULT_PROJECT_WIQL).toContain("[System.TeamProject] = @project");
+  });
+
+  it("keeps an Azure entry's project and drops a default WIQL", () => {
+    expect(cleanEntry({ connection: "ado", project: " Platform ", query: DEFAULT_PROJECT_WIQL, repos: [APP] })).toEqual({
+      connection: "ado", project: "Platform", repos: [APP],
+    });
+    expect(cleanEntry({ connection: "ado", project: " ", query: "", repos: [APP] })).toEqual({ connection: "ado", repos: [APP] });
   });
 
   it("offers the clones by normalised origin", () => {

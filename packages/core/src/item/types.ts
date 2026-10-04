@@ -5,7 +5,7 @@ import type { PrStatus } from "../pr/status.js";
  * An issue to work on, or someone else's pull request that is assigned to the user or asks for their
  * review (D40, D47).
  */
-export type ItemSource = "github-issue" | "github-pr" | "jira-issue";
+export type ItemSource = "github-issue" | "github-pr" | "jira-issue" | "ado-work-item";
 
 /** `checking`: the PR is open and its CI runs; no agent runs (decision D35). */
 export type ItemState = "ready" | "running" | "needs_you" | "checking" | "done" | "failed";

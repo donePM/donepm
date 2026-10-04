@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { draftStores } from "../test-support/draft-stores.js";
 import { createPrDraft, DraftError, editDraft, rejectDraft, rejectionMessage, type RejectDeps } from "./actions.js";
 
+const WORK_ITEM = { source: "ado-work-item", externalId: "ado:1234", externalUrl: "https://dev.azure.com/acme/Platform/_workitems/edit/1234" } as const;
+
 describe("createPrDraft", () => {
   it("stores a pending PR draft against the default branch and moves the item to needs_you", () => {
     const t = draftStores();
@@ -11,6 +13,17 @@ describe("createPrDraft", () => {
     });
     expect(t.state()).toBe("needs_you");
     expect(t.events.forItem("item-1").at(-1)).toMatchObject({ type: "draft.created", actor: "agent", refId: d.id });
+  });
+
+  it("names an Azure Boards work item as AB#<n> in a GitHub PR's description (issue #142)", () => {
+    const t = draftStores(WORK_ITEM);
+    const d = createPrDraft(t.deps, "item-1", { title: "Fix the login", body: "Resets work again." });
+    expect(d.payload).toMatchObject({ title: "Fix the login", body: "Resets work again.\n\nAB#1234" });
+  });
+
+  it("leaves the description of an Azure Repos PR alone, which links the work item itself", () => {
+    const t = draftStores(WORK_ITEM, "dev.azure.com/acme/platform/legacy");
+    expect(createPrDraft(t.deps, "item-1", { title: "Fix", body: "Resets work again." }).payload).toMatchObject({ body: "Resets work again." });
   });
 
   it("refuses a second draft while one is pending, and an item that is not running", () => {

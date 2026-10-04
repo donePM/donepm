@@ -6,6 +6,8 @@ import type { TokenStore } from "../providers/keychain.js";
 import type { Backend, Connection } from "../providers/registry.js";
 import type { Exec } from "../process/exec.js";
 import type { ConnectionState } from "../status/status.js";
+import type { TicketSourceConfig } from "../config/ticket-sources.js";
+import { azureBoards } from "./boards.js";
 import { azureDevOpsCodeHost } from "./code-host.js";
 import { azurePipelines } from "./pipelines.js";
 import { azureApiTransport, azureCliTransport, type AzureTransport } from "./transport.js";
@@ -17,6 +19,8 @@ export interface AzureDevOpsConnectionOptions {
   exec: Exec;
   http: HttpClient;
   tokens: TokenStore;
+  /** The config's `ticketSources` as they stand; the entries naming this connection are its Azure Boards queries (issue #142). */
+  ticketSources?: () => readonly TicketSourceConfig[];
 }
 
 type Health = { state: ConnectionState; detail?: string };
@@ -47,9 +51,9 @@ export async function azureApiHealth(transport: AzureTransport): Promise<Health>
 }
 
 /**
- * One Azure DevOps organization (issues #141, #143): Azure Repos as its code host and Azure
- * Pipelines as its CI source, through `az` or the REST API with a personal access token. The
- * daemon runs it; the agent never sees `az` or a token.
+ * One Azure DevOps organization (issues #141, #142, #143): Azure Repos as its code host, Azure
+ * Pipelines as its CI source and Azure Boards as its ticket source, through `az` or the REST API
+ * with a personal access token. The daemon runs it; the agent never sees `az` or a token.
  */
 export function azureDevOpsConnection(o: AzureDevOpsConnectionOptions): Connection {
   const transport = o.backend === "api" ? azureApiTransport(o.http, o.organization, o.tokens, o.id) : azureCliTransport(o.exec, o.organization);
@@ -61,6 +65,7 @@ export function azureDevOpsConnection(o: AzureDevOpsConnectionOptions): Connecti
     organization: o.organization,
     codeHost: azureDevOpsCodeHost(o.exec, transport),
     ciSource: azurePipelines(transport, o.organization),
+    ticketSource: azureBoards(transport, { id: o.id, organization: o.organization }, o.ticketSources ?? (() => [])),
     health: () => (o.backend === "api" ? azureApiHealth(transport) : azureCliHealth(o.exec)),
   };
 }

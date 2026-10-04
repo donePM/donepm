@@ -294,6 +294,19 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("names Azure Boards for a work item (issue #142)", () => {
+    const events = [
+      ev("item.collected", { externalId: "ado:1234", url: "https://dev.azure.com/acme/Platform/_workitems/edit/1234" }),
+      ev("item.assigned"),
+      ev("item.closed_upstream"),
+    ];
+    expect(timelineEntries(events, []).map(({ verb }) => verb)).toEqual([
+      "closed in Azure Boards, moved to Done",
+      "assigned the work item to you in Azure Boards",
+      "collected from Azure Boards",
+    ]);
+  });
+
   it("describes restarts, resumes and removed worktrees", () => {
     const events = [
       ev("agent.interrupted", { reason: "daemon restarted" }),
