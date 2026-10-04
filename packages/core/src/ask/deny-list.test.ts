@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BLOCKED_COMMANDS, DENY_RULES } from "./deny-list.js";
+import { BLOCKED_COMMANDS, blockedCommand, DENY_RULES } from "./deny-list.js";
 
 /** Whether a `Bash(prefix*)` or `Bash(prefix *)` deny rule covers a command, as Claude Code matches them. */
 function denied(command: string): boolean {
@@ -46,5 +46,30 @@ describe("DENY_RULES", () => {
       expect(denied(c), c).toBe(true);
     }
     expect(denied("git status")).toBe(false);
+  });
+});
+
+describe("blockedCommand", () => {
+  it("finds a blocked program at the start, by path, or after a separator", () => {
+    expect(blockedCommand("gh pr list")).toBe("gh");
+    expect(blockedCommand("/opt/homebrew/bin/gh auth token")).toBe("gh");
+    expect(blockedCommand("ls && az boards work-item show --id 1")).toBe("az");
+    expect(blockedCommand("echo $(security find-generic-password -s x)")).toBe("security");
+    expect(blockedCommand("cd /w; acli jira workitem view X-1")).toBe("acli");
+    expect(blockedCommand("env FOO=1 jira issue list")).toBe("jira");
+    expect(blockedCommand("glab mr list | head")).toBe("glab");
+    expect(blockedCommand("gh")).toBe("gh");
+  });
+
+  it("finds git push, with git's options between the words", () => {
+    expect(blockedCommand("git push origin HEAD")).toBe("git push");
+    expect(blockedCommand("git -C /w push")).toBe("git push");
+    expect(blockedCommand("git add . && git commit -m x && git push")).toBe("git push");
+  });
+
+  it("leaves other commands alone", () => {
+    for (const c of ["git status", "git log --grep push", "ls ghost", "cat az.txt", "echo security", "npm run gh-pages", "git commit -m 'gh'"]) {
+      expect(blockedCommand(c)).toBeUndefined();
+    }
   });
 });

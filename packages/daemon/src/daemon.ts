@@ -15,6 +15,7 @@ import { AskStore } from "./asks/store.js";
 import { listenBridge } from "./bridge/server.js";
 import { BridgeSessions } from "./bridge/sessions.js";
 import { detectClaude } from "./agent/claude/detect.js";
+import { detectCodex } from "./agent/codex/detect.js";
 import { loadConfig, saveConfig, type Config } from "./config/config.js";
 import { connectionsOf } from "./config/connections.js";
 import { expandHome, pathsFor } from "./config/paths.js";
@@ -235,7 +236,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     ctx: opts.ctx,
     log: { info: (o, m) => app.log.info(o, m), warn: (o, m) => app.log.warn(o, m), error: (o, m) => app.log.error(o, m) },
     spawn: opts.spawn ?? spawnProcess,
-    agentPath: (kind) => (kind === "claude-code" ? status.get().claude?.path : undefined),
+    agentPath: (kind) => (kind === "claude-code" ? status.get().claude?.path : status.get().codex?.path),
     env: () =>
       agentEnv(opts.env ?? process.env, { shimRoot: join(paths.dataDir, "bin-filtered"), emptyConfigDir: join(paths.dataDir, "no-credentials") }),
     maxConcurrent: () => config.maxConcurrentAgents,
@@ -312,10 +313,10 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   };
 
   const recheck = async () => {
-    const [gh, ghKnown, claude, helpers] = await Promise.all([
-      detectHosts(opts.exec, githubHosts(providers)), ghKnownHosts(opts.exec), detectClaude(opts.exec), detectHelpers(opts.exec),
+    const [gh, ghKnown, claude, codex, helpers] = await Promise.all([
+      detectHosts(opts.exec, githubHosts(providers)), ghKnownHosts(opts.exec), detectClaude(opts.exec), detectCodex(opts.exec), detectHelpers(opts.exec),
     ]);
-    status.update({ ...gh, ghKnownHosts: ghKnown, claude, helpers });
+    status.update({ ...gh, ghKnownHosts: ghKnown, claude, codex, helpers });
     status.update({ connections: await connectionStatuses(providers.connections, status.get(), providerDeps.tokens) });
   };
 

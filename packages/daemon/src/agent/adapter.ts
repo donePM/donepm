@@ -1,5 +1,6 @@
 import type { AgentCapabilities, AgentEvent, AgentKind, Answers, PermissionRule, Playbook, TranscriptKind } from "@donepm/core";
 import { claudeCode } from "./claude/adapter.js";
+import { codex } from "./codex/adapter.js";
 
 /**
  * donePM's MCP server for one process (spec 10): a stdio command the agent starts. Its token lets the
@@ -14,6 +15,8 @@ export interface McpServer {
 
 export interface AdapterLaunch {
   itemId: string;
+  /** The worktree the agent runs in. */
+  cwd: string;
   playbook: Pick<Playbook, "model" | "effort" | "permissionMode" | "readOnly">;
   resumeSessionId?: string;
   /** The agent's home, for writable cache directories. */
@@ -39,6 +42,11 @@ export type AskReply =
       rules?: readonly PermissionRule[];
       /** The user's answers to a question ask. */
       answers?: Answers;
+      /**
+       * "Allow for this run" on an agent without rules (Codex's `acceptForSession`): the agent itself
+       * stops asking for the same thing for the rest of the process. Ignored by agents with rules.
+       */
+      forRun?: boolean;
     }
   | { behavior: "deny"; message: string; interrupt?: boolean };
 
@@ -60,6 +68,11 @@ export interface AgentConnection {
   /** A later user message, e.g. why a draft was rejected. */
   nextTurn(text: string): AgentStep[];
   answerAsk(ask: AskRef, reply: AskReply): AgentStep[];
+  /**
+   * Ask the agent to end its turn now, before the process is signalled (the Stop button, shutdown).
+   * Only for agents that keep a turn going in a server and can be told to stop it.
+   */
+  interrupt?(): AgentStep[];
 }
 
 /** A coding agent donePM can run (issue #136). */
@@ -70,11 +83,12 @@ export interface AgentAdapter {
   readonly capabilities: AgentCapabilities;
   /** Arguments for one process. `cleanup` runs when it exits (a config file, say). */
   launch(input: AdapterLaunch): { args: string[]; cleanup?: () => void };
-  connect(): AgentConnection;
+  connect(input: AdapterLaunch): AgentConnection;
 }
 
 const ADAPTERS: Record<AgentKind, AgentAdapter> = {
   "claude-code": claudeCode,
+  codex,
 };
 
 export function adapterFor(kind: AgentKind): AgentAdapter {
