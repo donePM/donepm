@@ -42,3 +42,23 @@ export const READ_ONLY_DENY_RULES = ["Edit", "Write", "MultiEdit", "NotebookEdit
  * Bash command asks the user, since the worktree holds code nobody vetted yet.
  */
 export const READ_ONLY_ALLOW_RULES = ["Bash(git diff *)", "Bash(git log *)", "Bash(git show *)"] as const;
+
+const BLOCKED_PATTERN = new RegExp(
+  // At the start of the command or after a shell separator, possibly by path (`/usr/bin/gh`) or
+  // behind `env`/`command`/`exec`/`sudo`/`xcrun`; `git push` with git's own options between the words too.
+  String.raw`(^|[;&|(\x60\n]|\$\()\s*((env|command|exec|sudo|nohup|xargs|xcrun)\s+(-\S+\s+|\w+=\S*\s+)*)*([^\s;&|()]*/)?` +
+    String.raw`(${BLOCKED_COMMANDS.join("|")}|git(\s+-\S+(\s+[^-\s]\S*)?)*\s+push)(\s|$|[;&|)])`,
+);
+
+/**
+ * The blocked command a shell command line would run, if any: what an agent without donePM's deny
+ * rules (Codex, issue #137) is refused by the daemon itself. A best effort on top of the filtered
+ * `PATH`, which stays the real barrier: it catches what an agent writes plainly, not every way a
+ * shell can be talked into running a program.
+ */
+export function blockedCommand(command: string): string | undefined {
+  const m = BLOCKED_PATTERN.exec(command);
+  if (!m) return undefined;
+  const name = m[6]!;
+  return name.startsWith("git") ? "git push" : name;
+}

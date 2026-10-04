@@ -5,6 +5,9 @@ export const PERMISSION_MODES = ["default", "acceptEdits", "plan", "bypassPermis
 
 export type PermissionMode = (typeof PERMISSION_MODES)[number];
 
+/** Codex's `ReasoningEffort` values (app-server protocol v2). */
+export const CODEX_EFFORT_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
+
 /** What an agent can do, so playbooks, the runner and the UI ask the agent instead of assuming Claude Code. */
 export interface AgentCapabilities {
   /** Playbook `permission_mode` values the agent takes. */
@@ -28,6 +31,18 @@ export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
     sessionRules: true,
     alwaysAllow: true,
     reportsCost: true,
+    resumeInSameProcess: true,
+  },
+  codex: {
+    // No `plan` (Codex has no such mode) and no `bypassPermissions` (it would mean `never` with
+    // `danger-full-access`, which opens the network): refused, never silently widened (#137).
+    permissionModes: ["default", "acceptEdits"],
+    effortLevels: CODEX_EFFORT_LEVELS,
+    // Codex suggests no rules. "For this run" is its own `acceptForSession`, kept by the process.
+    sessionRules: false,
+    alwaysAllow: false,
+    // Tokens only: Codex reports no price anywhere.
+    reportsCost: false,
     resumeInSameProcess: true,
   },
 };

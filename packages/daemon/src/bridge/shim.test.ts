@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -69,6 +69,22 @@ describe("runShim", () => {
     d.conn().on("end", () => d.conn().end());
     t.stdin.end();
     expect(await done).toBe(0);
+  });
+
+  it("reads the token from DONEPM_TOKEN_FILE when the env holds only its path (#137)", async () => {
+    const d = await fakeDaemon('{"ok":true}\n');
+    const file = join(await mkdtemp(join(tmpdir(), "dp-tok-")), "token");
+    await writeFile(file, "filetok\n", { mode: 0o600 });
+    const t = io({ DONEPM_SOCKET: d.path, DONEPM_TOKEN_FILE: file });
+    const done = runShim(t.io);
+    await vi.waitFor(() => expect(d.received().split("\n")[0]).toBe('{"bridge":1,"token":"filetok"}'));
+    d.conn().destroy();
+    await done;
+  });
+
+  it("exits 64 when the token file cannot be read", async () => {
+    const t = io({ DONEPM_SOCKET: join(tmpdir(), "dp-none.sock"), DONEPM_TOKEN_FILE: join(tmpdir(), "dp-no-such-token") });
+    expect(await runShim(t.io)).toBe(EXIT.unconfigured);
   });
 
   it("exits 69 when the daemon goes away mid-session", async () => {

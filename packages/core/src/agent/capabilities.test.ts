@@ -13,6 +13,20 @@ describe("agent capabilities", () => {
     expect(AGENT_CAPABILITIES["claude-code"]).toMatchObject({ reportsCost: true, sessionRules: true, alwaysAllow: true });
   });
 
+  it("refuses plan and bypassPermissions for Codex instead of widening them (#137)", () => {
+    expect(playbookProblems({ permissionMode: "default" }, "codex")).toEqual([]);
+    expect(playbookProblems({ permissionMode: "acceptEdits", effort: "high" }, "codex")).toEqual([]);
+    expect(playbookProblems({ permissionMode: "plan" }, "codex")).toEqual(["permission_mode plan is not available with codex"]);
+    expect(playbookProblems({ permissionMode: "bypassPermissions" }, "codex")).toEqual([
+      "permission_mode bypassPermissions is not available with codex",
+    ]);
+    expect(playbookProblems({ permissionMode: "default", effort: "max" }, "codex")).toEqual(["effort max is not available with codex"]);
+  });
+
+  it("says Codex reports no price and has no rule grammar", () => {
+    expect(AGENT_CAPABILITIES.codex).toMatchObject({ reportsCost: false, sessionRules: false, alwaysAllow: false, resumeInSameProcess: true });
+  });
+
   it("names a mode or effort the agent does not take", () => {
     const caps = AGENT_CAPABILITIES["claude-code"];
     const saved = { ...caps };

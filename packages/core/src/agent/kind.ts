@@ -1,8 +1,8 @@
 /**
- * The coding agents donePM can run (issue #136). Claude Code is the only one; the union grows when a
- * second agent's adapter lands (#137). Stored on the item and on each transcript row.
+ * The coding agents donePM can run (issues #136, #137): Claude Code and OpenAI's Codex CLI. Stored on
+ * the item and on each transcript row.
  */
-export const AGENT_KINDS = ["claude-code"] as const;
+export const AGENT_KINDS = ["claude-code", "codex"] as const;
 
 export type AgentKind = (typeof AGENT_KINDS)[number];
 

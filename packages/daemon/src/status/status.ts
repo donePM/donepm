@@ -1,4 +1,5 @@
 import type { ClaudeStatus } from "../agent/claude/detect.js";
+import type { CodexStatus } from "../agent/codex/detect.js";
 import type { GhStatus } from "../gh/detect.js";
 import type { HelperStatus } from "../helpers/detect.js";
 
@@ -64,6 +65,8 @@ export interface Status {
   /** Each configured connection (D50); undefined until first detected. */
   connections?: ConnectionStatus[];
   claude: ClaudeStatus | undefined;
+  /** The Codex CLI (issue #137); undefined until first detected. */
+  codex?: CodexStatus;
   /** Optional helper CLIs by id (issue #152); undefined until first detected. */
   helpers: Record<string, HelperStatus> | undefined;
   lastPoll: PollStatus | undefined;

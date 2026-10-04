@@ -11,7 +11,7 @@ import type { CurrentTool } from "../items/view.js";
 import type { Log } from "../log.js";
 import type { TranscriptStore } from "../transcript/store.js";
 import type { PushType } from "../ws/hub.js";
-import { adapterFor as builtInAdapter, type AgentAdapter, type AgentConnection, type AgentStep, type McpServer } from "./adapter.js";
+import { adapterFor as builtInAdapter, type AdapterLaunch, type AgentAdapter, type AgentConnection, type AgentStep, type McpServer } from "./adapter.js";
 import type { AgentProcess, ProcessFactory } from "./process.js";
 
 export const STDERR_TAIL_LINES = 50;
@@ -148,15 +148,17 @@ export class AgentRunner {
     const adapter = (this.deps.adapterFor ?? builtInAdapter)(kind);
     const env = await this.deps.env();
     const mcp = this.deps.mcp?.(input.item, input.playbook);
+    const launchInput: AdapterLaunch = {
+      itemId: input.item.id,
+      cwd: input.cwd,
+      playbook: input.playbook,
+      ...(mcp ? { mcp: mcp.server } : {}),
+      ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
+      ...(env.HOME ? { home: env.HOME } : {}),
+    };
     let launched: { args: string[]; cleanup?: () => void };
     try {
-      launched = adapter.launch({
-        itemId: input.item.id,
-        playbook: input.playbook,
-        ...(mcp ? { mcp: mcp.server } : {}),
-        ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
-        ...(env.HOME ? { home: env.HOME } : {}),
-      });
+      launched = adapter.launch(launchInput);
     } catch (e) {
       mcp?.close();
       throw e;
@@ -164,7 +166,7 @@ export class AgentRunner {
     const proc = this.deps.spawn(this.deps.agentPath(kind) ?? adapter.command, launched.args, { cwd: input.cwd, env });
     session.proc = proc;
     session.adapter = adapter;
-    session.conn = adapter.connect();
+    session.conn = adapter.connect(launchInput);
     session.readOnly = input.playbook.readOnly === true;
     if (input.resumeSessionId) session.sessionId = input.resumeSessionId;
 
@@ -241,7 +243,7 @@ export class AgentRunner {
     const steps = session.conn.answerAsk(
       ask,
       answer.behavior === "allow"
-        ? { behavior: "allow", ...(granted.length ? { rules: granted } : {}), ...(answers ? { answers } : {}) }
+        ? { behavior: "allow", ...(granted.length ? { rules: granted } : {}), ...(answers ? { answers } : {}), ...(answer.scope === "run" ? { forRun: true } : {}) }
         : { behavior: "deny", message: answer.message || "The user denied this.", ...(answer.interrupt !== undefined ? { interrupt: answer.interrupt } : {}) },
     );
     const at = this.deps.ctx.now();
@@ -290,6 +292,7 @@ export class AgentRunner {
       s.stoppedByUser = true;
       s.closing = DENY_ON_STOP;
       this.denyPending(s, "stopped by you");
+      this.run(s, s.conn?.interrupt?.() ?? []);
       s.proc.kill("SIGTERM");
       if (!s.done) {
         const timer = setTimeout(() => {
@@ -309,6 +312,7 @@ export class AgentRunner {
       s.stopping = true;
       s.closing = DENY_ON_SHUTDOWN;
       this.denyPending(s, "donePM is shutting down");
+      this.run(s, s.conn?.interrupt?.() ?? []);
       s.proc!.kill("SIGTERM");
     }
     const exited = Promise.all(live.map((s) => s.exited));
