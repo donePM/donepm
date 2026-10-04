@@ -25,9 +25,12 @@ describe("agentEnv", () => {
 
   it("drops what a node --watch or pnpm run of the daemon leaves in its environment (#115)", async () => {
     const root = await mkdtemp(join(tmpdir(), "donepm-env-"));
+    // A directory without gh, so filteredPath keeps it as it is.
+    const bin = join(root, "bin");
+    await mkdir(bin);
     const env = await agentEnv(
       {
-        PATH: ["/repo/donepm/node_modules/.bin", "/repo/donepm/packages/daemon/node_modules/.bin", "node_modules/.bin", "/usr/bin"].join(delimiter),
+        PATH: ["/repo/donepm/node_modules/.bin", "/repo/donepm/packages/daemon/node_modules/.bin", "node_modules/.bin", bin].join(delimiter),
         HOME: "/home/x", NODE_OPTIONS: "--max-old-space-size=8192",
         WATCH_REPORT_DEPENDENCIES: "1", NODE_CHANNEL_FD: "3", NODE_CHANNEL_SERIALIZATION_MODE: "json", NODE_UNIQUE_ID: "1",
         NODE_PATH: "/repo/donepm/node_modules/.pnpm/node_modules", NODE: "/bin/node", INIT_CWD: "/repo/donepm",
@@ -38,7 +41,7 @@ describe("agentEnv", () => {
     );
     expect(env).toEqual({
       HOME: "/home/x", NODE_OPTIONS: "--max-old-space-size=8192",
-      PATH: ["node_modules/.bin", "/usr/bin"].join(delimiter),
+      PATH: ["node_modules/.bin", bin].join(delimiter),
       GH_CONFIG_DIR: join(root, "no-config"), GLAB_CONFIG_DIR: join(root, "no-config"),
     });
   });
