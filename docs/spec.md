@@ -209,6 +209,7 @@ config under `sources`, keyed by `originUrl`, not in `.donepm/` (see 14). Per re
 | playbook | string? | default playbook of issues newly collected here (8.3); absent: chosen by `match`. Must be one of `playbooks.issue` when that is set. Pull requests keep `review` (D40) |
 | agent | `claude-code`? | the coding agent items here run with, unless the playbook names one (D49). Absent: `claude-code` |
 | playbooks | `{ issue?: string[], pr?: string[] }`? | the playbooks each ingest may run here (8.3, D48). Absent `issue`: every playbook that is not read-only. Absent `pr`: `["review"]`. `pr` only ever takes read-only playbooks (D47) |
+| ci | `{ source: "azure-pipelines", definitions: number[], organization?, project? }`? | pipelines that run in Azure Pipelines without reporting to the host: CI is read from their builds by branch instead of the PR's checks (6.6, D53). `organization` and `project` default to an Azure Repos origin's own; any other origin names them, and a connection must serve the organization. Only the config file sets it; the settings form keeps it |
 
 The provider follows from the host: a `sources` key is accepted only when a connection (14, D50)
 serves its host, and for `dev.azure.com` its organization. Without a `connections` config that is `github.com` alone. GitLab (issue list
@@ -491,6 +492,33 @@ every check finished.
 
 A failed `gh` call is logged and retried on the next poll; the item stays `checking`.
 
+Azure Pipelines (issue #143, D53). The PR's code host is the one authority for its checks: `gh pr
+checks` on GitHub and GitHub Enterprise, the PR's policy evaluations on Azure Repos (6.11). Every
+check then goes through `countOnce` before the verdict: checks linking to the same Azure Pipelines
+build (`dev.azure.com/<org>/<project>/_build/results?buildId=N` or `<org>.visualstudio.com/...`,
+project name or id), and the same job when the link has `jobId`, are one check; the attempt that
+started last wins, then a finished one, then the one finished last. Other checks stay as they are.
+
+- A failed check linking to an Azure Pipelines build gets its log and rerun from the
+  `azure-devops` connection serving that build's organization, whatever hosts the PR; without one
+  it has no log and its rerun says "no connection for the Azure DevOps organization …". Every other
+  failed check goes to the host as above.
+- Logs: `GET {project}/_apis/build/builds/{id}/timeline`, the failed `Task` records with a log, in
+  order, only those under the link's job when it names one; then `GET .../logs/{logId}` per task
+  (text, or JSON `{ value: [lines] }`), last 40 lines, timestamps, ANSI and BOM stripped. A check
+  with several failed tasks gets each under a `── <task> ──` header.
+- Rerun: from the timeline, the failed `Stage` records; `PATCH .../builds/{id}/stages/{identifier}`
+  with `{ state: "retry", forceRetryAllJobs: false }` per stage, which reruns the failed jobs only.
+  A build without a failed stage says so. The run key in `ci.failed`/`ci.started` is the build's
+  canonical URL; GitHub Actions runs keep their id.
+- `sources[origin].ci` (4.6): pipelines that do not report to the host. For such a repository the
+  watch never reads the PR's checks; it lists `GET {project}/_apis/build/builds?definitions=…&
+  branchName=refs/heads/<branch>&queryOrder=queueTimeDescending&$top=50`, keeps the newest build
+  per definition of the worktree's `HEAD` commit (any commit when `HEAD` cannot be read), and maps
+  `status`/`result`: not `completed` → pending, `succeeded`/`partiallySucceeded` → pass, `canceled`
+  → cancel, anything else → fail. A definition without such a build has no check yet, so the 60 s
+  grace applies as for late checks.
+
 ### 6.7 Merge conflicts
 
 From the same `gh pr view` as 6.5 (decision D36). Only `mergeable: CONFLICTING` counts; `UNKNOWN`
@@ -630,9 +658,14 @@ connections. Azure DevOps Server (on premises) is out of scope.
 - PR state (6.5): `GET .../pullrequests/{id}`. `status` `active` → `OPEN`, `completed` →
   `MERGED` (`closedDate` as `mergedAt`), `abandoned` → `CLOSED`; `mergeStatus` `conflicts` →
   `CONFLICTING`, `succeeded` → `MERGEABLE`, anything else `UNKNOWN`. An unknown `status` throws.
+- CI (6.6, issue #143): `GET .../pullrequests/{id}` for the project id, then `GET
+  {project}/_apis/policy/evaluations?artifactId=vstfs:///CodeReview/CodeReviewId/{projectId}/{id}`
+  (`api-version=7.1-preview.1`). Enabled Build and Status policies are checks; reviewer and other
+  policies are not. `approved` → pass, `rejected`/`broken` → fail, `notApplicable` → skipping,
+  anything else pending. A build policy is named by its `displayName`, else its pipeline, and links
+  to its build; a status policy by `genre/name`.
 - Not yet: review feedback (6.9), replies, posting reviews, merging others' PRs and updating a
-  branch say "not supported on Azure DevOps yet"; others' PRs (D47) are not read there. CI comes
-  with #143: until then an ADO PR item waits in checking.
+  branch say "not supported on Azure DevOps yet"; others' PRs (D47) are not read there.
 - The agent never reaches it: `az` is filtered from `PATH` and denied (`Bash(az *)`), `git push`
   is denied whatever the remote, `AZURE_DEVOPS_EXT_PAT` is dropped and `AZURE_CONFIG_DIR` points at
   an empty directory.
@@ -1414,7 +1447,8 @@ that does not echo, and hands it to the daemon; `donepm token delete <connection
 ```json
 "sources": {
   "github.com/spatie/bloom": { "managed": true, "query": "is:issue state:open no:assignee", "assignOnStart": true },
-  "github.com/acme/widgets": { "managed": true, "assignOnStart": false, "playbook": "fix", "playbooks": { "issue": ["implement", "fix"], "pr": ["review"] } }
+  "github.com/acme/widgets": { "managed": true, "assignOnStart": false, "playbook": "fix", "playbooks": { "issue": ["implement", "fix"], "pr": ["review"] } },
+  "github.acme.com/team/api": { "managed": true, "assignOnStart": false, "ci": { "source": "azure-pipelines", "organization": "acme", "project": "Platform", "definitions": [41, 77] } }
 }
 ```
 

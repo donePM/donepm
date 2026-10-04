@@ -6,7 +6,12 @@ import { EventStore } from "../events/store.js";
 import { itemWriter } from "../items/commit.js";
 import { ItemStore } from "../items/store.js";
 import { testCtx } from "../test-support/ctx.js";
-import { fail, fakeExec, ok } from "../test-support/fake-exec.js";
+import { fail, fakeExec, fixture, ok } from "../test-support/fake-exec.js";
+import { fakeHttp, json, status } from "../test-support/fake-http.js";
+import { memoryTokens } from "../test-support/fake-tokens.js";
+import { azureDevOpsConnection } from "../azure/connection.js";
+import { gitHubCliConnection } from "../gh/adapter.js";
+import { providerRegistry } from "../providers/registry.js";
 import { CiActionError, fixCi, markCiDone, rerunCi } from "./actions.js";
 
 const PR = { url: "https://github.com/acme/widgets/pull/45", number: 45 };
@@ -16,7 +21,7 @@ const FAILED = [
 ];
 
 /** An item waiting for CI; `red` lets that CI fail. */
-function setup(red = true) {
+function setup(red = true, failed: Array<{ name: string; link?: string }> = FAILED) {
   const db = openDb(":memory:");
   const ctx = testCtx();
   const items = new ItemStore(db);
@@ -31,7 +36,7 @@ function setup(red = true) {
   let current = writer.commit(start(item, ctx));
   current = writer.commit(draftCreated(current, ctx, "d-1"));
   current = writer.commit(draftExecuted(current, ctx, "d-1", PR, { ...PR }));
-  if (red) writer.commit(ciFailed(current, ctx, { ...PR, failed: FAILED, logs: [{ name: "test (node 22)", tail: "expected 1 to be 2" }] }));
+  if (red) writer.commit(ciFailed(current, ctx, { ...PR, failed, logs: [{ name: "test (node 22)", tail: "expected 1 to be 2" }] }));
   const exec = fakeExec({ "gh run rerun": ok("") });
   return { deps: { items, events, writer, ctx, providers: githubProviders(exec) }, exec, item: () => items.get(item.id)!.item, last: () => events.forItem(item.id).at(-1)! };
 }
@@ -52,6 +57,33 @@ describe("rerunCi", () => {
       new CiActionError(502, "run is still in progress"),
     );
     expect(t.item().state).toBe("needs_you");
+  });
+});
+
+describe("rerunCi of Azure Pipelines builds (issue #143)", () => {
+  const BUILD = "https://dev.azure.com/acme/0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11/_build/results?buildId=812";
+  const AT = "/acme/0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11/_apis/build/builds/812";
+
+  it("retries the build's failed stages through its organization's connection, and Actions runs through gh", async () => {
+    const t = setup(true, [
+      { name: "acme.api", link: BUILD },
+      { name: "acme.api (Unit tests)", link: `${BUILD}&view=logs&jobId=a1f3c9e2-7b44-5d1e-9c0a-2f6e8b1d4c55` },
+      FAILED[0]!,
+    ]);
+    const http = fakeHttp({ [`GET ${AT}/timeline`]: json(fixture("azure-devops/build-timeline-failed.json")), [`PATCH ${AT}/stages/build`]: status(204) });
+    const providers = providerRegistry([
+      gitHubCliConnection(t.exec),
+      azureDevOpsConnection({ id: "ado", organization: "acme", backend: "api", exec: t.exec, http, tokens: memoryTokens({ ado: "pat" }) }),
+    ]);
+    expect((await rerunCi({ ...t.deps, providers }, "item-1")).state).toBe("checking");
+    expect(http.requests.filter((r) => r.method === "PATCH").map((r) => r.path)).toEqual([`${AT}/stages/build?api-version=7.1`]);
+    expect(t.exec.calls.map((c) => c.args.join(" "))).toEqual(["run rerun 7 --failed --repo github.com/acme/widgets"]);
+    expect(t.last()).toMatchObject({ type: "ci.started", payload: { reason: "rerun", runs: [BUILD, "7"] } });
+  });
+
+  it("names the organization no connection serves", async () => {
+    const t = setup(true, [{ name: "acme.api", link: BUILD }]);
+    await expect(rerunCi(t.deps, "item-1")).rejects.toEqual(new CiActionError(502, "no connection for the Azure DevOps organization acme"));
   });
 });
 

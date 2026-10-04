@@ -1,0 +1,2 @@
+# Recorded output keeps its bytes: Azure Pipelines logs come with CRLF line ends.
+* -text

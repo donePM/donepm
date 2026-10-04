@@ -596,8 +596,28 @@ host and organization.
 - A PR description longer than Azure DevOps' 4000 characters is shortened with a note rather than
   refused, so an approved draft is not lost to the limit.
 - What Azure DevOps has no adapter for yet (feedback, replies, reviews, merging others' PRs,
-  updating a branch, CI until #143) answers "not supported on Azure DevOps yet" instead of
+  updating a branch) answers "not supported on Azure DevOps yet" instead of
   pretending to succeed. The contract tests list these parts per adapter.
+
+**D53. Azure Pipelines: the code host judges, the build's organization explains.** Issue #143. A
+PR's checks come from its code host alone (`gh pr checks`, or the PR's policy evaluations on Azure
+Repos), never from both sides, so one build is never counted twice by asking two systems.
+
+- The same build still reaches GitHub through several checks (the pipeline, each job, an older
+  "Azure Pipelines" status on `visualstudio.com`). `countOnce` makes the build, or the build and
+  job, one check; the attempt that started last wins, so a rerun replaces the failure it reruns.
+- Logs and rerun of a failed Azure Pipelines check go to the `azure-devops` connection serving the
+  organization in its link, whatever hosts the PR. GitHub has neither for a build it only shows.
+- Rerun retries the failed stages without `forceRetryAllJobs`, which reruns the failed jobs only,
+  like `gh run rerun --failed`. Requeueing the policy would rebuild everything.
+- `partiallySucceeded` counts as passed: only steps marked to continue on error failed; an
+  unknown completed result counts as failed rather than passing silently.
+- Only Build and Status policies count as CI on Azure Repos; reviewer and work item policies are
+  review, not CI, and a disabled policy does not block.
+- Pipelines that do not report to the host are an opt-in per repository (`sources[origin].ci`)
+  naming their definitions; donePM does not guess which pipelines belong to a repository. Their
+  builds are read by branch and the worktree's `HEAD`, the commit the PR was pushed from, and
+  replace the PR's checks rather than adding to them.
 
 ## Open (not decided)
 

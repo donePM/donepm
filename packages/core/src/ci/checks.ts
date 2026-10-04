@@ -1,6 +1,9 @@
+import { azureBuildUrl, parseAzureBuildLink } from "./azure.js";
+
 /**
  * One check of a pull request as `gh pr checks --json name,state,bucket,link,workflow,startedAt,
  * completedAt` reports it. `bucket` is gh's own grouping: pass, fail, pending, skipping, cancel.
+ * Other CI sources (Azure DevOps policies, Azure Pipelines builds, issue #143) report the same shape.
  */
 export interface CiCheck {
   name: string;
@@ -19,7 +22,10 @@ export interface FailedCheck {
   workflow?: string;
 }
 
-/** The end of a failed check's log, fetched by the daemon (`gh run view --log-failed`). */
+/**
+ * The end of a failed check's log, fetched by the daemon (`gh run view --log-failed`, or the failed
+ * tasks of an Azure Pipelines build), named like its check.
+ */
 export interface CheckLog {
   name: string;
   tail: string;
@@ -63,9 +69,67 @@ export function runIdOf(link: string | undefined): string | undefined {
   return link?.match(/\/actions\/runs\/(\d+)(?:\/|$)/)?.[1];
 }
 
+/**
+ * The run a check belongs to, which "Rerun failed jobs" reruns: a GitHub Actions run's id, or an
+ * Azure Pipelines build's URL (`azureBuildUrl`, issue #143). Undefined for a check of other CI.
+ */
+export function runOf(link: string | undefined): string | undefined {
+  const actions = runIdOf(link);
+  if (actions) return actions;
+  const build = parseAzureBuildLink(link);
+  return build && azureBuildUrl(build);
+}
+
 /** The distinct runs of the failed checks: what "Rerun failed jobs" reruns. */
 export function failedRuns(failed: readonly FailedCheck[]): string[] {
-  return [...new Set(failed.flatMap((c) => runIdOf(c.link) ?? []))];
+  return [...new Set(failed.flatMap((c) => runOf(c.link) ?? []))];
+}
+
+/** Whether a run of `failedRuns` is an Azure Pipelines build rather than a GitHub Actions run. */
+export function isAzureRun(run: string): boolean {
+  return parseAzureBuildLink(run) !== undefined;
+}
+
+/**
+ * What makes two checks one (issue #143): an Azure Pipelines build, or one job of it, whichever
+ * view reports it. Undefined for any other check, which always counts on its own.
+ */
+function buildKeyOf(c: CiCheck): string | undefined {
+  const build = parseAzureBuildLink(c.link);
+  return build && `${azureBuildUrl(build)}${build.jobId ? `#${build.jobId}` : ""}`;
+}
+
+const FINISHED = new Set(["pass", "fail", "cancel", "skipping"]);
+const time = (t: string | undefined) => (t === undefined || Number.isNaN(Date.parse(t)) ? -Infinity : Date.parse(t));
+
+/** `a` describes a later state of the build than `b`. */
+function newer(a: CiCheck, b: CiCheck): boolean {
+  const started = time(a.startedAt) - time(b.startedAt);
+  if (started !== 0 && !Number.isNaN(started)) return started > 0;
+  const finished = Number(FINISHED.has(a.bucket)) - Number(FINISHED.has(b.bucket));
+  if (finished !== 0) return finished > 0;
+  return time(a.completedAt) > time(b.completedAt);
+}
+
+/**
+ * The checks with each Azure Pipelines build (or job of one) counted once (issue #143, D53): of
+ * the checks naming the same build, the attempt that started last wins, and of two views of the
+ * same attempt the finished one, then the one that finished last. So a retried build counts by its
+ * retry, still running or not, and a stale view of an earlier attempt never flips the verdict.
+ * Other checks are kept as they are, in their order.
+ */
+export function countOnce(checks: readonly CiCheck[]): CiCheck[] {
+  const out: CiCheck[] = [];
+  const at = new Map<string, number>();
+  for (const c of checks) {
+    const key = buildKeyOf(c);
+    const i = key === undefined ? undefined : at.get(key);
+    if (i === undefined) {
+      if (key !== undefined) at.set(key, out.length);
+      out.push(c);
+    } else if (newer(c, out[i]!)) out[i] = c;
+  }
+  return out;
 }
 
 /**

@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { AGENT_KINDS, DEFAULT_WEB_FETCH_DOMAINS, isDomain, MERGE_METHODS, normalizeOriginUrl, parseAzureDevOpsOrigin } from "@donepm/core";
 import { z } from "zod";
 import { connectionFor, connectionsOf, ConnectionsSchema } from "./connections.js";
+import { CiOptInSchema, pipelinesOptIn } from "./pipelines.js";
 
 /**
  * Per repository: which issues donePM collects (spec 4.6). `query` is the provider's search
@@ -34,6 +35,8 @@ export const SourceSchema = z
     autoMerge: z.boolean().optional(),
     /** How donePM merges others' pull requests here, by the card's default and by auto-merge (D47). */
     mergeMethod: z.enum(MERGE_METHODS).optional(),
+    /** Read CI from these Azure Pipelines by branch, not from the pull request's checks (issue #143). */
+    ci: CiOptInSchema.optional(),
     /** Issue #33's flag, replaced by `managed`; only read once to migrate (D46). */
     ignored: z.boolean().optional(),
   })
@@ -96,11 +99,21 @@ export const ConfigSchema = z
 
 export type Config = z.infer<typeof ConfigSchema>;
 
-/** The config with what spans its keys checked: every `sources` key has a connection for its host. */
+/**
+ * The config with what spans its keys checked: every `sources` key has a connection for its host,
+ * and a `ci` opt-in knows its Azure DevOps project and has a connection for its organization.
+ */
 export const ValidConfigSchema = ConfigSchema.superRefine((config, ctx) => {
   const connections = connectionsOf(config);
-  for (const origin of Object.keys(config.sources)) {
+  for (const [origin, source] of Object.entries(config.sources)) {
     if (!connectionFor(connections, origin)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["sources", origin], message: noConnectionFor(origin) });
+    if (!source.ci) continue;
+    const pipelines = pipelinesOptIn(origin, source.ci);
+    if (!pipelines) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["sources", origin, "ci"], message: "name the Azure DevOps organization and project the pipelines are in" });
+    } else if (!connectionFor(connections, `dev.azure.com/${pipelines.organization}`)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["sources", origin, "ci"], message: `no connection for the Azure DevOps organization ${pipelines.organization}; add one under "connections"` });
+    }
   }
 });
 

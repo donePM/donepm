@@ -1,4 +1,4 @@
-import { GITHUB_COM, parseExternalId, type CheckLog, type CiPr } from "@donepm/core";
+import { failedRuns, GITHUB_COM, isAzureRun, parseExternalId, type CheckLog, type CiPr, type FailedCheck } from "@donepm/core";
 import type { CiSource } from "../providers/ci-source.js";
 import type { CodeHost } from "../providers/code-host.js";
 import { providerRegistry, type Connection, type Providers } from "../providers/registry.js";
@@ -57,10 +57,13 @@ export function gitHubCliAdapter(exec: Exec, host = GITHUB_COM): GitHubAdapter {
     updateBranch: (pr) => updatePullRequestBranch(exec, pr),
 
     checks: (pr) => fetchPrChecks(exec, pr),
-    failedLogs: async (pr: CiPr, runs: readonly string[]): Promise<CheckLog[]> => {
+    // The GitHub Actions runs of the failed checks; checks of other CI have none here.
+    failedLogs: async (pr: CiPr, failed: readonly FailedCheck[]): Promise<CheckLog[]> => {
       const repository = prRepository(pr.url);
       if (!repository) return [];
-      return (await Promise.all(runs.map((run) => fetchFailedLogs(exec, repository, run)))).flat();
+      const names = new Set(failed.map((c) => c.name));
+      const runs = failedRuns(failed).filter((run) => !isAzureRun(run));
+      return (await Promise.all(runs.map((run) => fetchFailedLogs(exec, repository, run)))).flat().filter((l) => names.has(l.name));
     },
     rerunFailed: async (pr: CiPr, runs: readonly string[]): Promise<Done> => {
       const repository = prRepository(pr.url);

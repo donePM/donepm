@@ -7,6 +7,7 @@ import type { Backend, Connection } from "../providers/registry.js";
 import type { Exec } from "../process/exec.js";
 import type { ConnectionState } from "../status/status.js";
 import { azureDevOpsCodeHost } from "./code-host.js";
+import { azurePipelines } from "./pipelines.js";
 import { azureApiTransport, azureCliTransport, type AzureTransport } from "./transport.js";
 
 export interface AzureDevOpsConnectionOptions {
@@ -46,8 +47,9 @@ export async function azureApiHealth(transport: AzureTransport): Promise<Health>
 }
 
 /**
- * One Azure DevOps organization (issue #141): Azure Repos as its code host, through `az` or the
- * REST API with a personal access token. The daemon runs it; the agent never sees `az` or a token.
+ * One Azure DevOps organization (issues #141, #143): Azure Repos as its code host and Azure
+ * Pipelines as its CI source, through `az` or the REST API with a personal access token. The
+ * daemon runs it; the agent never sees `az` or a token.
  */
 export function azureDevOpsConnection(o: AzureDevOpsConnectionOptions): Connection {
   const transport = o.backend === "api" ? azureApiTransport(o.http, o.organization, o.tokens, o.id) : azureCliTransport(o.exec, o.organization);
@@ -58,6 +60,7 @@ export function azureDevOpsConnection(o: AzureDevOpsConnectionOptions): Connecti
     host: AZURE_DEVOPS_HOST,
     organization: o.organization,
     codeHost: azureDevOpsCodeHost(o.exec, transport),
+    ciSource: azurePipelines(transport, o.organization),
     health: () => (o.backend === "api" ? azureApiHealth(transport) : azureCliHealth(o.exec)),
   };
 }

@@ -49,6 +49,13 @@ describe("withSource", () => {
     });
     expect(withSource({}, "github.com/c/d", { query: "", assignOnStart: false, playbooks: {} })).toEqual({});
   });
+
+  it("keeps the config file's Azure Pipelines opt-in (#143)", () => {
+    const ci = { source: "azure-pipelines" as const, definitions: [41], organization: "acme", project: "Platform" };
+    expect(withSource({ "github.acme.com/team/api": { assignOnStart: true, ci } }, "github.acme.com/team/api", { query: "", assignOnStart: false })).toEqual({
+      "github.acme.com/team/api": { assignOnStart: false, ci },
+    });
+  });
 });
 
 describe("issueSearchUrl", () => {
