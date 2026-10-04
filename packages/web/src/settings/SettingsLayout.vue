@@ -7,7 +7,7 @@ import IconServer from "../icons/IconServer.vue";
 import IconShield from "../icons/IconShield.vue";
 import IconTerminal from "../icons/IconTerminal.vue";
 import { reachable, recheck, status } from "../status/status";
-import { sectionGroups, toolsDot, type SectionId } from "./nav";
+import { sectionDot, sectionGroups, type SectionId } from "./nav";
 import { loadError, loadSettings, repos } from "./store";
 
 const icons: Record<SectionId, Component> = {
@@ -21,7 +21,10 @@ const icons: Record<SectionId, Component> = {
 
 const groups = sectionGroups();
 const repoCount = computed(() => repos.value?.length);
-const dot = computed(() => toolsDot(status.value, reachable.value));
+const dots = computed(() => ({
+  agents: sectionDot("agents", status.value, reachable.value),
+  tools: sectionDot("tools", status.value, reachable.value),
+}));
 
 onMounted(() => {
   // Spec §6.1: detect the CLIs on Settings open.
@@ -38,7 +41,7 @@ onMounted(() => {
         <RouterLink v-for="s in g.sections" :key="s.id" :to="`/settings/${s.id}`" active-class="on">
           <component :is="icons[s.id]" />{{ s.label }}
           <span v-if="s.id === 'repositories' && repoCount !== undefined" class="badge muted" style="margin-left: auto" :aria-label="`${repoCount} found`">{{ repoCount }}</span>
-          <span v-if="s.id === 'tools'" class="dot" :class="dot" style="margin-left: auto" :aria-label="dot === 'ok' ? 'all tools ready' : dot === 'attn' ? 'a tool needs attention' : 'checking'"></span>
+          <span v-if="s.id === 'agents' || s.id === 'tools'" class="dot" :class="dots[s.id]" style="margin-left: auto" :aria-label="dots[s.id] === 'ok' ? 'all ready' : dots[s.id] === 'attn' ? 'needs attention' : 'checking'"></span>
         </RouterLink>
       </template>
     </nav>

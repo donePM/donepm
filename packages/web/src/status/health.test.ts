@@ -77,6 +77,21 @@ describe("health", () => {
   });
 });
 
+describe("a subset of the tools", () => {
+  const agents = tools.filter((t) => t.section === "agents");
+
+  it("puts claude under Agents & access and gh under Tools", () => {
+    expect(agents.map((t) => t.name)).toEqual(["claude"]);
+    expect(tools.filter((t) => t.section === "tools").map((t) => t.name)).toEqual(["gh"]);
+  });
+
+  it("can leave a failed poll out", () => {
+    const failed = withStatus({ lastPoll: { at: "x", ok: false }, gh: { state: "not_installed" } });
+    expect(problems(failed, true, agents, false)).toEqual([]);
+    expect(health(failed, true, agents, false)).toBe("ok");
+  });
+});
+
 describe("summary", () => {
   it("words one problem and several", () => {
     expect(summary(["gh is not logged in"])).toBe("Problem: gh is not logged in");

@@ -1,8 +1,9 @@
-import type { CliState } from "../../api/types";
+import type { CliState, HelperStatus } from "../../api/types";
 
 export interface CliHint {
   label: string;
-  tone: "ok" | "warn";
+  /** `muted`: missing, but optional. */
+  tone: "ok" | "warn" | "muted";
   /** What blocks, in one sentence; absent when ready. */
   why?: string;
   /** Copyable command that fixes it. */
@@ -32,8 +33,14 @@ export function claudeHint(state: CliState): CliHint {
   }
 }
 
-/** The status dot for a tool: green when ready, amber when something needs fixing, grey while unknown. */
+/** A helper is optional: missing is muted, not a warning. */
+export function helperHint(found: HelperStatus | undefined, install: string): CliHint {
+  if (found?.installed) return { label: "installed", tone: "ok" };
+  return { label: "not installed", tone: "muted", why: "Optional. To let agents use it, run this in a terminal, then check again:", command: install };
+}
+
+/** The status dot for a tool: green when ready, amber when something needs fixing, grey while unknown or optional. */
 export function hintDot(hint: CliHint | undefined): "ok" | "attn" | "off" {
   if (!hint) return "off";
-  return hint.tone === "ok" ? "ok" : "attn";
+  return hint.tone === "ok" ? "ok" : hint.tone === "warn" ? "attn" : "off";
 }
