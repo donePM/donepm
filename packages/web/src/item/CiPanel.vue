@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { fixCi, markCiDone, pending, rerunCi } from "../agents/actions";
 import { errorText } from "../api/errors";
 import type { ItemDetail } from "../api/types";
+import CiPendingDot from "../ci/CiPendingDot.vue";
 
 /** The item's CI (D35): waiting for it, or red with the failed checks and their log ends. */
 const props = defineProps<{ item: ItemDetail }>();
@@ -42,7 +43,7 @@ async function act(fn: (id: string) => Promise<void>) {
     <p v-if="error" class="alert" role="alert">{{ error }}</p>
   </section>
   <section v-else-if="item.state === 'checking'" class="panel" aria-label="Waiting for CI">
-    <h2>Waiting for CI<template v-if="item.pr"> on <a :href="item.pr.url" target="_blank" rel="noreferrer">PR #{{ item.pr.number }}</a></template></h2>
+    <h2><CiPendingDot class="lead" />Waiting for CI<template v-if="item.pr"> on <a :href="item.pr.url" target="_blank" rel="noreferrer">PR #{{ item.pr.number }}</a></template></h2>
     <p class="hint">The item moves to Done once every check passed, or back to you if one fails.</p>
     <div class="actions">
       <button class="btn subtle" type="button" :disabled="busy" @click="act(markCiDone)">Mark done now</button>
@@ -56,6 +57,7 @@ async function act(fn: (id: string) => Promise<void>) {
 .needs { background: var(--amber-tint); border: 1px solid var(--amber-border); }
 .panel { background: var(--card); border: 1px solid var(--border); }
 h2 { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+h2 .lead { margin-right: 8px; vertical-align: middle; }
 h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
 .hint { margin: 0; font-size: 13px; color: var(--ink-2); }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
