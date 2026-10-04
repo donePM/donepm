@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clock, money } from "./duration";
+import { agentElapsed, clock, money } from "./duration";
 
 describe("clock", () => {
   it("shows minutes and seconds", () => {
@@ -21,5 +21,17 @@ describe("money", () => {
   it("shows dollars with cents", () => {
     expect(money(0.4123)).toBe("$0.41");
     expect(money(2)).toBe("$2.00");
+  });
+});
+
+describe("agentElapsed", () => {
+  const now = Date.parse("2026-10-04T09:10:00Z");
+  it("adds the running interval to the closed ones", () => {
+    expect(agentElapsed({ elapsedMs: 180_000, activeSince: "2026-10-04T09:08:00Z" }, now)).toBe(300_000);
+    expect(agentElapsed({ elapsedMs: 180_000 }, now)).toBe(180_000);
+  });
+
+  it("is undefined before the agent ran", () => {
+    expect(agentElapsed({}, now)).toBeUndefined();
   });
 });

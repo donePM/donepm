@@ -5,7 +5,7 @@ import { useAsks } from "../asks/live";
 import { displayId } from "../board/columns";
 import { items, itemsLoaded, watchItems } from "../board/items";
 import type { ItemView } from "../api/types";
-import { clock, money } from "../time/duration";
+import { agentElapsed, clock, money } from "../time/duration";
 import { useNow } from "../time/now";
 import { useTranscript } from "../transcript/live";
 import { toRows } from "../transcript/rows";
@@ -45,7 +45,8 @@ function status(item: ItemView): string {
   const parts: string[] = [];
   if (item.state === "running") {
     parts.push("running");
-    if (item.agent.startedAt) parts.push(clock(now.value - Date.parse(item.agent.startedAt)));
+    const ms = agentElapsed(item.agent, now.value);
+    if (ms !== undefined) parts.push(clock(ms));
   } else if (asking(item)) parts.push("asks permission");
   else if (item.state === "needs_you") parts.push(item.agent.running ? "waiting for you" : "needs you");
   else parts.push(item.state);

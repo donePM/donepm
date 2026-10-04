@@ -32,7 +32,7 @@ import { itemWriter } from "./items/commit.js";
 import { dismissItem } from "./items/dismiss.js";
 import { ItemStore, type StoredItem } from "./items/store.js";
 import { relinkItems } from "./items/sync.js";
-import { agentHistory } from "./items/agent-info.js";
+import { agentHistory, liveHistory } from "./items/agent-info.js";
 import { attentionOf } from "./items/attention.js";
 import { toItemView, type CurrentTool } from "./items/view.js";
 import type { Exec } from "./process/exec.js";
@@ -120,7 +120,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       item,
       item.repoId ? repos.get(item.repoId) : undefined,
       {
-        ...agentHistory(itemEvents),
+        ...liveHistory(agentHistory(itemEvents), runner.isRunning(item.id)),
         running: runner.isRunning(item.id),
         ...withCurrentTool(runner.currentTool(item.id)),
       },

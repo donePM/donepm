@@ -6,7 +6,7 @@ import { errorText, isPublishFailure } from "../api/errors";
 import type { ItemView } from "../api/types";
 import AskPanel from "../asks/AskPanel.vue";
 import { diffFiles, diffStats, type DiffStats } from "../diff/files";
-import { clock } from "../time/duration";
+import { agentElapsed, clock } from "../time/duration";
 import { columnOf, displayId, labelTone, shortId } from "./columns";
 import { mergeNote } from "./merge-note";
 
@@ -27,9 +27,10 @@ const startable = computed(() => (props.item.state === "ready" || props.item.sta
 /** The user removes a finished or failed item's worktree; only a merged PR's goes on its own (D33). */
 const removable = computed(() => (props.item.state === "done" || props.item.state === "failed") && !!props.item.worktreePath && !props.item.agent.running);
 const merge = computed(() => mergeNote(props.item, props.removeOnMerge ?? false));
-const elapsed = computed(() =>
-  props.item.agent.startedAt ? clock(props.now - Date.parse(props.item.agent.startedAt)) : undefined,
-);
+const elapsed = computed(() => {
+  const ms = agentElapsed(props.item.agent, props.now);
+  return ms === undefined ? undefined : clock(ms);
+});
 
 const attention = computed(() => props.item.attention);
 const flag = computed(() => {

@@ -12,6 +12,8 @@ export interface CurrentTool {
 export interface AgentView {
   running: boolean;
   startedAt?: string;
+  elapsedMs?: number;
+  activeSince?: string;
   costUsd?: number;
   currentTool?: CurrentTool;
 }
