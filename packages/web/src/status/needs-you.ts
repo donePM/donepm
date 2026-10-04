@@ -10,3 +10,8 @@ export function needsYouCount(items: readonly ItemView[]): number {
 export function needsYouLabel(count: number): string {
   return count === 1 ? "1 item needs you" : `${count} items need you`;
 }
+
+/** The pill's text: "3 need you" (the label above is the accessible name). */
+export function needsYouShort(count: number): string {
+  return `${count} need${count === 1 ? "s" : ""} you`;
+}

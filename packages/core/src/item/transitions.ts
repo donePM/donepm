@@ -711,3 +711,19 @@ export function dismissed(item: WorkItem, ctx: Ctx): Transition {
     ctx,
   );
 }
+
+/**
+ * The user picked another playbook on a Ready card (spec 12.1). Only before the first start: a
+ * running or started item keeps the playbook its session began with.
+ */
+export function playbookChanged(item: WorkItem, ctx: Ctx, playbook: string): Transition {
+  if (item.startedAt !== undefined) throw new InvalidTransitionError("playbookChanged", item.state);
+  const t = apply(
+    { name: "playbookChanged", from: ["ready"], to: "ready", actor: "user", event: "item.playbook_changed" },
+    item,
+    ctx,
+    undefined,
+    { from: item.playbook, to: playbook },
+  );
+  return { ...t, item: { ...t.item, playbook } };
+}

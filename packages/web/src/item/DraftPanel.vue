@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import IconCheck from "../icons/IconCheck.vue";
+import IconPullRequest from "../icons/IconPullRequest.vue";
 import { computed, ref, watch } from "vue";
 import { api } from "../api/client";
 import { errorText, isPublishFailure } from "../api/errors";
@@ -87,8 +89,8 @@ const reject = () => run(async () => {
 <template>
   <section class="draft" aria-labelledby="draft-h">
     <div class="head">
-      <h2 id="draft-h">Pull request draft</h2>
-      <span class="meta">Created by agent<template v-if="createdAt"> · {{ createdAt }}</template> · editable</span>
+      <h2 id="draft-h"><IconPullRequest />Pull request draft</h2>
+      <span class="meta">by agent<template v-if="createdAt"> · {{ createdAt }}</template> · you can edit before publishing</span>
     </div>
     <label class="field">
       <span>Title</span>
@@ -136,7 +138,7 @@ const reject = () => run(async () => {
     </form>
     <div v-else class="actions">
       <button class="btn primary" type="button" :disabled="busy || publishing" @click="approve">
-        {{ publishing ? "Creating PR…" : publishError ? "Retry: approve and create PR" : "Approve and create PR" }}
+        <IconCheck class="ic-sm" />{{ publishing ? "Creating PR…" : publishError ? "Retry: approve and create PR" : "Approve and create PR" }}
       </button>
       <button
         class="btn"
@@ -148,7 +150,7 @@ const reject = () => run(async () => {
         Reject with reason…
       </button>
       <button v-if="dirty" class="btn" type="button" :disabled="busy" @click="save">Save edits</button>
-      <span class="runs">Runs: git push · gh pr create</span>
+      <span class="runs" title="Leftover changes are committed as “WIP from donePM” before the push (D25)">Runs: commit leftovers · git push · gh pr create</span>
     </div>
     <p v-if="error" class="alert" role="alert">{{ error }}</p>
     <p v-else-if="publishError && !publishing" class="alert" role="alert">Creating the pull request failed: {{ publishError }}</p>
@@ -166,23 +168,26 @@ const reject = () => run(async () => {
   gap: 14px;
 }
 .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-h2 { margin: 0; font-size: 15px; font-weight: 600; }
+h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: 600; }
+h2 .ic { color: var(--attn); }
 .meta { font-size: 12px; color: var(--fg-3); }
 .body-head { display: flex; justify-content: space-between; align-items: end; gap: 12px; }
-.body-head > span { font-size: 13px; color: var(--fg-2); }
-.modes { display: flex; gap: 2px; }
+.body-head > span { font-size: 12px; font-weight: 500; color: var(--fg-2); }
+.modes { display: flex; gap: 0; }
 .tab {
-  padding: 3px 10px;
-  border: 1px solid transparent;
-  border-radius: 6px;
+  height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
   background: none;
-  color: var(--fg-2);
+  color: var(--fg-3);
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
 }
 .tab:hover { color: var(--fg); }
-.tab[aria-selected="true"] { border-color: var(--border-2); background: var(--muted); color: var(--fg); font-weight: 500; }
+.tab[aria-selected="true"] { border-bottom-color: var(--primary); color: var(--fg); }
 .tab:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .preview { min-height: 120px; max-height: 480px; overflow: auto; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; }
 .empty { margin: 0; color: var(--fg-3); }

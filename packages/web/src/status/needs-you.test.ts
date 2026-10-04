@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ItemView } from "../api/types";
-import { needsYouCount, needsYouLabel } from "./needs-you";
+import { needsYouCount, needsYouLabel, needsYouShort } from "./needs-you";
 
 const item = (state: ItemView["state"], over: Partial<ItemView> = {}): ItemView => ({ id: state, state, ...over }) as ItemView;
 
@@ -19,5 +19,12 @@ describe("needsYouLabel", () => {
   it("pluralises", () => {
     expect(needsYouLabel(1)).toBe("1 item needs you");
     expect(needsYouLabel(3)).toBe("3 items need you");
+  });
+});
+
+describe("needsYouShort", () => {
+  it("is the pill's text", () => {
+    expect(needsYouShort(1)).toBe("1 needs you");
+    expect(needsYouShort(3)).toBe("3 need you");
   });
 });

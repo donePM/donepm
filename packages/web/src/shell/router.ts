@@ -1,34 +1,25 @@
 import { createRouter, createWebHistory } from "vue-router";
-import AgentsView from "../agents/AgentsView.vue";
-import ArchiveView from "../archive/ArchiveView.vue";
 import BoardView from "../board/BoardView.vue";
-import ItemDetailView from "../item/ItemDetailView.vue";
-import AgentsSettings from "../settings/agents/AgentsSettings.vue";
-import DaemonSettings from "../settings/daemon/DaemonSettings.vue";
-import GeneralSettings from "../settings/general/GeneralSettings.vue";
-import PlaybooksSettings from "../settings/playbooks/PlaybooksSettings.vue";
-import ReposSettings from "../settings/repos/ReposSettings.vue";
-import SettingsLayout from "../settings/SettingsLayout.vue";
-import ToolsSettings from "../settings/tools/ToolsSettings.vue";
 
+// The board is the landing view; every other view loads on first visit.
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: "/", name: "board", component: BoardView },
-    { path: "/items/:id", name: "item", component: ItemDetailView },
-    { path: "/agents/:id?", name: "agent", component: AgentsView },
-    { path: "/archive", name: "archive", component: ArchiveView },
+    { path: "/items/:id", name: "item", component: () => import("../item/ItemDetailView.vue") },
+    { path: "/agents/:id?", name: "agent", component: () => import("../agents/AgentsView.vue") },
+    { path: "/archive", name: "archive", component: () => import("../archive/ArchiveView.vue") },
     {
       path: "/settings",
-      component: SettingsLayout,
+      component: () => import("../settings/SettingsLayout.vue"),
       children: [
         { path: "", redirect: "/settings/general" },
-        { path: "general", name: "settings-general", component: GeneralSettings },
-        { path: "repositories", name: "settings-repositories", component: ReposSettings },
-        { path: "agents", name: "settings-agents", component: AgentsSettings },
-        { path: "playbooks", name: "settings-playbooks", component: PlaybooksSettings },
-        { path: "tools", name: "settings-tools", component: ToolsSettings },
-        { path: "daemon", name: "settings-daemon", component: DaemonSettings },
+        { path: "general", name: "settings-general", component: () => import("../settings/general/GeneralSettings.vue") },
+        { path: "repositories", name: "settings-repositories", component: () => import("../settings/repos/ReposSettings.vue") },
+        { path: "agents", name: "settings-agents", component: () => import("../settings/agents/AgentsSettings.vue") },
+        { path: "playbooks", name: "settings-playbooks", component: () => import("../settings/playbooks/PlaybooksSettings.vue") },
+        { path: "tools", name: "settings-tools", component: () => import("../settings/tools/ToolsSettings.vue") },
+        { path: "daemon", name: "settings-daemon", component: () => import("../settings/daemon/DaemonSettings.vue") },
       ],
     },
     { path: "/:rest(.*)*", redirect: "/" },

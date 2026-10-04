@@ -90,6 +90,9 @@ html, body {
   font-size: 14px;
   line-height: 1.45;
 }
+/* The document never scrolls: the app fills the window and each view scrolls inside it, so there is
+   one vertical scrollbar per view (shell/App.vue). */
+html, body, #app { height: 100%; overflow: hidden; }
 
 a { color: var(--primary); }
 a:hover { color: var(--primary-hover); }

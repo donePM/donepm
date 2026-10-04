@@ -21,6 +21,8 @@ const props = defineProps<{
   worktree?: string;
   /** The item's repository: "Always allow" grants the rules there (D38). */
   repo?: RepoRef;
+  /** On a card: small buttons, the deny buttons quiet (spec 12.1). */
+  compact?: boolean;
 }>();
 const emit = defineEmits<{ answered: [] }>();
 
@@ -91,11 +93,11 @@ async function answer(behavior: "allow" | "deny", scope?: "run" | "always", answ
         <button class="btn" type="button" :disabled="busy" @click="denying = false">Cancel</button>
       </div>
     </form>
-    <div v-else-if="questions.length" class="buttons">
+    <div v-else-if="questions.length" class="buttons" :class="{ compact }">
       <button class="btn primary" type="button" :disabled="busy" @click="asking = true">Answer…</button>
       <button class="btn" type="button" :disabled="busy" @click="denying = true">Decline…</button>
     </div>
-    <div v-else class="buttons">
+    <div v-else class="buttons" :class="{ compact }">
       <button class="btn primary" type="button" :disabled="busy" @click="answer('allow')">Allow</button>
       <button v-if="grant" class="btn" type="button" :disabled="busy" :title="`Also allows ${grant} until this run ends`" @click="answer('allow', 'run')">
         Allow for this run
@@ -110,8 +112,8 @@ async function answer(behavior: "allow" | "deny", scope?: "run" | "always", answ
       >
         Always allow in {{ repoName }}
       </button>
-      <button class="btn" type="button" :disabled="busy" @click="answer('deny')">Deny</button>
-      <button class="btn" type="button" :disabled="busy" @click="denying = true">Deny and say why…</button>
+      <button class="btn" :class="{ ghost: compact }" type="button" :disabled="busy" @click="answer('deny')">Deny</button>
+      <button class="btn" :class="{ ghost: compact }" type="button" :disabled="busy" @click="denying = true">{{ compact ? "Deny…" : "Deny and say why…" }}</button>
     </div>
     <p v-if="grantShown.length && !denying && !questions.length" class="hint grant">
       "Allow for this run" also allows
@@ -141,6 +143,7 @@ async function answer(behavior: "allow" | "deny", scope?: "run" | "always", answ
 .chip { margin-right: 6px; padding: 1px 7px; border-radius: 999px; background: var(--primary-tint); color: var(--primary); font-size: 12px; font-weight: 500; }
 .deny { display: flex; flex-direction: column; gap: 8px; }
 .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.buttons.compact .btn { height: 28px; padding: 0 10px; font-size: 12px; }
 .hint { margin: 0; font-size: 12px; color: var(--fg-3); }
 .grant code { padding: 0 4px; border-radius: 4px; background: var(--muted); border: 1px solid var(--border); color: var(--fg-2); overflow-wrap: anywhere; }
 </style>
