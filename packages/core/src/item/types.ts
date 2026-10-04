@@ -1,3 +1,4 @@
+import type { AgentKind } from "../agent/kind.js";
 import type { PrStatus } from "../pr/status.js";
 
 /**
@@ -53,7 +54,12 @@ export interface WorkItem {
    * pull request's base (D41). Set when the worktree is made.
    */
   baseBranch?: string;
-  /** Claude `session_id`, for `--resume`. */
+  /**
+   * The coding agent that runs the item (issue #136). Set by the first start and then kept: a session
+   * belongs to one agent. Absent: not started yet, or started before #136 (Claude Code, `agentOf`).
+   */
+  agentKind?: AgentKind;
+  /** The agent's session id (Claude `session_id`), for a resume; it belongs to `agentKind`. */
   agentSessionId?: string;
   /** The issue was closed upstream while the item was not done. */
   closedUpstream?: boolean;

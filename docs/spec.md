@@ -207,6 +207,7 @@ config under `sources`, keyed by `originUrl`, not in `.donepm/` (see 14). Per re
 | autoMerge | boolean? | default `false`: default of the card's "Merge automatically" for others' PRs (6.2, D47) |
 | mergeMethod | `squash` \| `merge` \| `rebase`? | default `squash`: how others' PRs are merged here (6.2, D47) |
 | playbook | string? | default playbook of issues newly collected here (8.3); absent: chosen by `match`. Must be one of `playbooks.issue` when that is set. Pull requests keep `review` (D40) |
+| agent | `claude-code`? | the coding agent items here run with, unless the playbook names one (D49). Absent: `claude-code` |
 | playbooks | `{ issue?: string[], pr?: string[] }`? | the playbooks each ingest may run here (8.3, D48). Absent `issue`: every playbook that is not read-only. Absent `pr`: `["review"]`. `pr` only ever takes read-only playbooks (D47) |
 
 The provider follows from the host. Only `github.com` is supported; GitLab (issue list params via
@@ -700,6 +701,7 @@ Frontmatter fields:
 | field | required | values |
 |---|---|---|
 | name | yes | unique |
+| agent | no | the coding agent that runs it: `claude-code` (D49). Absent: the repo's `agent`, else `claude-code`. The other fields are checked against that agent's capabilities |
 | model | yes | passed to `--model` |
 | effort | no | passed to `--effort` |
 | permission_mode | yes | `default` \| `acceptEdits` \| `plan` \| `bypassPermissions` |

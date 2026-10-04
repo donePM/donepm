@@ -16,6 +16,7 @@ export const EVENT_TYPES = [
   "agent.turn_ended",
   "agent.failed",
   "agent.interrupted",
+  "agent.kind_changed",
   "permission.asked",
   "permission.answered",
   "permission.auto_allowed",

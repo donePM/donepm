@@ -1,5 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
+import { agentOf, chooseAgent } from "@donepm/core";
+import { ItemStore } from "../items/store.js";
 import { MIGRATIONS } from "./migrations.js";
 import { migrate, openDb, schemaVersion, transaction } from "./database.js";
 
@@ -42,7 +44,7 @@ describe("database", () => {
 
   it("keeps events append-only", () => {
     const db = openDb(":memory:");
-    db.exec(`INSERT INTO items VALUES ('i','github-issue','o/r#1','u','github.com/o/r',NULL,'t','b','[]','ready','implement',0,NULL,NULL,NULL,0,'a','a',NULL,NULL,'a',NULL,NULL,NULL,NULL,NULL,NULL)`);
+    db.exec(`INSERT INTO items VALUES ('i','github-issue','o/r#1','u','github.com/o/r',NULL,'t','b','[]','ready','implement',0,NULL,NULL,NULL,0,'a','a',NULL,NULL,'a',NULL,NULL,NULL,NULL,NULL,NULL,NULL)`);
     db.exec(`INSERT INTO events (id,item_id,at,actor,type,payload) VALUES ('e','i','a','system','item.collected','{}')`);
     expect(() => db.exec("UPDATE events SET type = 'x'")).toThrow(/append-only/);
     expect(() => db.exec("DELETE FROM events")).toThrow(/append-only/);
@@ -50,7 +52,7 @@ describe("database", () => {
 
   it("lets only the events of an archived item be deleted (D37)", () => {
     const db = openDb(":memory:");
-    db.exec(`INSERT INTO items VALUES ('i','github-issue','o/r#1','u','github.com/o/r',NULL,'t','b','[]','done','implement',0,NULL,NULL,NULL,0,'a','a',NULL,NULL,'a','2026-10-01',NULL,NULL,NULL,NULL,NULL)`);
+    db.exec(`INSERT INTO items VALUES ('i','github-issue','o/r#1','u','github.com/o/r',NULL,'t','b','[]','done','implement',0,NULL,NULL,NULL,0,'a','a',NULL,NULL,'a','2026-10-01',NULL,NULL,NULL,NULL,NULL,NULL)`);
     db.exec(`INSERT INTO events (id,item_id,at,actor,type,payload) VALUES ('e','i','a','system','item.collected','{}')`);
     expect(() => db.exec("UPDATE events SET type = 'x'")).toThrow(/append-only/);
     db.exec("DELETE FROM events WHERE item_id = 'i'");
@@ -69,7 +71,7 @@ describe("database", () => {
       { id: "old", closed_upstream: 1, state_since: "s", archived_at: null },
     ]);
     const live = (id: string) =>
-      db.exec(`INSERT INTO items VALUES ('${id}','github-issue','o/r#1','u','github.com/o/r',NULL,'t','b','[]','ready','implement',2,NULL,NULL,NULL,0,'a','a',NULL,NULL,'s',NULL,NULL,NULL,NULL,NULL,NULL)`);
+      db.exec(`INSERT INTO items VALUES ('${id}','github-issue','o/r#1','u','github.com/o/r',NULL,'t','b','[]','ready','implement',2,NULL,NULL,NULL,0,'a','a',NULL,NULL,'s',NULL,NULL,NULL,NULL,NULL,NULL,NULL)`);
     expect(() => live("new")).toThrow(/UNIQUE/);
     db.exec("UPDATE items SET archived_at = 'z' WHERE id = 'old'");
     live("new");
@@ -107,6 +109,21 @@ describe("database", () => {
       { id: "run", priority: 2, started_at: "t1", state_since: "t3" },
       { id: "wait", priority: 2, started_at: "t1", state_since: "t2" },
     ]);
+  });
+
+  it("reads an item started before #136 as Claude Code's (D49)", () => {
+    const db = new DatabaseSync(":memory:");
+    migrate(db, MIGRATIONS.slice(0, -1));
+    db.exec(`INSERT INTO items (id, source, external_id, external_url, origin_url, title, body, labels, state, playbook,
+      priority, state_since, created_at, updated_at, agent_session_id)
+      VALUES ('old','github-issue','o/r#1','u','github.com/o/r','t','b','[]','needs_you','implement',2,'s','a','a','sess')`);
+    migrate(db);
+    const stored = new ItemStore(db).get("old")!.item;
+    expect(stored.agentKind).toBeUndefined();
+    expect(agentOf(stored)).toBe("claude-code");
+    expect(chooseAgent({ item: stored })).toBe("claude-code");
+    new ItemStore(db).update({ ...stored, agentKind: "claude-code" });
+    expect(new ItemStore(db).get("old")!.item.agentKind).toBe("claude-code");
   });
 
   it("transaction rolls back on error", () => {

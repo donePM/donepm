@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import {
-  agentFailed, placeholderValues, renderPlaybookBody, resume, selectPlaybook, start,
-  type Ctx, type Playbook, type Transition, type TranscriptMessage, type WorkItem,
+  agentFailed, chooseAgent, placeholderValues, playbookProblems, renderPlaybookBody, resume, selectPlaybook, start,
+  type AgentKind, type Ctx, type Playbook, type Transition, type TranscriptMessage, type WorkItem,
 } from "@donepm/core";
 import type { Config } from "../config/config.js";
 import { assignOnStart } from "../gh/assign-on-start.js";
@@ -64,8 +64,9 @@ export async function startItem(deps: StartDeps, itemId: string): Promise<{ item
   // Work starts only in a repository the user chose (D46); a resume finishes what was started.
   if (!isManaged(deps.sources(), stored.originUrl)) throw new StartError(409, `${stored.originUrl} is not managed`);
   const playbook = await playbookFor(deps, item);
+  const agent = agentFor(deps, item, playbook, stored.originUrl);
   const slot = reserve(deps, item.id);
-  const running = deps.writer.commit(start(item, deps.ctx));
+  const running = deps.writer.commit(start(item, deps.ctx, agent));
   const launched = prepareAndLaunch(deps, running, playbook)
     .catch((e: unknown) => {
       const output = e instanceof WorktreeError ? e.output : undefined;
@@ -128,6 +129,16 @@ async function playbookFor(deps: StartDeps, item: WorkItem): Promise<Playbook> {
   const playbook = playbooks.find((p) => p.name === item.playbook) ?? selectPlaybook(item, playbooks).selected;
   if (!playbook) throw new StartError(409, `playbook "${item.playbook}" not found`);
   return playbook;
+}
+
+/** The item's agent (D49), refused when the playbook asks for something that agent cannot do. */
+function agentFor(deps: StartDeps, item: WorkItem, playbook: Playbook, origin: string): AgentKind {
+  const repo = deps.sources()[origin];
+  const agent = chooseAgent({ item, playbook, ...(repo ? { repo } : {}) });
+  const settings = { permissionMode: playbook.permissionMode, ...(playbook.effort ? { effort: playbook.effort } : {}) };
+  const problems = playbookProblems(settings, agent);
+  if (problems.length > 0) throw new StartError(409, `playbook "${playbook.name}": ${problems.join("; ")}`);
+  return agent;
 }
 
 function reserve(deps: StartDeps, itemId: string): { release: () => void } {

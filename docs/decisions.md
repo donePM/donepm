@@ -458,6 +458,18 @@ pull request would produce a PR draft it can never execute. The rule is a pure f
 not decide it. The daemon keeps each repository's loaded playbooks in memory, refreshed on start
 and on each poll, so the item view stays synchronous.
 
+**D49. The coding agent is chosen per item and fixed once a session exists.** Issue #136. Claude
+Code is the first of several coding agents behind one runner seam (`agent/adapter.ts`). The kind
+comes from the item, else its playbook's `agent`, else the repository source's `agent`, else
+`claude-code` (`chooseAgent` in `core`). `start` writes it onto the item, and from then on every
+resume and every new turn uses that kind: a session id means nothing to another agent, so mixing
+them would lose the conversation. Items started before #136 have a session and no kind; they read
+as `claude-code`, which is what ran them. Switching an item to another agent is a transition
+(`agentKindChanged`) the user takes only on a ready or failed item, and it drops the session, so the
+next start begins a new conversation; a running or waiting item has a live process and is stopped
+first. A playbook is checked against the agent it names, and again against the chosen agent when
+the item starts, because permission modes and effort levels are the agent's (`AGENT_CAPABILITIES`).
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT, type AgentKind } from "../agent/kind.js";
 import type { Ctx } from "../ids.js";
 import type { Event, EventActor, EventType } from "../event/types.js";
 import type { PrConflict } from "../pr/conflict.js";
@@ -57,8 +58,10 @@ function apply(
 /**
  * Ready (or failed, as retry) to running. Emits `agent.resumed` if a session already exists.
  * The first start sets `startedAt`; a retry keeps it, so the card keeps its place in In Progress.
+ * The first start also fixes the item's agent (`chooseAgent`); a later start keeps it, because the
+ * session belongs to it. An item with a session from before #136 is Claude Code's.
  */
-export function start(item: WorkItem, ctx: Ctx): Transition {
+export function start(item: WorkItem, ctx: Ctx, agent: AgentKind = DEFAULT_AGENT): Transition {
   const t = apply(
     {
       name: "start",
@@ -70,7 +73,28 @@ export function start(item: WorkItem, ctx: Ctx): Transition {
     item,
     ctx,
   );
-  return item.startedAt === undefined ? { ...t, item: { ...t.item, startedAt: t.item.stateSince } } : t;
+  const agentKind = item.agentKind ?? (item.agentSessionId ? DEFAULT_AGENT : agent);
+  const started = { ...t.item, agentKind, ...(item.startedAt === undefined ? { startedAt: t.item.stateSince } : {}) };
+  return { ...t, item: started };
+}
+
+/**
+ * The user picks another agent for the item (issue #136). A session belongs to the agent that made
+ * it, so the session is dropped and the next start begins a fresh one; the transcript stays. Only
+ * from Ready or Failed: never while the agent runs, and not while the item waits on that session.
+ * Picking the agent the item already has changes nothing.
+ */
+export function agentKindChanged(item: WorkItem, ctx: Ctx, agentKind: AgentKind): Transition {
+  const t = apply(
+    { name: "agentKindChanged", from: ["ready", "failed"], to: item.state, actor: "user", event: "agent.kind_changed" },
+    item,
+    ctx,
+    undefined,
+    { from: item.agentKind ?? null, to: agentKind, ...(item.agentSessionId ? { droppedSession: item.agentSessionId } : {}) },
+  );
+  if (item.agentKind === agentKind) return { item, events: [] };
+  const { agentSessionId: _session, ...rest } = t.item;
+  return { ...t, item: { ...rest, agentKind } };
 }
 
 /**

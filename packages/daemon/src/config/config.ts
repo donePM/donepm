@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { DEFAULT_WEB_FETCH_DOMAINS, isDomain, MERGE_METHODS, normalizeOriginUrl } from "@donepm/core";
+import { AGENT_KINDS, DEFAULT_WEB_FETCH_DOMAINS, isDomain, MERGE_METHODS, normalizeOriginUrl } from "@donepm/core";
 import { z } from "zod";
 
 /** Hosts donePM can run a source query against. GitLab and Jira come later (issue #32). */
@@ -35,6 +35,8 @@ export const SourceSchema = z
       })
       .strict()
       .optional(),
+    /** The coding agent items of this repository run with, unless their playbook names one (D49). */
+    agent: z.enum(AGENT_KINDS).optional(),
     /** donePM collects, shows and starts work for this repository only when true (issue #94, D46). */
     managed: z.boolean().optional(),
     /** Default of the per-item "Merge automatically" choice for others' pull requests (D47). Off. */
