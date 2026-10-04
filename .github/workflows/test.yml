@@ -19,7 +19,7 @@ jobs:
         # launchd, gh and path behaviour are macOS-first; core and daemon run anywhere.
         os: [macos-latest, ubuntu-latest]
         # node:sqlite needs 22 (the engines floor).
-        node: [22, 24]
+        node: [22, 24, 26]
     steps:
       - uses: actions/checkout@v7
       # Version from packageManager in package.json.
@@ -38,7 +38,7 @@ jobs:
       - run: pnpm build
       - run: pnpm test
       # The Homebrew tarball must still pack and run (release.yml does the same on a tag).
-      - if: matrix.os == 'macos-latest' && matrix.node == 24
+      - if: matrix.os == 'macos-latest' && matrix.node == 26
         run: |
           scripts/pack.sh 0.0.0
           dir="$(mktemp -d)"
