@@ -253,10 +253,19 @@ export interface PlaybookEntry {
   permissionMode: Playbook["permissionMode"];
   drafts: Playbook["drafts"];
   readOnly?: boolean;
+  match?: Playbook["match"];
+  /** The first message the agent gets, placeholders unfilled. */
+  body: string;
+  /** donePM's MCP tools the agent sees. */
+  tools: string[];
+  /** Permission rules the agent starts with. */
+  permissions: { allow: string[]; deny: string[] };
   file: string;
   scope: { kind: "global" } | { kind: "repo"; repoId: string; origin: string; path: string };
   /** A repository playbook that replaces the global one of the same name there. */
   overridesGlobal?: boolean;
+  /** A global copy of a shipped playbook: unchanged, or edited by the user (#154). */
+  builtIn?: "default" | "edited";
 }
 
 export interface PlaybookList {

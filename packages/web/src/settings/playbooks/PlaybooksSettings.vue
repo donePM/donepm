@@ -5,11 +5,14 @@ import { errorText } from "../../api/errors";
 import type { PlaybookEntry, PlaybookList } from "../../api/types";
 import IconBook from "../../icons/IconBook.vue";
 import IconFolder from "../../icons/IconFolder.vue";
-import { slug } from "../repos/repos";
+import { originText } from "./describe";
+import PlaybookDetail from "./PlaybookDetail.vue";
 
 const list = ref<PlaybookList>();
 const error = ref<string>();
 const opening = ref(false);
+/** The file of the playbook whose content is open below its row (#154). */
+const viewing = ref<string>();
 
 onMounted(async () => {
   try {
@@ -32,7 +35,7 @@ async function openFolder() {
 }
 
 const fileName = (path: string) => path.split("/").at(-1) ?? path;
-const origin = (p: PlaybookEntry) => (p.scope.kind === "global" ? "global" : `${p.overridesGlobal ? "overridden in" : "in"} ${slug(p.scope.origin)}`);
+const toggle = (p: PlaybookEntry) => (viewing.value = viewing.value === p.file ? undefined : p.file);
 </script>
 
 <template>
@@ -41,6 +44,7 @@ const origin = (p: PlaybookEntry) => (p.scope.kind === "global" ? "global" : `${
     <p class="lead">
       How an agent works on an item: model, effort, permission mode and the drafts it may write. Global playbooks live in
       <span class="mono">{{ list?.globalDir ?? "…" }}</span>; a repository's own in its <span class="mono">.donepm/playbooks</span> replace a global one of the same name there.
+      View shows a playbook's prompt and what its agent may do; editing happens in the files.
     </p>
   </div>
 
@@ -52,22 +56,33 @@ const origin = (p: PlaybookEntry) => (p.scope.kind === "global" ? "global" : `${
     <p v-if="error" class="alert" role="alert" style="margin: 12px 14px">{{ error }}</p>
     <div v-if="list?.playbooks.length" style="overflow-x: auto">
       <table class="tbl" style="min-width: 760px">
-        <thead><tr><th>Name</th><th>Model</th><th>Effort</th><th>Permission mode</th><th>Drafts</th><th>Origin</th></tr></thead>
+        <thead><tr><th>Name</th><th>Model</th><th>Effort</th><th>Permission mode</th><th>Drafts</th><th>Origin</th><th><span class="sr">View</span></th></tr></thead>
         <tbody>
-          <tr v-for="p in list.playbooks" :key="p.file">
-            <td><div style="font-weight: 500">{{ p.name }}</div><div class="mono" style="color: var(--fg-3)" :title="p.file">{{ fileName(p.file) }}</div></td>
-            <td class="mono">{{ p.model }}</td>
-            <td class="mono">{{ p.effort ?? "—" }}</td>
-            <td class="mono">{{ p.permissionMode }}</td>
-            <td>
-              <div class="row" style="gap: 4px">
-                <span v-for="d in p.drafts" :key="d" class="badge">{{ d }}</span>
-                <span v-if="p.readOnly" class="badge muted">read only</span>
-                <span v-if="!p.drafts.length && !p.readOnly" class="sub">—</span>
-              </div>
-            </td>
-            <td><span :class="p.scope.kind === 'global' ? 'sub' : undefined">{{ origin(p) }}</span></td>
-          </tr>
+          <template v-for="p in list.playbooks" :key="p.file">
+            <tr>
+              <td><div style="font-weight: 500">{{ p.name }}</div><div class="mono" style="color: var(--fg-3)" :title="p.file">{{ fileName(p.file) }}</div></td>
+              <td class="mono">{{ p.model }}</td>
+              <td class="mono">{{ p.effort ?? "—" }}</td>
+              <td class="mono">{{ p.permissionMode }}</td>
+              <td>
+                <div class="row" style="gap: 4px">
+                  <span v-for="d in p.drafts" :key="d" class="badge">{{ d }}</span>
+                  <span v-if="p.readOnly" class="badge muted">read only</span>
+                  <span v-if="!p.drafts.length && !p.readOnly" class="sub">—</span>
+                </div>
+              </td>
+              <td>
+                <span :class="p.scope.kind === 'global' ? 'sub' : undefined">{{ originText(p) }}</span>
+                <span v-if="p.builtIn === 'edited'" class="badge muted" style="margin-left: 6px">edited</span>
+              </td>
+              <td>
+                <button class="btn sm ghost" type="button" :aria-expanded="viewing === p.file" @click="toggle(p)">{{ viewing === p.file ? "Hide" : "View" }}</button>
+              </td>
+            </tr>
+            <tr v-if="viewing === p.file" style="background: var(--muted)">
+              <td colspan="7" style="padding: 16px 14px"><PlaybookDetail :playbook="p" /></td>
+            </tr>
+          </template>
         </tbody>
       </table>
     </div>

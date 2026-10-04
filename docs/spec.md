@@ -986,7 +986,7 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | GET/PUT | `/api/settings` | PUT is partial; `sources` is replaced as a whole. A new `worktreeRoot` with item worktrees under the old one needs `?worktrees=move\|leave`, else 409 `{ worktreesAtOldRoot }` and nothing saved; with move the answer has `worktrees: { moved, skipped }` (7.1) |
 | POST | `/api/sources/test` | `{ origin, query }`; runs the query once: `{ count, issues }` (first 10) |
 | GET | `/api/status` | CLI detection (`gh`, `claude`, and `helpers` by id: installed, path, version), daemon version, pid, `startedAt`, running agents, last poll and scan, `pollErrors` (the last 5 failed polls, newest first) |
-| GET | `/api/playbooks` | `{ globalDir, playbooks, problems }`: global playbooks, then each repo's own with `scope` and `overridesGlobal`; broken files as problems (12.4) |
+| GET | `/api/playbooks` | `{ globalDir, playbooks, problems }`: global playbooks, then each repo's own with `scope` and `overridesGlobal`; each with its frontmatter, `match`, `body`, the MCP `tools` its drafts offer, its starting `permissions` (`allow`, `deny`), and for a global copy of a shipped playbook `builtIn` (`default` or `edited`); broken files as problems (12.4) |
 | GET | `/api/daemon` | version, pid, port, `startedAt`, `service` (`launchd` \| `manual`), config, database path and size, log file (launchd only), playbooks folder |
 | POST | `/api/daemon/restart` | 202, then exits with 75 so launchd starts it again (13); 409 when started by hand |
 | POST | `/api/daemon/open` | `{ what: logs\|playbooks }`: opens the log file or the global playbooks folder in Finder; 409 when there is none |
@@ -1225,8 +1225,14 @@ page with a title, one lead line and panels; each panel saves on its own.
   with an input to add one; a host covers its subdomains. Saved on each change.
 - **Playbooks.** One table of the playbooks (8.1) with name and file, model, effort, permission
   mode, drafts (and "read only"), and origin: global, "in owner/repo", or "overridden in
-  owner/repo". "Open folder" opens the global folder. Files that fail to load are listed with
-  their error. Editing happens in the files.
+  owner/repo"; a shipped playbook the user changed is marked "edited". "Open folder" opens the
+  global folder. View opens a row below with the playbook's content, read-only (#154): the file,
+  where it comes from (built-in unchanged, built-in edited, the user's own file, or a repository's
+  `.donepm/playbooks`), what it fits (`match`), model and effort, permission mode, read-only access
+  (D42), the donePM MCP tools its drafts offer, the permission rules the agent starts with (allowed
+  without asking, always denied), and the prompt rendered as Markdown with its placeholders. Files
+  that fail to load are listed with their error. Editing happens in the files; an editor in the UI
+  is a later step.
 - **Tools.** One panel with "Check again", grouped: "Source clients", the CLIs work is collected and
   drafts are executed with (`gh` with path, login and hints; muted rows for Jira, #139, and Azure
   DevOps, #141), and "Helpers", optional CLIs an agent may use (`playwright-cli` with path and

@@ -365,7 +365,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     removeWorktree: (id) =>
       removeItemWorktree({ items, repos, writer, exec: opts.exec, ctx: opts.ctx, agentActive: (i) => runner.isRunning(i) }, id),
     orphans: async () => withOrphanDetails(opts.exec, await orphans()),
-    playbooks: () => listPlaybooks(paths.playbooksDir, repos.all()),
+    playbooks: () => listPlaybooks(paths.playbooksDir, repos.all(), DEFAULT_PLAYBOOKS),
     daemonInfo: () => ({
       version: opts.version,
       pid: status.get().pid,

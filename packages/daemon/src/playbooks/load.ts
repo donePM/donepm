@@ -17,6 +17,8 @@ export interface LoadedPlaybooks {
 export interface PlaybookFile {
   playbook: Playbook;
   file: string;
+  /** The file as read. */
+  text: string;
 }
 
 /** Every `.md` in `dir`, parsed, sorted by file name. A missing folder is empty. */
@@ -31,7 +33,8 @@ export async function readPlaybookDir(dir: string): Promise<{ files: PlaybookFil
   for (const name of names) {
     const file = join(dir, name);
     try {
-      out.files.push({ playbook: parsePlaybook(await readFile(file, "utf8")), file });
+      const text = await readFile(file, "utf8");
+      out.files.push({ playbook: parsePlaybook(text), file, text });
     } catch (e) {
       out.problems.push({ file, error: (e as Error).message });
     }

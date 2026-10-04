@@ -286,8 +286,12 @@ describe("daemon", { timeout: 30_000 }, () => {
 
     const { body } = await get(d, "/api/playbooks");
     expect(body.globalDir).toBe(join(h, ".config/donepm/playbooks"));
-    expect(body.playbooks.map((p: any) => [p.name, p.scope.kind])).toEqual([["implement", "global"], ["review", "global"]]);
+    expect(body.playbooks.map((p: any) => [p.name, p.scope.kind, p.builtIn])).toEqual([["implement", "global", "default"], ["review", "global", "default"]]);
+    // The full content for the read-only view (#154).
+    expect(body.playbooks[1]).toMatchObject({ readOnly: true, drafts: ["review"], match: { source: "github-pr" }, body: expect.stringMatching(/^You are reviewing/) });
     expect((await get(d, "/api/repos")).body.map((r: any) => r.worktrees)).toEqual([0]);
+    await writeFile(join(h, ".config/donepm/playbooks/implement.md"), (await readFile(join(h, ".config/donepm/playbooks/implement.md"), "utf8")) + "\nMore.\n");
+    expect((await get(d, "/api/playbooks")).body.playbooks.map((p: any) => p.builtIn)).toEqual(["edited", "default"]);
   });
 
   it("restarts through launchd when it runs as a service (#127)", async () => {

@@ -212,6 +212,11 @@ const toInput = (a: z.infer<typeof DraftPushArgs>) => ({ summary: a.summary, ...
 
 const allowed = (session: BridgeSession) => TOOLS.filter((t) => !t.draft || session.drafts.includes(t.draft as never));
 
+/** The names of donePM's MCP tools an agent with these drafts sees (issue #154). */
+export function toolNames(drafts: readonly string[]): string[] {
+  return TOOLS.filter((t) => !t.draft || drafts.includes(t.draft)).map((t) => t.tool.name);
+}
+
 /** The tools this session may see (spec 10: only drafts the playbook allows). */
 export function listTools(session: BridgeSession): Tool[] {
   return allowed(session).map((t) => t.tool);
