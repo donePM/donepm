@@ -383,6 +383,29 @@ describe("daemon", { timeout: 30_000 }, () => {
     expect(bad.status).toBe(400);
   });
 
+  it("takes a connection for one more GitHub host, which applies after a restart (D50)", async () => {
+    const h = await home();
+    const d = await start(h);
+    const json = { "content-type": "application/json" };
+    const source = { "github.acme.com/team/api": { managed: true } };
+    const early = await get(d, "/api/settings", { method: "PUT", headers: json, body: JSON.stringify({ sources: source }) });
+    expect(early.status).toBe(400);
+    expect(early.body.issues[0].message).toBe('no connection for github.acme.com; add one under "connections"');
+
+    const connections = [
+      { id: "github", kind: "github", backend: "cli", host: "github.com" },
+      { id: "acme", kind: "github", backend: "cli", host: "github.acme.com" },
+    ];
+    const put = await get(d, "/api/settings", { method: "PUT", headers: json, body: JSON.stringify({ connections, sources: source }) });
+    expect(put.body).toMatchObject({ settings: { connections, sources: source }, restartRequired: true });
+    expect(JSON.parse(await readFile(join(h, ".config/donepm/config.json"), "utf8")).connections).toEqual(connections);
+    // Until the restart, the running connections are the old ones.
+    expect((await get(d, "/api/status")).body.connections.map((c: any) => c.id)).toEqual(["github"]);
+
+    const dropped = await get(d, "/api/settings", { method: "PUT", headers: json, body: JSON.stringify({ connections: [connections[0]] }) });
+    expect(dropped.status).toBe(400);
+  });
+
   it("rejects requests from foreign origins", async () => {
     const d = await start(await home());
     const res = await fetch(d.address() + "/api/items", { headers: { origin: "https://evil.example" } });

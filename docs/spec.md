@@ -210,8 +210,9 @@ config under `sources`, keyed by `originUrl`, not in `.donepm/` (see 14). Per re
 | agent | `claude-code`? | the coding agent items here run with, unless the playbook names one (D49). Absent: `claude-code` |
 | playbooks | `{ issue?: string[], pr?: string[] }`? | the playbooks each ingest may run here (8.3, D48). Absent `issue`: every playbook that is not read-only. Absent `pr`: `["review"]`. `pr` only ever takes read-only playbooks (D47) |
 
-The provider follows from the host. Only `github.com` is supported; GitLab (issue list params via
-`glab api`) and Jira (JQL) can be added without changing the format. Other hosts are rejected.
+The provider follows from the host: a `sources` key is accepted only when a connection (14, D50)
+serves its host. Without a `connections` config that is `github.com` alone. GitLab (issue list
+params via `glab api`) and Jira (JQL) can be added without changing the format.
 
 ### 4.7 Transcript message
 
@@ -252,6 +253,20 @@ Keep the raw line always. Decode what is known. Never fail on unknown event type
   - One clone per origin at a time. `.donepm/setup.yml` (7.3) applies per worktree, not here.
 
 ## 6. GitHub adapter
+
+The daemon reaches providers through three roles, each an interface in `daemon/src/providers/`
+(D50):
+
+- `TicketSource`: the default searches, a repository's query, fields, ticket state, assign.
+- `CodeHost`: clone, pull requests, review feedback, replies, reviews, merge, update branch.
+- `CiSource`: checks, failed logs, rerun.
+
+A connection (14) picks the adapter and its backend: `cli` (a logged-in tool) or `api` (REST with a
+Keychain token, D8). The registry finds a role by the host of an origin or URL. A host with no
+connection gets "no connection for <host>". GitHub through `gh` is the first adapter, and it
+implements all three roles. The rest of this section is that adapter. Status lists one entry per
+connection, `{ id, kind, backend, state, detail? }`, where `state` is one of `not_installed`,
+`not_logged_in`, `unreachable`, `unauthorized` or `ready`. `status.gh` stays as it was.
 
 ### 6.1 Detection
 
@@ -574,7 +589,11 @@ configured with connections (issue #138).
   host. `gh api` takes `--hostname <host>` (issue fields, PR status, feedback, replies, reviews).
   Every `--repo` names the host off github.com (`host/owner/repo`), and so does `gh repo clone`.
 - A host that is not logged in, or whose searches fail, is skipped and reported; the other hosts
-  are polled. Its items are not checked for closing until it answers again.
+  are polled. Its items are not checked for closing until it answers again. CI, auto-merge and PR
+  watching go per host too: a PR waits while its own host is not ready.
+- Settings > Tools lists the connections with their `ConnectionStatus`, and offers every host
+  `gh auth status --json hosts` reports as logged in as one more `github` connection. Using one
+  saves `connections` and applies after a restart. It does not touch `allowedWebFetchDomains`.
 - The agent's environment drops `GH_HOST` and the tokens, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` included, and `gh` stays
   behind the same shim and empty config directory as on github.com: GitHub Enterprise is no way
   out either.
@@ -1339,6 +1358,22 @@ and `PATH`, because launchd starts jobs with a bare `PATH` and the daemon needs 
 }
 ```
 
+`connections` (6, D50): optional, read at start. `PUT /api/settings` takes it and answers
+`restartRequired: true` when it changed; the running daemon keeps its connections until then.
+Absent, it means one connection, github.com through `gh`:
+
+```json
+"connections": [
+  { "id": "github", "kind": "github", "backend": "cli", "host": "github.com" },
+  { "id": "acme", "kind": "github", "backend": "cli", "host": "github.acme.com" }
+]
+```
+
+`id` is lower case letters, digits and dashes, and unique. `host` is unique. `kind` is `github`
+today. `backend` is `cli` or `api`, and each kind takes only the backends it has: for `github`,
+only `cli`. An `api` connection's token is in the macOS Keychain, service `donepm`, account `id`.
+It is never in this file.
+
 `archiveAfterHours` and `deleteAfterDays` (6.8): whole numbers of 0 or more; `deleteAfterDays:
 null` never deletes.
 
@@ -1355,6 +1390,11 @@ Database: `~/.local/share/donepm/donepm.db`.
   `Tests/fixtures/session-basic.jsonl`; record own fixtures with a cheap model). Fake process
   factory so runner tests do not spawn `claude`.
 - `gh` adapter: tests against recorded JSON output.
+- Provider adapters (D50): every adapter passes the contract suite of each role it implements
+  (`daemon/src/test-support/contracts/`), in two scenarios: the provider answers with recorded
+  fixtures, and the provider refuses every call. CLI backends run on `fakeExec` and API backends on
+  `fakeHttp`, which records each request's method, path and body. The Keychain store is tested
+  with `fakeExec`, never against the real Keychain.
 - One optional live test behind `DONEPM_LIVE=1` that runs a real agent on a tiny fixture
   repo. Costs money. Not in CI.
 

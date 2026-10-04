@@ -1,5 +1,8 @@
-/** Commands that reach a forge or tracker with the user's credentials. Never in the agent's reach. */
-export const BLOCKED_COMMANDS = ["gh", "glab", "jira"] as const;
+/**
+ * Commands that reach a forge or tracker with the user's credentials, and `security`, which reads
+ * the Keychain where API tokens live (D8, D50). Never in the agent's reach.
+ */
+export const BLOCKED_COMMANDS = ["gh", "glab", "jira", "az", "acli", "security"] as const;
 
 /**
  * Deny rules passed via `--settings`, on top of the filtered `PATH` (spec 9.1). Both together:

@@ -17,7 +17,7 @@ describe("agentEnv", () => {
     );
     expect(env).toEqual({
       HOME: "/home/x", PATH: expect.any(String),
-      GH_CONFIG_DIR: join(root, "no-config"), GLAB_CONFIG_DIR: join(root, "no-config"),
+      GH_CONFIG_DIR: join(root, "no-config"), GLAB_CONFIG_DIR: join(root, "no-config"), AZURE_CONFIG_DIR: join(root, "no-config"),
     });
     expect(await readdir(join(root, "no-config"))).toEqual([]);
     expect(env.PATH).not.toContain(bin);
@@ -29,7 +29,18 @@ describe("agentEnv", () => {
       { PATH: "", HOME: "/home/x", GH_ENTERPRISE_TOKEN: "t", GITHUB_ENTERPRISE_TOKEN: "t", GH_HOST: "github.acme.com" },
       { shimRoot: join(root, "shims"), emptyConfigDir: join(root, "no-config") },
     );
-    expect(Object.keys(env).sort()).toEqual(["GH_CONFIG_DIR", "GLAB_CONFIG_DIR", "HOME", "PATH"]);
+    expect(Object.keys(env).sort()).toEqual(["AZURE_CONFIG_DIR", "GH_CONFIG_DIR", "GLAB_CONFIG_DIR", "HOME", "PATH"]);
+  });
+
+  it("drops Azure DevOps and Atlassian tokens and points az at an empty config (D50)", async () => {
+    const root = await mkdtemp(join(tmpdir(), "donepm-env-"));
+    const env = await agentEnv(
+      { PATH: "", HOME: "/home/x", AZURE_DEVOPS_EXT_PAT: "t", ATLASSIAN_API_TOKEN: "t", AZURE_CONFIG_DIR: "/home/x/.azure" },
+      { shimRoot: join(root, "shims"), emptyConfigDir: join(root, "no-config") },
+    );
+    expect(env.AZURE_DEVOPS_EXT_PAT).toBeUndefined();
+    expect(env.ATLASSIAN_API_TOKEN).toBeUndefined();
+    expect(env.AZURE_CONFIG_DIR).toBe(join(root, "no-config"));
   });
 
   it("drops what a node --watch or pnpm run of the daemon leaves in its environment (#115)", async () => {
@@ -51,7 +62,7 @@ describe("agentEnv", () => {
     expect(env).toEqual({
       HOME: "/home/x", NODE_OPTIONS: "--max-old-space-size=8192",
       PATH: ["node_modules/.bin", bin].join(delimiter),
-      GH_CONFIG_DIR: join(root, "no-config"), GLAB_CONFIG_DIR: join(root, "no-config"),
+      GH_CONFIG_DIR: join(root, "no-config"), GLAB_CONFIG_DIR: join(root, "no-config"), AZURE_CONFIG_DIR: join(root, "no-config"),
     });
   });
 });

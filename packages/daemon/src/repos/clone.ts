@@ -7,9 +7,6 @@ import { noConnection, type Providers } from "../providers/registry.js";
 import { readDefaultBranch, readOrigin } from "./git.js";
 import type { RepoStore } from "./store.js";
 
-/** Hosts whose clone a provider adapter can make; `gh` for GitHub (issue #37). */
-const CLONE_HOSTS = new Set(["github.com"]);
-
 export class CloneError extends Error {
   constructor(
     message: string,
@@ -24,10 +21,10 @@ export function cloneTarget(root: string, origin: CloneOrigin): string {
   return join(root, origin.owner, origin.repo);
 }
 
-/** The origin parsed, when donePM can clone it. */
-export function cloneableOrigin(origin: string): CloneOrigin | undefined {
+/** The origin parsed, when a connection serves its host as a code host (issues #37, #138). */
+export function cloneableOrigin(origin: string, providers: Providers): CloneOrigin | undefined {
   const parsed = parseCloneOrigin(origin);
-  return parsed && CLONE_HOSTS.has(parsed.host) ? parsed : undefined;
+  return parsed && providers.codeHost(origin) ? parsed : undefined;
 }
 
 /** The directory holds a `.git` directory or file of its own. */
@@ -93,7 +90,7 @@ export class RepoCloner {
 
   /** Undefined when the origin cannot be cloned from the board. */
   state(origin: string): CloneState | undefined {
-    const parsed = cloneableOrigin(origin);
+    const parsed = cloneableOrigin(origin, this.deps.providers);
     if (!parsed) return undefined;
     const error = this.failures.get(origin);
     return {
@@ -109,7 +106,7 @@ export class RepoCloner {
    * now. `started`: `gh` runs; `done` settles once it registered the clone or failed.
    */
   async clone(origin: string): Promise<{ target: string } & ({ result: "cloned" } | { result: "started"; done: Promise<void> })> {
-    const parsed = cloneableOrigin(origin);
+    const parsed = cloneableOrigin(origin, this.deps.providers);
     if (!parsed) throw new CloneError(`${origin} cannot be cloned from donePM`, 400);
     if (this.running.has(origin)) throw new CloneError(`${origin} is being cloned`, 409);
     const known = this.deps.repos.byOrigin(origin);

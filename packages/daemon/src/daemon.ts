@@ -17,6 +17,7 @@ import { listenBridge } from "./bridge/server.js";
 import { BridgeSessions } from "./bridge/sessions.js";
 import { detectClaude } from "./claude/detect.js";
 import { loadConfig, saveConfig, type Config } from "./config/config.js";
+import { connectionsOf } from "./config/connections.js";
 import { expandHome, pathsFor } from "./config/paths.js";
 import { openDb, type Db } from "./db/database.js";
 import { editDraft, rejectDraft } from "./drafts/actions.js";
@@ -27,8 +28,11 @@ import { EventStore } from "./events/store.js";
 import { collectIssues } from "./gh/collect-issues.js";
 import { detectHosts } from "./gh/host-status.js";
 import { githubHosts } from "./gh/hosts.js";
+import { ghKnownHosts } from "./gh/known-hosts.js";
 import { detectHelpers } from "./helpers/detect.js";
-import { githubProviders } from "./gh/adapter.js";
+import { providersOf } from "./providers/from-config.js";
+import { connectionStatuses, readyProviders } from "./providers/connection-status.js";
+import { keychainTokens } from "./providers/keychain.js";
 import { Poller } from "./gh/poller.js";
 import { buildServer, type WorktreeChoice } from "./http/server.js";
 import { makeGuard } from "./http/guard.js";
@@ -134,7 +138,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const bridgeSessions = new BridgeSessions();
   let bridge: { close: () => Promise<void> } | undefined;
   const status = new StatusStore(opts.version, opts.ctx.now());
-  const providers = opts.providers ?? githubProviders(opts.exec);
+  const providers = opts.providers ?? providersOf(connectionsOf(config), opts.exec);
   const boundPort = () => {
     const a = app.server.address();
     return typeof a === "object" && a ? a.port : port;
@@ -307,8 +311,11 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   };
 
   const recheck = async () => {
-    const [gh, claude, helpers] = await Promise.all([detectHosts(opts.exec, githubHosts(providers)), detectClaude(opts.exec), detectHelpers(opts.exec)]);
-    status.update({ ...gh, claude, helpers });
+    const [gh, ghKnown, claude, helpers] = await Promise.all([
+      detectHosts(opts.exec, githubHosts(providers)), ghKnownHosts(opts.exec), detectClaude(opts.exec), detectHelpers(opts.exec),
+    ]);
+    status.update({ ...gh, ghKnownHosts: ghKnown, claude, helpers });
+    status.update({ connections: await connectionStatuses(providers.connections, status.get(), keychainTokens(opts.exec)) });
   };
 
   const poller = new Poller(
@@ -319,12 +326,14 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
         db, exec: opts.exec, providers, items, events, repos, status, ctx: opts.ctx, log: app.log, sources: () => config.sources, onItemUpdated: pushItem,
         allowedPlaybooks: (origin, source) => allowedFor(origin, source, catalog.get(repos.byOrigin(origin)?.path)),
       });
-      if (status.get().gh?.state === "ready") {
+      // Each PR is watched through its own host's connection; a host that is not ready waits (#140).
+      const ready = readyProviders(providers, status.get());
+      if (ready.connections.length > 0) {
         for (const id of ciChecks.keys()) if (items.get(id)?.item.state !== "checking") ciChecks.delete(id);
-        await watchCi({ items, events, writer, providers, ctx: opts.ctx, log: app.log, onChecks });
-        await autoMergeReady({ items, events, writer, providers, ctx: opts.ctx, log: app.log }, config.sources, (o) => isManaged(config.sources, o));
+        await watchCi({ items, events, writer, providers: ready, ctx: opts.ctx, log: app.log, onChecks });
+        await autoMergeReady({ items, events, writer, providers: ready, ctx: opts.ctx, log: app.log }, config.sources, (o) => isManaged(config.sources, o));
         await watchPrs({
-          items, events, drafts, repos, writer, exec: opts.exec, providers, ctx: opts.ctx, log: app.log,
+          items, events, drafts, repos, writer, exec: opts.exec, providers: ready, ctx: opts.ctx, log: app.log,
           removeOnMerge: () => config.removeWorktreeOnMerge,
           agentActive: (i) => runner.isRunning(i),
         });
@@ -354,7 +363,9 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     for (const { item, originUrl } of items.all()) if (flipped.has(originUrl)) pushItem(item);
     if ([...flipped].some((origin) => isManaged(next.sources, origin))) void poller.runNow();
     if (next.repoRoot !== prev.repoRoot) void rescan().catch((e) => app.log.error({ err: e }, "rescan failed"));
-    return { restartRequired: next.port !== prev.port, ...(worktrees ? { worktrees } : {}) };
+    // The connections are read once at start (D50).
+    const connectionsChanged = JSON.stringify(connectionsOf(next)) !== JSON.stringify(connectionsOf(prev));
+    return { restartRequired: next.port !== prev.port || connectionsChanged, ...(worktrees ? { worktrees } : {}) };
   };
 
   const app = buildServer({

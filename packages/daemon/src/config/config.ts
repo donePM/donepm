@@ -2,16 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { AGENT_KINDS, DEFAULT_WEB_FETCH_DOMAINS, isDomain, MERGE_METHODS, normalizeOriginUrl } from "@donepm/core";
 import { z } from "zod";
-
-/** Hosts donePM can run a source query against. GitLab and Jira come later (issue #32). */
-export const SOURCE_PROVIDERS = { "github.com": "github" } as const;
-export type SourceProvider = (typeof SOURCE_PROVIDERS)[keyof typeof SOURCE_PROVIDERS];
-
-/** The provider for a normalised origin (`github.com/owner/repo`), or undefined if unsupported. */
-export function providerOf(origin: string): SourceProvider | undefined {
-  const host = origin.split("/")[0] ?? "";
-  return Object.hasOwn(SOURCE_PROVIDERS, host) ? SOURCE_PROVIDERS[host as keyof typeof SOURCE_PROVIDERS] : undefined;
-}
+import { connectionFor, connectionsOf, ConnectionsSchema } from "./connections.js";
 
 /**
  * Per repository: which issues donePM collects (spec 4.6). `query` is the provider's search
@@ -54,13 +45,15 @@ export const SourceSchema = z
 
 export type SourceSettings = z.infer<typeof SourceSchema>;
 
-/** A `sources` key: normalised origin of a supported provider. */
-export const SourceKey = z
-  .string()
-  .refine((k) => /^[^/\s]+\/[^/\s]+\/[^/\s]+$/.test(k) && normalizeOriginUrl(k) === k, {
-    message: "must be a normalised origin like github.com/owner/repo",
-  })
-  .refine((k) => providerOf(k) !== undefined, { message: "only github.com repositories are supported for now" });
+/** A `sources` key: a normalised origin. Its host needs a connection; `ValidConfigSchema` checks that. */
+export const SourceKey = z.string().refine((k) => /^[^/\s]+\/[^/\s]+\/[^/\s]+$/.test(k) && normalizeOriginUrl(k) === k, {
+  message: "must be a normalised origin like github.com/owner/repo",
+});
+
+/** Why an origin cannot be a source or a clone: no connection serves its host (D50). */
+export function noConnectionFor(origin: string): string {
+  return `no connection for ${origin.split("/")[0]}; add one under "connections"`;
+}
 
 export const ConfigSchema = z
   .object({
@@ -81,6 +74,11 @@ export const ConfigSchema = z
     archiveAfterHours: z.number().int().min(0).default(24),
     /** Days an archived item is kept before it is deleted with its history (D37). `null`: never. */
     deleteAfterDays: z.number().int().min(0).nullable().default(7),
+    /**
+     * The providers donePM talks to, read at start (D50). Absent: github.com through `gh`. A
+     * change through `PUT /api/settings` applies after a restart.
+     */
+    connections: ConnectionsSchema.optional(),
     /** Keyed by normalised origin. Replaced as a whole by `PUT /api/settings`; `PUT /api/repos/:id` changes one entry. */
     sources: z.record(SourceKey, SourceSchema).default({}),
     /** WebFetch to these hosts (and their subdomains) is allowed by the daemon, not asked (D31). */
@@ -92,7 +90,15 @@ export const ConfigSchema = z
 
 export type Config = z.infer<typeof ConfigSchema>;
 
-export const DEFAULT_CONFIG: Config = ConfigSchema.parse({});
+/** The config with what spans its keys checked: every `sources` key has a connection for its host. */
+export const ValidConfigSchema = ConfigSchema.superRefine((config, ctx) => {
+  const connections = connectionsOf(config);
+  for (const origin of Object.keys(config.sources)) {
+    if (!connectionFor(connections, origin)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["sources", origin], message: noConnectionFor(origin) });
+  }
+});
+
+export const DEFAULT_CONFIG: Config = ValidConfigSchema.parse({});
 
 export class ConfigError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
@@ -109,7 +115,7 @@ export function parseConfig(text: string, file = "config"): Config {
   } catch (e) {
     throw new ConfigError(`${file}: not valid JSON: ${(e as Error).message}`, { cause: e });
   }
-  const result = ConfigSchema.safeParse(raw);
+  const result = ValidConfigSchema.safeParse(raw);
   if (!result.success) {
     const detail = result.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
     throw new ConfigError(`${file}: ${detail}`);

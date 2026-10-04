@@ -189,6 +189,27 @@ export interface PollError {
   error: string;
 }
 
+/** Where one connection stands (D50). */
+export type ConnectionState = "not_installed" | "not_logged_in" | "unreachable" | "unauthorized" | "ready";
+
+export interface ConnectionStatus {
+  id: string;
+  kind: string;
+  backend: "cli" | "api";
+  host?: string;
+  state: ConnectionState;
+  /** The account for a `cli` connection, or why it is not ready. */
+  detail?: string;
+}
+
+/** One provider instance donePM talks to (D50), as configured. */
+export interface ConnectionConfig {
+  id: string;
+  kind: "github";
+  backend: "cli" | "api";
+  host: string;
+}
+
 export interface Status {
   version: string;
   pid: number;
@@ -198,6 +219,10 @@ export interface Status {
   gh?: GhStatus;
   /** `gh` for each other GitHub host donePM works with (issue #140). */
   ghHosts?: Record<string, GhStatus>;
+  /** The GitHub hosts gh is logged in to, offered as connections (issue #140). */
+  ghKnownHosts?: string[];
+  /** Each connection the daemon runs with (D50). */
+  connections?: ConnectionStatus[];
   claude?: ClaudeStatus;
   /** Optional helper CLIs by id, e.g. `playwright-cli`. */
   helpers?: Record<string, HelperStatus>;
@@ -227,6 +252,8 @@ export interface Settings {
   sources: Record<string, SourceSettings>;
   /** WebFetch to these hosts is allowed by the daemon without asking (D31). */
   allowedWebFetchDomains: string[];
+  /** Unset: github.com through gh. Read by the daemon at start (D50). */
+  connections?: ConnectionConfig[];
 }
 
 export interface SourceSettings {

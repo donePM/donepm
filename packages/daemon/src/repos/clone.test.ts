@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { githubProviders } from "../gh/adapter.js";
+import { gitHubCliConnection, githubProviders } from "../gh/adapter.js";
+import { providerRegistry } from "../providers/registry.js";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -142,6 +143,15 @@ describe("RepoCloner", () => {
     expect(cloner.state("gitlab.com/acme/widgets")).toBeUndefined();
     await expect(cloner.clone("gitlab.com/acme/widgets")).rejects.toMatchObject({ status: 400 });
     await expect(cloner.clone("github.com/../etc")).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("clones from every host a connection serves, and only from those", async () => {
+    const repos = new RepoStore(openDb(":memory:"));
+    const providers = providerRegistry([gitHubCliConnection(ghFails), gitHubCliConnection(ghFails, "github.acme.com", "acme")]);
+    const cloner = new RepoCloner({ exec: ghFails, providers, repos, ctx: testCtx(), log: silentLog, root: () => "/r", push: () => {}, changed: () => {} });
+    expect(cloner.state("github.acme.com/team/api")).toMatchObject({ target: "/r/team/api" });
+    expect(cloner.state("github.com/acme/widgets")).toBeDefined();
+    expect(cloner.state("gitlab.com/acme/widgets")).toBeUndefined();
   });
 
   it("refuses an origin that has a clone already", async () => {

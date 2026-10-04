@@ -470,6 +470,53 @@ next start begins a new conversation; a running or waiting item has a live proce
 first. A playbook is checked against the agent it names, and again against the chosen agent when
 the item starts, because permission modes and effort levels are the agent's (`AGENT_CAPABILITIES`).
 
+**D50. Provider adapters: CLI or API per connection; credentials.** Issue #138. The daemon talks to
+a provider only through three roles: `TicketSource` (searches, a repository's query, fields, state,
+assign), `CodeHost` (clone, pull requests, reviews, merge) and `CiSource` (checks, failed logs,
+rerun). Each role is an interface in `daemon/src/providers/`. A *connection* in the config names
+one provider instance with `id`, `kind`, `host` and `backend`. Nothing outside an adapter runs a
+provider's CLI or calls its API. The daemon finds a connection by the host of an origin or URL.
+- `cli` uses the logged-in tool (`gh`, later `glab`, `acli`, `az`). It keeps D8's reasons: VPN,
+  SSO and the user's own login.
+- `api` uses REST through an injected `HttpClient`, with a token from the Keychain (D8 as
+  amended). It is for providers without a usable CLI login.
+
+Both backends sit behind the same interfaces and pass the same contract suites
+(`test-support/contracts/`). A second backend therefore cannot change what the daemon decides.
+
+Without a `connections` key, there is one connection: github.com through `gh`. Existing configs
+mean exactly what they did. With the key, the list is the whole set. A `sources` key and a clone
+need a connection for their host. The list is read at start, so a change saved through
+`PUT /api/settings` answers `restartRequired` and applies after a restart. Settings offers each
+host `gh auth status --json hosts` reports as logged in (never with `--show-token`) as one more
+`github` connection. Enabling a host does not add it to `allowedWebFetchDomains`: what the agent
+may fetch stays a separate choice (D31).
+
+Tokens: one Keychain item per connection, service `donepm` and account the connection's `id`.
+- Reading is `security find-generic-password -w`, on the daemon's own pipe. It is not cached past
+  the call.
+- Writing is `security -i`, with the command on stdin, so the token never shows in `ps`. A token
+  with blanks, quotes or backslashes is refused, because the interactive parser would mangle it,
+  and `security` echoes such input in its errors. Error text is scrubbed of the token.
+- Status and the UI learn only whether a token is set, from `find-generic-password` without `-w`.
+
+The agent's side gets more blocks:
+- `security`, `az` and `acli` join the deny list and the filtered `PATH` (D9).
+- `AZURE_DEVOPS_EXT_PAT` and `ATLASSIAN_API_TOKEN` are dropped from its environment.
+- `AZURE_CONFIG_DIR` points at the empty config directory.
+
+One residual: an item that `security` created trusts `security`. An agent that spells out
+`/usr/bin/security` gets past both the deny rule and `PATH`. The same holds today for the token
+`gh` keeps in the Keychain. Closing that needs the agent sandbox, not a rule.
+
+The PR and CI watchers work per connection: a PR is watched while its own host is ready, so one
+logged-out host no longer stops the watching of the others.
+
+Status reports one `ConnectionStatus` per connection: `not_installed`, `not_logged_in`,
+`unreachable`, `unauthorized` or `ready`. `status.gh` stays for the UI and the CLI. Items keep
+their ids: GitHub's stay `owner/repo#N` (`host/owner/repo#N` off github.com, #140). A future kind
+names its own ids with a prefix such as `jira:KEY`, so no stored id changes meaning.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.
