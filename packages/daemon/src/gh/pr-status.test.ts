@@ -5,11 +5,14 @@ import { fetchPrStatuses, prStatusQuery } from "./pr-status.js";
 describe("fetchPrStatuses (D47)", () => {
   it("reads mergeable, base, reviews and checks of several pull requests in one call", async () => {
     const exec = fakeExec({ "gh api graphql": ok(fixture("gh/pr-status.json")) });
-    const read = await fetchPrStatuses(exec, [{ repository: "donePM/donepm", number: 88 }, { repository: "vuejs/core", number: 15766 }]);
+    const read = await fetchPrStatuses(exec, [
+      { repository: "donePM/donepm", number: 88 }, { repository: "vuejs/core", number: 15766 }, { repository: "donePM/donepm", number: 129 },
+    ]);
     expect(exec.calls).toHaveLength(1);
     expect(Object.fromEntries(read)).toEqual({
-      "donePM/donepm#88": { mergeable: "MERGEABLE", base: "main", checks: "FAILURE" },
-      "vuejs/core#15766": { mergeable: "MERGEABLE", base: "minor", checks: "FAILURE" },
+      "donePM/donepm#88": { state: "OPEN", mergeable: "UNKNOWN", base: "main", checks: "FAILURE" },
+      "vuejs/core#15766": { state: "OPEN", mergeable: "MERGEABLE", base: "minor", checks: "FAILURE" },
+      "donePM/donepm#129": { state: "MERGED", closedAt: "2026-10-04T13:38:56Z", mergeable: "UNKNOWN", base: "main", checks: "SUCCESS" },
     });
   });
 
@@ -17,7 +20,7 @@ describe("fetchPrStatuses (D47)", () => {
     const exec = fakeExec({ "gh api graphql": { code: 1, stdout: fixture("gh/pr-status-not-found.json"), stderr: "gh: Could not resolve" } });
     const read = await fetchPrStatuses(exec, [{ repository: "donePM/donepm", number: 87 }, { repository: "donePM/donepm", number: 99999 }]);
     expect([...read.keys()]).toEqual(["donePM/donepm#87"]);
-    expect(read.get("donePM/donepm#87")).toEqual({ mergeable: "UNKNOWN", base: "main", checks: "SUCCESS" });
+    expect(read.get("donePM/donepm#87")).toEqual({ state: "OPEN", mergeable: "UNKNOWN", base: "main", checks: "SUCCESS" });
   });
 
   it("reads nothing when gh fails, and asks nothing for no pull requests or odd names", async () => {
@@ -28,6 +31,6 @@ describe("fetchPrStatuses (D47)", () => {
   });
 
   it("names each pull request by an alias in order", () => {
-    expect(prStatusQuery([{ repository: "o/r", number: 3 }])).toMatch(/^query \{ pr0: repository\(owner: "o", name: "r"\) \{ pullRequest\(number: 3\) \{ number mergeable /);
+    expect(prStatusQuery([{ repository: "o/r", number: 3 }])).toMatch(/^query \{ pr0: repository\(owner: "o", name: "r"\) \{ pullRequest\(number: 3\) \{ number state closedAt mergeable /);
   });
 });

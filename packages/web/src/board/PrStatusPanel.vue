@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { conflictComment, prConflicts } from "@donepm/core";
+import { conflictComment, MERGE_METHODS, prConflicts, type MergeMethod } from "@donepm/core";
 import { computed, ref } from "vue";
 import { api } from "../api/client";
 import { errorText } from "../api/errors";
@@ -10,7 +10,8 @@ import { prStatusChips } from "./pr-status";
 /**
  * Someone else's pull request on its card (D47): where it stands, and on a conflict a comment to its
  * author. donePM does not push to their branch; the user edits the text and the Post click is the
- * approval.
+ * approval. Once the user approved it, its checks passed and it is mergeable, Merge merges it; the
+ * checkbox lets the daemon do that on its own.
  */
 const props = defineProps<{ item: ItemView }>();
 
@@ -20,6 +21,9 @@ const writing = ref(false);
 const body = ref("");
 const posting = ref(false);
 const error = ref<string>();
+const method = ref<MergeMethod>(props.item.merge?.method ?? "squash");
+const merging = ref(false);
+const blocked = computed(() => props.item.merge?.blockers ?? []);
 
 function open() {
   body.value = conflictComment(props.item);
@@ -39,10 +43,31 @@ async function post() {
     posting.value = false;
   }
 }
+
+async function merge() {
+  merging.value = true;
+  error.value = undefined;
+  try {
+    upsert(await api.mergePr(props.item.id, method.value));
+  } catch (e) {
+    error.value = errorText(e);
+  } finally {
+    merging.value = false;
+  }
+}
+
+async function setAuto(on: boolean) {
+  error.value = undefined;
+  try {
+    upsert(await api.setAutoMerge(props.item.id, on));
+  } catch (e) {
+    error.value = errorText(e);
+  }
+}
 </script>
 
 <template>
-  <div v-if="chips.length" class="pr-status">
+  <div v-if="chips.length || item.merge" class="pr-status">
     <div class="chips">
       <span v-for="c in chips" :key="c.text" class="chip" :class="`tone-${c.tone}`" :title="c.title">{{ c.text }}</span>
       <button v-if="conflicting && !writing" class="btn subtle ask" type="button" title="Ask the author to resolve the conflicts" @click="open">Ask author</button>
@@ -54,8 +79,27 @@ async function post() {
         <button class="btn btn-primary" type="submit" :disabled="posting || !body.trim()">{{ posting ? "Posting…" : "Post comment" }}</button>
         <button class="btn subtle" type="button" :disabled="posting" @click="writing = false">Cancel</button>
       </div>
-      <p v-if="error" class="alert" role="alert">{{ error }}</p>
     </form>
+    <div v-if="item.merge" class="merge">
+      <label :for="`merge-method-${item.id}`" class="sr-only">Merge method</label>
+      <select :id="`merge-method-${item.id}`" v-model="method" class="select" :disabled="merging">
+        <option v-for="m in MERGE_METHODS" :key="m" :value="m">{{ m }}</option>
+      </select>
+      <button
+        class="btn"
+        type="button"
+        :disabled="merging || blocked.length > 0"
+        :title="blocked.length ? `Not yet: ${blocked.join(', ')}` : 'Merge the pull request on GitHub'"
+        @click="merge"
+      >
+        {{ merging ? "Merging…" : "Merge" }}
+      </button>
+      <label class="auto" title="Merge it on its own once you approved it, its checks passed and it is mergeable">
+        <input type="checkbox" :checked="item.merge.auto" @change="setAuto(($event.target as HTMLInputElement).checked)" />
+        Merge automatically
+      </label>
+    </div>
+    <p v-if="error" class="alert" role="alert">{{ error }}</p>
   </div>
 </template>
 
@@ -69,4 +113,6 @@ async function post() {
 .ask { margin-left: auto; font-size: 12px; }
 .comment { display: flex; flex-direction: column; gap: 6px; }
 .actions { display: flex; gap: 6px; }
+.merge { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
+.auto { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-2); }
 </style>

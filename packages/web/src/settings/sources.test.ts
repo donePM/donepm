@@ -35,4 +35,11 @@ describe("issueSearchUrl", () => {
     );
     expect(issueSearchUrl("github.com/a/b", "")).toBe("https://github.com/a/b/issues?q=is%3Aissue%20state%3Aopen%20assignee%3A%40me");
   });
+
+  it("keeps the merge settings of others' pull requests only when they differ from the defaults (D47)", () => {
+    expect(withSource({}, "github.com/a/b", { query: "", assignOnStart: false, autoMerge: false, mergeMethod: "squash" })).toEqual({});
+    expect(withSource({}, "github.com/a/b", { query: "", assignOnStart: false, autoMerge: true, mergeMethod: "rebase" })).toEqual({
+      "github.com/a/b": { assignOnStart: false, autoMerge: true, mergeMethod: "rebase" },
+    });
+  });
 });

@@ -1,5 +1,5 @@
 import type {
-  CheckLog, CiPr, CommentDraft, Draft, DraftReply, DraftType, Event, FailedCheck, FeedbackEntry, PermissionAsk, PermissionRule, PrDraft,
+  CheckLog, CiPr, CommentDraft, Draft, DraftReply, DraftType, Event, FailedCheck, FeedbackEntry, MergeMethod, PermissionAsk, PermissionRule, PrDraft,
   PrDraftPayload, PushDraft, PrDraftResult, PrMerge, Repo, ReviewDraft, TranscriptMessage, WorkItem,
 } from "@donepm/core";
 
@@ -74,6 +74,17 @@ export interface ItemView extends WorkItem {
   finishedAt?: string;
   /** No local clone, and donePM can clone it (issue #37). */
   clone?: CloneState;
+  /** Someone else's pull request: what still blocks the Merge button, and how it merges (D47). */
+  merge?: MergeView;
+}
+
+export interface MergeView {
+  /** Empty when the user approved, checks passed and GitHub says mergeable. */
+  blockers: string[];
+  /** The daemon merges it on its own once nothing blocks: the item's choice, else the repository's. */
+  auto: boolean;
+  /** The repository's merge method, the card's default. */
+  method: MergeMethod;
 }
 
 /** Where a clone of the item's repository lands, whether `gh repo clone` runs, and why the last one failed. */
@@ -187,6 +198,10 @@ export interface SourceSettings {
   assignOnStart: boolean;
   /** Polled and shown on the board (D46). Otherwise its items stay off the board unless they need attention. */
   managed?: boolean;
+  /** Default of the card's "Merge automatically" for others' pull requests (D47). */
+  autoMerge?: boolean;
+  /** How others' pull requests are merged here; absent: squash (D47). */
+  mergeMethod?: MergeMethod;
 }
 
 /** `GET /api/repos`: a clone, and whether its origin is managed. */

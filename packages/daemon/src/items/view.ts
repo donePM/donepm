@@ -1,4 +1,4 @@
-import type { PrDraftResult, PrMerge, Repo, WorkItem } from "@donepm/core";
+import type { MergeMethod, PrDraftResult, PrMerge, Repo, WorkItem } from "@donepm/core";
 import type { CloneState } from "../repos/clone.js";
 import type { AgentHistory } from "./agent-info.js";
 import type { Attention } from "./attention.js";
@@ -31,6 +31,17 @@ export interface ItemView extends WorkItem {
   finishedAt?: string;
   /** No local clone, and donePM can make one: where it lands, and how the last try went (issue #37). */
   clone?: CloneState;
+  /** Someone else's pull request: what still blocks the Merge button, and how it merges (D47). */
+  merge?: MergeView;
+}
+
+export interface MergeView {
+  /** Empty when the user approved, checks passed and GitHub says mergeable. */
+  blockers: string[];
+  /** The daemon merges it on its own once nothing blocks: the item's choice, else the repository's. */
+  auto: boolean;
+  /** The repository's merge method, the card's default. */
+  method: MergeMethod;
 }
 
 export type PrView = PrDraftResult &

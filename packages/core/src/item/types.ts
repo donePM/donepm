@@ -24,6 +24,11 @@ export interface WorkItem {
   author?: string;
   /** Where someone else's pull request stands on GitHub, from the last poll (D47). */
   prStatus?: PrStatus;
+  /**
+   * The user's per-item choice to let the daemon merge someone else's pull request once it is ready
+   * (D47). Absent: the repository's `autoMerge` setting decides.
+   */
+  autoMerge?: boolean;
   state: ItemState;
   /** Playbook name. */
   playbook: string;

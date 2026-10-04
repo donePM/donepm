@@ -425,7 +425,10 @@ conflict is reported on the card and answered with a comment to the author (for 
 Post click is the approval, like Clone (#37); an agent draft would add a turn for one sentence. Once the user's own review approved the PR, its checks pass
 and it is mergeable, the card offers Merge; the click is the user's approval, like Clone (#37). A
 per-item "merge automatically" checkbox, defaulting to a per-repo setting that is off, lets the
-daemon merge as soon as those three hold; turning it on is the approval given in advance (D2).
+daemon merge as soon as those three hold; turning it on is the approval given in advance (D2). The
+merge leaves the author's branch alone (no `--delete-branch`). A refused auto-merge turns the
+item's checkbox off instead of retrying every poll. A reviewed PR stays on the board until GitHub
+says it is merged or closed, so the merge stays in reach.
 
 ## Open (not decided)
 
