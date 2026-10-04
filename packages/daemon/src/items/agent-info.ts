@@ -1,4 +1,5 @@
 import type { Event } from "@donepm/core";
+import { addUsage, usageFromPayload, type TokenUsage } from "../agent/usage.js";
 
 /** What the board and the Agents view show about an item's agent, derived from its events. */
 export interface AgentHistory {
@@ -10,6 +11,8 @@ export interface AgentHistory {
   activeSince?: string;
   /** Total over all processes, from `result.total_cost_usd`. */
   costUsd?: number;
+  /** Tokens over all processes, from `result.usage`, summed like the cost. */
+  usage?: TokenUsage;
 }
 
 /** Events after which the agent works again. */
@@ -18,7 +21,7 @@ const OPENS = new Set(["agent.started", "agent.resumed", "agent.turn_started", "
 const CLOSES = new Set(["agent.turn_ended", "permission.asked", "agent.interrupted", "agent.failed"]);
 
 /**
- * `total_cost_usd` counts from the start of the `claude` process, so each process contributes its
+ * `total_cost_usd` and `usage` count from the start of the `claude` process, so each process contributes its
  * last reported value, and a new process (start, resume) starts a new sum.
  *
  * Elapsed time is the sum of the intervals the agent worked. A resume continues the sum; a fresh
@@ -29,18 +32,23 @@ export function agentHistory(events: readonly Event[]): AgentHistory {
   let closed = 0;
   let current: number | undefined;
   let seen = false;
+  let closedUsage: TokenUsage | undefined;
+  let currentUsage: TokenUsage | undefined;
   let elapsedMs = 0;
   let activeSince: string | undefined;
   for (const e of events) {
     if (e.type === "agent.started") elapsedMs = 0;
     if (e.type === "agent.started" || e.type === "agent.resumed") {
       closed += current ?? 0;
+      if (currentUsage) closedUsage = closedUsage ? addUsage(closedUsage, currentUsage) : currentUsage;
+      currentUsage = undefined;
       current = undefined;
       startedAt = e.at;
     } else if (e.type === "agent.turn_ended" && typeof e.payload.costUsd === "number") {
       current = e.payload.costUsd;
       seen = true;
     }
+    if (e.type === "agent.turn_ended") currentUsage = usageFromPayload(e.payload.usage) ?? currentUsage;
     if (e.type === "agent.started") activeSince = e.at;
     else if (OPENS.has(e.type) && !(e.type === "permission.answered" && e.actor === "system" && e.payload.behavior === "deny")) activeSince ??= e.at;
     else if (CLOSES.has(e.type) && activeSince) {
@@ -54,6 +62,8 @@ export function agentHistory(events: readonly Event[]): AgentHistory {
     out.elapsedMs = elapsedMs;
   }
   if (activeSince) out.activeSince = activeSince;
+  const usage = currentUsage && closedUsage ? addUsage(closedUsage, currentUsage) : (currentUsage ?? closedUsage);
+  if (usage) out.usage = usage;
   if (seen) out.costUsd = closed + (current ?? 0);
   return out;
 }

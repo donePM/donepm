@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentElapsed, clock, money } from "./duration";
+import { agentElapsed, clock, money, tokens, usageLabel } from "./duration";
 
 describe("clock", () => {
   it("shows minutes and seconds", () => {
@@ -33,5 +33,20 @@ describe("agentElapsed", () => {
 
   it("is undefined before the agent ran", () => {
     expect(agentElapsed({}, now)).toBeUndefined();
+  });
+});
+
+describe("tokens", () => {
+  it("shows plain numbers below 1000 and k with one decimal above", () => {
+    expect(tokens(0)).toBe("0");
+    expect(tokens(999)).toBe("999");
+    expect(tokens(1000)).toBe("1.0k");
+    expect(tokens(12_345)).toBe("12.3k");
+    expect(tokens(1_200_000)).toBe("1.2M");
+  });
+
+  it("labels usage and says nothing without it", () => {
+    expect(usageLabel({ inputTokens: 12_345, outputTokens: 4100 })).toBe("12.3k in · 4.1k out");
+    expect(usageLabel(undefined)).toBeUndefined();
   });
 });

@@ -12,12 +12,21 @@ export interface CurrentTool {
   summary: string;
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheWriteInputTokens: number;
+  reasoningTokens?: number;
+}
+
 export interface AgentView {
   running: boolean;
   startedAt?: string;
   elapsedMs?: number;
   activeSince?: string;
   costUsd?: number;
+  usage?: TokenUsage;
   currentTool?: CurrentTool;
 }
 

@@ -82,7 +82,7 @@ describe("AgentRunner", () => {
 
     expect(t.state("item-1")).toMatchObject({ state: "needs_you", agentSessionId: sessionId });
     expect(t.types("item-1")).toEqual(["agent.started", "agent.turn_ended"]);
-    expect(t.events.forItem("item-1")[1]!.payload).toMatchObject({ subtype: "success", isError: false, costUsd: expect.any(Number) });
+    expect(t.events.forItem("item-1")[1]!.payload).toMatchObject({ subtype: "success", isError: false, costUsd: expect.any(Number), usage: { inputTokens: 18 + 11565 + 39765, outputTokens: 519, cacheReadInputTokens: 39765, cacheWriteInputTokens: 11565 } });
 
     const stored = t.transcript.page("item-1");
     // Everything except stream events is stored, plus the first user message.

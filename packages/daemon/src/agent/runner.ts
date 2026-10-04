@@ -1,3 +1,4 @@
+import { usageFromResult } from "./usage.js";
 import {
   agentAsked, agentFailed, alwaysAllowed, answered, askDeniedBySystem, matchGrants, rawRule, repoName, type AskFlags, type GrantRef, interrupted, answeredInput, checkAnswers, isQuestionTool, questionsOf, type Answers, autoAllowed, isRuleOfferable, matchingDomain, webFetchHost, toolSummary, turnEnded, turnStarted,
   type Ctx, type PermissionRule, type Playbook, type TranscriptKind, type WorkItem,
@@ -450,9 +451,11 @@ export class AgentRunner {
     session.turnClosed = true;
     const item = this.item(session.itemId);
     if (item.state !== "running" || this.deps.asks.pending(item.id).length > 0) return;
-    const raw = d.raw as { total_cost_usd?: unknown };
+    const raw = d.raw as { total_cost_usd?: unknown; usage?: unknown };
     const payload: Record<string, unknown> = { subtype: d.subtype ?? null, isError: d.isError };
     if (typeof raw.total_cost_usd === "number") payload.costUsd = raw.total_cost_usd;
+    const usage = usageFromResult(raw.usage);
+    if (usage) payload.usage = usage;
     this.deps.writer.commit(turnEnded(item, this.deps.ctx, payload));
   }
 

@@ -122,7 +122,7 @@ nothing would be left to attach it to.
 | refId | uuid? (draft id, ask id, message id) |
 
 Event types in MVP: `item.collected`, `item.playbook_changed`, `agent.started`, `agent.resumed`,
-`agent.turn_started`, `agent.turn_ended`, `agent.failed`, `permission.asked`, `permission.answered`, `draft.created`,
+`agent.turn_started`, `agent.turn_ended` (payload: `subtype`, `isError`, `costUsd` from `total_cost_usd`, and `usage` from `result.usage` as `inputTokens` = input + cache read + cache creation, `outputTokens`, `cacheReadInputTokens`, `cacheWriteInputTokens`; `reasoningTokens` is never reported; a missing `usage` is left out), `agent.failed`, `permission.asked`, `permission.answered`, `draft.created`,
 `draft.edited`, `draft.approved`, `draft.rejected`, `draft.executed`, `draft.execution_failed`,
 `agent.interrupted`, `worktree.removed`, `item.assigned`, `item.assign_failed` (assign on start,
 see 6.4), `permission.auto_allowed` (the daemon answered an ask itself: a WebFetch host on the
@@ -876,7 +876,9 @@ you". Amber means "you have something to do"; red stays for daemon problems.
 ### 12.1 Board
 
 - Four columns: Ready, In Progress, Needs You, Done. Cards: title, repo, external id, labels,
-  playbook badge, running indicator.
+  playbook badge, running indicator, and the agent's tokens as `12.3k in · 4.1k out` (k from 1000,
+  one decimal; plain number below 1000; nothing until a `result` reported usage). Input counts
+  cached tokens too, as in the Laravel AI SDK; the tooltip shows the cache split.
 - Ready card: dropdown for playbook, button "Start". Cards without local repo: greyed out.
 - Needs You card: shows what is needed: permission question (tool name, input, Allow / Deny) or
   draft (title, body editable, diff of branch vs base, Approve / Reject with reason) or failure
@@ -946,7 +948,8 @@ you". Amber means "you have something to do"; red stays for daemon problems.
 ### 12.3 Agents (multiplexer)
 
 - Left: list of running and recently finished agents (item title, state, elapsed, cost from
-  `result.total_cost_usd`).
+  `result.total_cost_usd`, tokens from `result.usage`). Both count from the start of the `claude`
+  process: each process contributes its last value and a new process starts a new sum.
 - Elapsed (here and on the card) is the time the agent worked: the sum of its intervals from
   `agent.started`, `agent.resumed`, `agent.turn_started` or `permission.answered` to
   `agent.turn_ended`, `permission.asked`, `agent.interrupted` or `agent.failed`. Waiting on the
