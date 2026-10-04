@@ -32,6 +32,11 @@ describe("toolSummary", () => {
     expect(s.endsWith("…")).toBe(true);
   });
 
+  it("strips escape codes", () => {
+    const command = "\u001b[32mecho\u001b[39m hi\u001b]8;;http://x\u0007 link\u001b]8;;\u0007";
+    expect(toolSummary("Bash", { command })).toBe("echo hi link");
+  });
+
   it("is empty for odd input", () => {
     expect(toolSummary("Bash", null)).toBe("");
     expect(toolSummary("Foo", { n: 1 })).toBe("");

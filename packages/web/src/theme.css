@@ -108,3 +108,77 @@ a:hover { color: var(--blue-hover); }
 .textarea { resize: vertical; line-height: 1.5; }
 .input:focus-visible, .textarea:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 .alert { margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--danger-tint); color: var(--danger); font-size: 12px; }
+
+/* ANSI colours in tool output (anser classes). Light by default; on the dark code background they are lifted. */
+:root {
+  --ansi-black: #141413;
+  --ansi-red: #b42318;
+  --ansi-green: #15803d;
+  --ansi-yellow: #8a5a00;
+  --ansi-blue: #1d4ed8;
+  --ansi-magenta: #a21caf;
+  --ansi-cyan: #0e7490;
+  --ansi-white: #66665f;
+  --ansi-bright-black: #52524c;
+  --ansi-bright-red: #dc2626;
+  --ansi-bright-green: #16a34a;
+  --ansi-bright-yellow: #a16207;
+  --ansi-bright-blue: #2563eb;
+  --ansi-bright-magenta: #c026d3;
+  --ansi-bright-cyan: #0891b2;
+  --ansi-bright-white: #3f3f3a;
+}
+.on-code {
+  --ansi-black: #6b6b64;
+  --ansi-red: #f87171;
+  --ansi-green: #4ade80;
+  --ansi-yellow: #facc15;
+  --ansi-blue: #60a5fa;
+  --ansi-magenta: #e879f9;
+  --ansi-cyan: #22d3ee;
+  --ansi-white: #e8e8e3;
+  --ansi-bright-black: #9a9a92;
+  --ansi-bright-red: #fca5a5;
+  --ansi-bright-green: #86efac;
+  --ansi-bright-yellow: #fde047;
+  --ansi-bright-blue: #93c5fd;
+  --ansi-bright-magenta: #f0abfc;
+  --ansi-bright-cyan: #67e8f9;
+  --ansi-bright-white: #ffffff;
+}
+.ansi-fg-black { color: var(--ansi-black); }
+.ansi-fg-red { color: var(--ansi-red); }
+.ansi-fg-green { color: var(--ansi-green); }
+.ansi-fg-yellow { color: var(--ansi-yellow); }
+.ansi-fg-blue { color: var(--ansi-blue); }
+.ansi-fg-magenta { color: var(--ansi-magenta); }
+.ansi-fg-cyan { color: var(--ansi-cyan); }
+.ansi-fg-white { color: var(--ansi-white); }
+.ansi-fg-bright-black { color: var(--ansi-bright-black); }
+.ansi-fg-bright-red { color: var(--ansi-bright-red); }
+.ansi-fg-bright-green { color: var(--ansi-bright-green); }
+.ansi-fg-bright-yellow { color: var(--ansi-bright-yellow); }
+.ansi-fg-bright-blue { color: var(--ansi-bright-blue); }
+.ansi-fg-bright-magenta { color: var(--ansi-bright-magenta); }
+.ansi-fg-bright-cyan { color: var(--ansi-bright-cyan); }
+.ansi-fg-bright-white { color: var(--ansi-bright-white); }
+.ansi-bg-black { background-color: var(--ansi-black); }
+.ansi-bg-red { background-color: var(--ansi-red); }
+.ansi-bg-green { background-color: var(--ansi-green); }
+.ansi-bg-yellow { background-color: var(--ansi-yellow); }
+.ansi-bg-blue { background-color: var(--ansi-blue); }
+.ansi-bg-magenta { background-color: var(--ansi-magenta); }
+.ansi-bg-cyan { background-color: var(--ansi-cyan); }
+.ansi-bg-white { background-color: var(--ansi-white); }
+.ansi-bg-bright-black { background-color: var(--ansi-bright-black); }
+.ansi-bg-bright-red { background-color: var(--ansi-bright-red); }
+.ansi-bg-bright-green { background-color: var(--ansi-bright-green); }
+.ansi-bg-bright-yellow { background-color: var(--ansi-bright-yellow); }
+.ansi-bg-bright-blue { background-color: var(--ansi-bright-blue); }
+.ansi-bg-bright-magenta { background-color: var(--ansi-bright-magenta); }
+.ansi-bg-bright-cyan { background-color: var(--ansi-bright-cyan); }
+.ansi-bg-bright-white { background-color: var(--ansi-bright-white); }
+.ansi-bold { font-weight: 700; }
+.ansi-dim { opacity: 0.6; }
+.ansi-italic { font-style: italic; }
+.ansi-underline { text-decoration: underline; }

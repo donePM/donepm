@@ -1,3 +1,5 @@
+import stripAnsi from "strip-ansi";
+
 const MAX = 120;
 
 const FIELD: Record<string, string> = {
@@ -18,7 +20,7 @@ const FIELD: Record<string, string> = {
 };
 
 function oneLine(s: string): string {
-  const line = s.trim().split("\n")[0] ?? "";
+  const line = stripAnsi(s).trim().split("\n")[0] ?? "";
   return line.length > MAX ? `${line.slice(0, MAX - 1)}…` : line;
 }
 

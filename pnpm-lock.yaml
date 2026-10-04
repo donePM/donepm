@@ -191,6 +191,9 @@ importers:
 
   packages/core:
     dependencies:
+      strip-ansi:
+        specifier: ^7.2.0
+        version: 7.2.0
       yaml:
         specifier: ^2.6.0
         version: 2.9.1
@@ -234,6 +237,12 @@ importers:
       '@fontsource/jetbrains-mono':
         specifier: ^5.3.0
         version: 5.3.0
+      anser:
+        specifier: ^2.3.5
+        version: 2.3.5
+      ansi-regex:
+        specifier: ^6.4.0
+        version: 6.4.0
       diff:
         specifier: ^9.0.0
         version: 9.0.0
@@ -978,6 +987,9 @@ packages:
 
   alien-signals@3.2.1:
     resolution: {integrity: sha512-I8FjmltrfnDFoZedi5CG8DghVYNhzb/Ijluz7tCSJH0xpd0484Kowhbb1XDYOxfJpU1p5wnM2X54dA+IfGyD1g==}
+
+  anser@2.3.5:
+    resolution: {integrity: sha512-vcZjxvvVoxTeR5XBNJB38oTu/7eDCZlwdz32N1eNgpyPF7j/Z7Idf+CUwQOkKKpJ7RJyjxgLHCM7vdIK0iCNMQ==}
 
   ansi-regex@6.4.0:
     resolution: {integrity: sha512-KzTVk2tCWAHtYrvvvaP8bJKJq2pVinhLcGEQdtLIYPbmNGNyYe8QwNaTUYQp2J7/vIsUKt5QCqAfUkYyG9DkOw==}
@@ -2765,6 +2777,8 @@ snapshots:
       require-from-string: 2.0.2
 
   alien-signals@3.2.1: {}
+
+  anser@2.3.5: {}
 
   ansi-regex@6.4.0: {}
 
