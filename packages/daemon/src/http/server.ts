@@ -36,9 +36,10 @@ import type { RepoStore } from "../repos/store.js";
 import type { StatusStore } from "../status/status.js";
 import type { TranscriptStore } from "../transcript/store.js";
 import { connectionRoutes, type ConnectionRouteDeps } from "./connection-routes.js";
+import { ticketRoutes, type TicketRouteDeps } from "./ticket-routes.js";
 import { makeGuard } from "./guard.js";
 
-export interface ServerDeps extends ConnectionRouteDeps {
+export interface ServerDeps extends ConnectionRouteDeps, Omit<TicketRouteDeps, "view"> {
   /** The port actually bound; checked against Host and Origin. */
   port: () => number;
   items: ItemStore;
@@ -538,6 +539,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
 
   connectionRoutes(app, deps);
+  ticketRoutes(app, deps);
 
   app.get("/api/settings", async () => deps.getConfig());
 

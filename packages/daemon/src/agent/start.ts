@@ -4,6 +4,7 @@ import {
   type AgentKind, type Ctx, type Playbook, type Transition, type TranscriptMessage, type WorkItem,
 } from "@donepm/core";
 import type { Config } from "../config/config.js";
+import type { TicketSourceConfig } from "../config/ticket-sources.js";
 import { assignOnStart } from "../gh/assign-on-start.js";
 import type { ItemWriter } from "../items/commit.js";
 import type { ItemStore } from "../items/store.js";
@@ -49,6 +50,8 @@ export interface StartDeps {
   branchPrefix: () => string;
   /** Per-repository source settings; `assignOnStart` lives there (issue #32). */
   sources: () => Config["sources"];
+  /** Jira searches and their `assignOnStart` (issue #139). */
+  ticketSources?: () => readonly TicketSourceConfig[];
 }
 
 /**
@@ -61,6 +64,8 @@ export async function startItem(deps: StartDeps, itemId: string): Promise<{ item
   if (!stored) throw new StartError(404, "item not found");
   const { item } = stored;
   if (item.state !== "ready" && item.state !== "failed") throw new StartError(409, `item is ${item.state}`);
+  // A ticket of several repositories waits for the user to pick one (issue #139).
+  if (item.repoCandidates && !item.repoOrigin) throw new StartError(409, "choose the repository to work in first");
   // Work starts only in a repository the user chose (D46); a resume finishes what was started.
   if (!isManaged(deps.sources(), stored.originUrl)) throw new StartError(409, `${stored.originUrl} is not managed`);
   const playbook = await playbookFor(deps, item);

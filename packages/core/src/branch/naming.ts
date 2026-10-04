@@ -16,14 +16,15 @@ export function slugify(text: string): string {
 
 export interface BranchNameInput {
   prefix: string;
-  issueNumber: number;
+  /** The issue's number, or a ticket's key (`APP-123`, issue #139): `workRef`. */
+  issueNumber: number | string;
   title: string;
   /** Branches that already exist; a `-2`, `-3`, ... suffix avoids them. */
   existing?: Iterable<string>;
   maxLength?: number;
 }
 
-/** `<prefix><issue-number>-<slug>`, at most `maxLength` (60) chars including prefix and suffix. */
+/** `<prefix><issue-number>-<slug>` (`dp/APP-123-<slug>` for a ticket), at most `maxLength` (60) chars including prefix and suffix. */
 export function branchName(input: BranchNameInput): string {
   const max = input.maxLength ?? MAX_BRANCH_LENGTH;
   const taken = new Set(input.existing ?? []);

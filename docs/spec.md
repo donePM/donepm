@@ -58,8 +58,10 @@ functions. `daemon` calls them and persists the result.
 | field | type | notes |
 |---|---|---|
 | id | uuid | |
-| source | `github-issue` \| `github-pr` | `github-pr`: a pull request that requests the user's review (D40) |
-| externalId | string | `owner/repo#123`; `host/owner/repo#123` on a GitHub host other than github.com (6.10) |
+| source | `github-issue` \| `github-pr` \| `jira-issue` | `github-pr`: a pull request that requests the user's review (D40); `jira-issue`: a Jira ticket (6.12) |
+| externalId | string | `owner/repo#123`; `host/owner/repo#123` on a GitHub host other than github.com (6.10); `<connection>:<KEY>` for a ticket (`jira:APP-123`, 6.12) |
+| repoCandidates | string[]? | a ticket's repositories by normalised origin, the union of its ticket sources' `repos` (6.12); absent for GitHub items |
+| repoOrigin | string? | a ticket's repository: the only candidate, or the user's choice (`item.repo_chosen`); fixed once the agent started |
 | externalUrl | string | |
 | repoId | uuid | |
 | title | string | |
@@ -144,7 +146,8 @@ comment on someone else's PR from its card, 6.2, D47), `pr.branch_updated` (acto
 actor `user` for the card's Merge, `system` for auto-merge), `pr.merge_failed` (actor `system`,
 payload `{ method, auto, error, staysOn }`: auto-merge failed; `staysOn` false: it was turned off
 for the item, true: the reason passes and it stays on, held) and
-`pr.auto_merge_set` (actor `user`, payload `{ on }`), all 6.2 and D47, `item.archived` (actor `system`,
+`pr.auto_merge_set` (actor `user`, payload `{ on }`), all 6.2 and D47, `item.repo_chosen` (actor
+`user`, payload `{ origin }`: the user picked a ticket's repository, 6.12), `item.archived` (actor `system`,
 payload `{ finishedAt }`, see 6.8), `item.refreshed` (actor `system`, payload `{ changed: {
 priority?, title?, labels? } }`, each `{ from, to }` and only the fields that changed, see 6.2). `agent.resumed` carries
 `reason: "ci_failed"` when the user let the agent fix a red CI, `reason: "pr_conflict"` when it
@@ -670,6 +673,39 @@ connections. Azure DevOps Server (on premises) is out of scope.
   is denied whatever the remote, `AZURE_DEVOPS_EXT_PAT` is dropped and `AZURE_CONFIG_DIR` points at
   an empty directory.
 
+### 6.12 Jira tickets
+
+Issue #139, D51, D55. A `jira` connection is a ticket source only: code and pull requests stay on
+the repository's code host.
+
+- **Ticket sources.** `ticketSources` (14) lists queries against a Jira connection, each with the
+  repositories its tickets are worked in. Each poll runs every entry's JQL (default
+  `assignee = currentUser() AND statusCategory != Done`) with paging: Cloud `GET
+  /rest/api/3/search/jql` with `nextPageToken`, Data Center `GET /rest/api/2/search` with
+  `startAt`/`maxResults`, 100 a page, at most 10 pages. Fields are listed explicitly, with
+  `expand=renderedFields`.
+- **Mapping.** `externalId` `<connection>:<KEY>`, `externalUrl` `<baseUrl>/browse/<KEY>`. The body is
+  the rendered description HTML turned into Markdown with scripts, styles, frames and forms
+  dropped; the UI sanitises it again (12.2) and links no `@name` or `#123` in it. Labels are the
+  labels, components and the issue type. Priority by name: Highest/Blocker 0, High/Critical 1,
+  Medium/Major 2, Low/Lowest/Minor/Trivial 3, anything else 2. Done tickets
+  (`statusCategory.key = done`) are not collected.
+- **Repository.** A ticket's candidates are the union of the `repos` of the entries that found it.
+  With one, the item is linked to it. With several, it waits in a "Choose a repository" lane
+  until the user picks one on the card (`POST /api/items/:id/repo`, core `repoChosen`, event
+  `item.repo_chosen`); Start answers 409 until then. The choice can change until the agent first
+  starts. A ticket is on the board when its chosen repository, or any candidate before the
+  choice, is managed (D46).
+- **Naming.** Branch `dp/<KEY>-<slug>`; the PR title starts with the key (`APP-123: …`).
+- **Closed upstream.** Missing tickets are checked in batches of 100 with `key in (…)`,
+  `fields=status`; `done` closes them as in 6.2. When Jira refuses the batch (400, e.g. a deleted
+  key), each key is read alone (`GET /issue/<KEY>?fields=status`); a 404 stays undecided.
+- **Assign on start** (6.4): when the entry for the item's repository has `assignOnStart`, `PUT
+  /issue/<KEY>/assignee` with the `accountId` (Cloud) or `name` (Data Center) of `/myself`.
+- **Errors.** A 429 ends that connection's searches for the poll, with the `Retry-After` in the
+  error; its items are left as they are. Other failures are a source error as in 6.2.
+- The agent never reaches Jira: the daemon holds the token (D51); outward effects are drafts.
+
 ## 7. Worktrees
 
 ### 7.1 Location
@@ -1128,6 +1164,8 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/connections/:id/test` | checks a saved connection now, before a restart: `{ id, ok, state, detail?, tokenSet?, deployment? }` (Jira: `serverInfo`, then `/myself`) |
 | GET/PUT | `/api/settings` | PUT is partial; `sources` is replaced as a whole. A new `worktreeRoot` with item worktrees under the old one needs `?worktrees=move\|leave`, else 409 `{ worktreesAtOldRoot }` and nothing saved; with move the answer has `worktrees: { moved, skipped }` (7.1) |
 | POST | `/api/sources/test` | `{ origin, query }`; runs the query once: `{ count, issues }` (first 10) |
+| POST | `/api/items/:id/repo` | `{ origin }`: a ticket's repository among its candidates, `item.repo_chosen` (6.12). 400 for an origin that is no candidate, 409 once the agent started, 404 for an unknown item |
+| POST | `/api/ticket-sources/test` | `{ connection, query? }`: runs the JQL once: `{ ok: true, count, issues }` (first 10, `{ externalId, title, url }`) or `{ ok: false, error }`; 409 when the connection is not running yet |
 | GET | `/api/status` | CLI detection (`gh`, `claude`, and `helpers` by id: installed, path, version), daemon version, pid, `startedAt`, running agents, last poll and scan, `pollErrors` (the last 5 failed polls, newest first) |
 | GET | `/api/playbooks` | `{ globalDir, playbooks, problems }`: global playbooks, then each repo's own with `scope` and `overridesGlobal`; each with its frontmatter, `match`, `body`, the MCP `tools` its drafts offer, its starting `permissions` (`allow`, `deny`), and for a global copy of a shipped playbook `builtIn` (`default` or `edited`); broken files as problems (12.4) |
 | GET | `/api/daemon` | version, pid, port, `startedAt`, `service` (`launchd` \| `manual`), config, database path and size, log file (launchd only), playbooks folder |
@@ -1483,6 +1521,17 @@ cased) and `host` `dev.azure.com`, which is its default. A `jira`
 connection has an https `baseUrl` (a context path is fine), `deployment` `cloud` or `datacenter`,
 and for `cloud` the `email` the API token belongs to (D51). An `api` connection's token is in the macOS Keychain, service `donepm`, account `id`.
 It is never in this file.
+
+`ticketSources` (6.12): default `[]`. Each entry names a `jira` connection, an optional JQL
+`query` (absent: `assignee = currentUser() AND statusCategory != Done`), its `repos` (normalised
+origins, at least one, each served by a code host connection) and `assignOnStart`. Changes apply
+at once and poll now.
+
+```json
+"ticketSources": [
+  { "connection": "jira", "query": "project = APP AND sprint in openSprints()", "repos": ["github.com/acme/app", "github.com/acme/api"], "assignOnStart": true }
+]
+```
 
 `archiveAfterHours` and `deleteAfterDays` (6.8): whole numbers of 0 or more; `deleteAfterDays:
 null` never deletes.

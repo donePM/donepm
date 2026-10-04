@@ -260,6 +260,23 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("names Jira for a ticket, and the user's choice of repository (issue #139)", () => {
+    const events = [
+      ev("item.collected", { externalId: "jira:APP-123", url: "https://acme.atlassian.net/browse/APP-123" }),
+      ev("item.repo_chosen", { origin: "github.com/acme/app" }, { actor: "user" }),
+      ev("item.assigned"),
+      ev("item.refreshed", { changed: { priority: { from: 2, to: 1 } } }),
+      ev("item.closed_upstream"),
+    ];
+    expect(timelineEntries(events, []).map(({ actor, verb, code }) => ({ actor, verb, code }))).toEqual([
+      { actor: "System", verb: "closed in Jira, moved to Done", code: undefined },
+      { actor: "System", verb: "priority changed in Jira: P2 → P1", code: undefined },
+      { actor: "System", verb: "assigned the ticket to you in Jira", code: undefined },
+      { actor: "You", verb: "chose the repository", code: "github.com/acme/app" },
+      { actor: "System", verb: "collected from Jira", code: undefined },
+    ]);
+  });
+
   it("describes restarts, resumes and removed worktrees", () => {
     const events = [
       ev("agent.interrupted", { reason: "daemon restarted" }),

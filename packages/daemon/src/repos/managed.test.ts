@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Config } from "../config/config.js";
-import { hiddenUnmanaged, isManaged, managedChanges, managedOrigins, migrateManaged, withManaged } from "./managed.js";
+import { hiddenUnmanaged, isManaged, itemManaged, managedChanges, managedOrigins, migrateManaged, withManaged } from "./managed.js";
 
 const sources: Config["sources"] = {
   "github.com/a/b": { query: "label:x", assignOnStart: true, managed: true },
@@ -15,6 +15,15 @@ describe("isManaged", () => {
     expect(isManaged(sources, "github.com/e/f")).toBe(false);
     expect(isManaged(sources, "github.com/none/here")).toBe(false);
     expect([...managedOrigins(sources)]).toEqual(["github.com/a/b"]);
+  });
+});
+
+describe("itemManaged (issue #139)", () => {
+  it("goes by the item's origin, or a ticket's candidates until one is chosen", () => {
+    expect(itemManaged(sources, {}, "github.com/a/b")).toBe(true);
+    expect(itemManaged(sources, { repoCandidates: ["github.com/a/b", "github.com/c/d"] }, "github.com/c/d")).toBe(false);
+    expect(itemManaged(sources, { repoCandidates: ["github.com/c/d", "github.com/a/b"] }, "")).toBe(true);
+    expect(itemManaged(sources, { repoCandidates: ["github.com/c/d"] }, "")).toBe(false);
   });
 });
 

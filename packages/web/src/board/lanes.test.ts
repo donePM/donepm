@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ItemView } from "../api/types";
-import { buildLanes, dependabotCount, laneSummary, NO_CLONE_KEY, repoName, sortLanes, stableOrder } from "./lanes";
+import { buildLanes, CHOOSE_REPO_KEY, dependabotCount, laneSummary, NO_CLONE_KEY, repoName, sortLanes, stableOrder } from "./lanes";
 
 let n = 0;
 function item(over: Partial<ItemView> & { repoKey?: string | null; origin?: string }): ItemView {
@@ -146,5 +146,15 @@ describe("dependabotCount", () => {
       alpha({ source: "github-pr", author: "octocat" }),
     ]);
     expect(dependabotCount(lane!)).toBe(2);
+  });
+});
+
+describe("tickets waiting for a repository (issue #139)", () => {
+  it("share a lane of their own, before the others", () => {
+    const ticket = orphan({ source: "jira-issue", externalId: "jira:APP-1", repoCandidates: ["github.com/acme/alpha", "github.com/acme/beta"] });
+    const placed = alpha({ source: "jira-issue", externalId: "jira:APP-2", repoCandidates: ["github.com/acme/alpha"], repoOrigin: "github.com/acme/alpha" });
+    const lanes = sortLanes(buildLanes([orphan(), placed, ticket]));
+    expect(keys(lanes)).toEqual([CHOOSE_REPO_KEY, "a", NO_CLONE_KEY]);
+    expect(lanes[0]!.name).toBe("Choose a repository");
   });
 });

@@ -18,8 +18,12 @@ export interface SyncDeps {
   playbookFor?: (origin: string, source: ItemSource) => string | undefined;
 }
 
-/** `github.com/owner/repo` for an issue, matching a clone's normalised origin. */
-export function issueOrigin(issue: SourceIssue): string {
+/**
+ * `github.com/owner/repo` for an issue, matching a clone's normalised origin. A ticket's is the
+ * repository it goes to (issue #139): its only one, the one chosen for its item, or '' until chosen.
+ */
+export function issueOrigin(issue: SourceIssue, item?: WorkItem): string {
+  if (issue.origins) return item?.repoOrigin ?? (issue.origins.length === 1 ? issue.origins[0]! : "");
   return normalizeOriginUrl(`${new URL(issue.url).host}/${issue.repository}`);
 }
 
@@ -38,14 +42,18 @@ export interface SyncResult {
 /**
  * Upsert the polled issues by `externalId` (spec 6.2). New issues become `ready` items with an
  * `item.collected` event. Known items get the latest content, and a changed priority, title or
- * labels an `item.refreshed` event (D45). Nothing is deleted. Items of origins not `asked` for
- * (unmanaged ones, D46) are never reported missing. Items not in the result are not refreshed (D45).
+ * labels an `item.refreshed` event (D45). Nothing is deleted. Items not `asked` for (of unmanaged
+ * origins, D46, or of a ticket connection that did not search) are never reported missing. Items not in the result are not refreshed (D45).
  *
  * An issue whose item was archived or purged (D37) is skipped while it stays open: its work is
  * finished. Once it was seen closed, its showing up again means it was reopened, and it is
  * collected as a new item; the archived one keeps its own history.
  */
-export function syncIssues(issues: readonly SourceIssue[], deps: SyncDeps, asked: (origin: string) => boolean = () => true): SyncResult {
+export function syncIssues(
+  issues: readonly SourceIssue[],
+  deps: SyncDeps,
+  asked: (origin: string, externalId: string) => boolean = () => true,
+): SyncResult {
   const { db, items, events, repos, ctx } = deps;
   const tombstones = new TombstoneStore(db);
   const finishedBefore = (externalId: string): boolean => {
@@ -64,11 +72,11 @@ export function syncIssues(issues: readonly SourceIssue[], deps: SyncDeps, asked
       const externalId = externalIdOf(issue);
       if (seen.has(externalId)) continue;
       seen.add(externalId);
-      const origin = issueOrigin(issue);
-      const repoId = repos.byOrigin(origin)?.id;
       const known = items.byExternalId(externalId);
 
       if (!known) {
+        const origin = issueOrigin(issue);
+        const repoId = origin ? repos.byOrigin(origin)?.id : undefined;
         if (finishedBefore(externalId)) continue;
         const playbook = deps.playbookFor?.(origin, issue.source ?? "github-issue");
         const c = collect(issue, ctx, { ...(repoId === undefined ? {} : { repoId }), ...(playbook ? { playbook } : {}) });
@@ -79,6 +87,8 @@ export function syncIssues(issues: readonly SourceIssue[], deps: SyncDeps, asked
       }
       const r = refresh(known.item, issue, ctx);
       const refreshed = r?.item ?? known.item;
+      const origin = issueOrigin(issue, issue.origins ? refreshed : undefined);
+      const repoId = origin ? repos.byOrigin(origin)?.id : undefined;
       const linked = linkRepo(refreshed, repoId, ctx) ?? refreshed;
       if (linked !== known.item) {
         items.update(linked);
@@ -89,10 +99,10 @@ export function syncIssues(issues: readonly SourceIssue[], deps: SyncDeps, asked
 
     const missing = items
       .all()
-      .filter((s) => asked(s.originUrl))
+      .filter((s) => asked(s.originUrl, s.item.externalId))
       .map((s) => s.item)
       .filter((i) => !seen.has(i.externalId) && !i.closedUpstream && (i.state !== "done" || i.archivedAt !== undefined));
-    const openTombstones = tombstones.open().filter((t) => asked(t.originUrl) && !seen.has(t.externalId));
+    const openTombstones = tombstones.open().filter((t) => asked(t.originUrl, t.externalId) && !seen.has(t.externalId));
     return { collected, updated, missing, openTombstones };
   });
 }

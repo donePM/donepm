@@ -235,4 +235,7 @@ export const MIGRATIONS: readonly Migration[] = [
   // Whose protocol a transcript line is in (issue #136). NULL: the daemon's own line, or Claude Code's
   // from before agents had a kind.
   `ALTER TABLE transcript ADD COLUMN agent_kind TEXT;`,
+  // A ticket's repositories as a JSON array (issue #139); its origin_url is the one chosen, '' until then.
+  // NULL: an item of one repository, a GitHub issue or pull request.
+  `ALTER TABLE items ADD COLUMN repo_candidates TEXT;`,
 ];

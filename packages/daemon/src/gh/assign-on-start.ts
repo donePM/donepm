@@ -1,9 +1,10 @@
-import { issueAssigned, issueAssignFailed, type Ctx } from "@donepm/core";
+import { issueAssigned, issueAssignFailed, parseTicketId, type Ctx } from "@donepm/core";
 import type { Config } from "../config/config.js";
+import type { TicketSourceConfig } from "../config/ticket-sources.js";
 import type { ItemWriter } from "../items/commit.js";
 import type { ItemStore } from "../items/store.js";
 import type { Log } from "../log.js";
-import type { Providers } from "../providers/registry.js";
+import { ticketConnectionOf, type Providers } from "../providers/registry.js";
 import type { Done } from "../providers/result.js";
 
 export interface AssignDeps {
@@ -13,6 +14,8 @@ export interface AssignDeps {
   ctx: Ctx;
   log: Log;
   sources: () => Config["sources"];
+  /** Jira searches; a ticket is assigned when one that found it for this repository opted in (issue #139). */
+  ticketSources?: () => readonly TicketSourceConfig[];
 }
 
 /**
@@ -21,11 +24,11 @@ export interface AssignDeps {
  * event; a failure does not stop the agent. Resolves once the outcome is recorded.
  */
 export async function assignOnStart(deps: AssignDeps, itemId: string, origin: string): Promise<void> {
-  if (!deps.sources()[origin]?.assignOnStart) return;
   const stored = deps.items.get(itemId);
   // A pull request to review is someone else's; there is nothing to assign (D40).
-  if (!stored || stored.item.source !== "github-issue") return;
-  const tickets = deps.providers.ticketSource(origin);
+  if (!stored || stored.item.source === "github-pr") return;
+  if (!optedIn(deps, stored.item.source, stored.item.externalId, origin)) return;
+  const tickets = ticketConnectionOf(deps.providers, { externalId: stored.item.externalId, origin })?.ticketSource;
   let result: Done;
   try {
     result = tickets ? await tickets.assignToMe({ externalId: stored.item.externalId, origin }) : { ok: false, error: `no ticket source for ${origin}` };
@@ -41,4 +44,11 @@ export async function assignOnStart(deps: AssignDeps, itemId: string, origin: st
     deps.log.warn({ itemId, error: result.error }, "assign on start failed");
     deps.writer.commit(issueAssignFailed(now, deps.ctx, result.error));
   }
+}
+
+/** A GitHub issue follows its repository's setting; a ticket that of its connection's searches for this repository. */
+function optedIn(deps: AssignDeps, source: string, externalId: string, origin: string): boolean {
+  if (source !== "jira-issue") return deps.sources()[origin]?.assignOnStart === true;
+  const connection = parseTicketId(externalId)?.connection;
+  return (deps.ticketSources?.() ?? []).some((e) => e.connection === connection && e.repos.includes(origin) && e.assignOnStart === true);
 }

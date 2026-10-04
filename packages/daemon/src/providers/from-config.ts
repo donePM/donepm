@@ -1,5 +1,6 @@
 import { azureDevOpsConnection } from "../azure/connection.js";
 import type { ConnectionConfig } from "../config/connections.js";
+import type { TicketSourceConfig } from "../config/ticket-sources.js";
 import { gitHubCliConnection } from "../gh/adapter.js";
 import { jiraConnection } from "../jira/connection.js";
 import type { Exec } from "../process/exec.js";
@@ -12,6 +13,8 @@ export interface ProviderDeps {
   exec: Exec;
   http: HttpClient;
   tokens: TokenStore;
+  /** The config's `ticketSources` as they stand, read on each poll (issue #139). */
+  ticketSources?: () => readonly TicketSourceConfig[];
 }
 
 /** The adapters of one configured connection (D50). The schema refuses a backend a kind lacks. */
@@ -20,7 +23,7 @@ function connectionOf(config: ConnectionConfig, deps: ProviderDeps): Connection 
     case "github":
       return gitHubCliConnection(deps.exec, config.host, config.id);
     case "jira":
-      return jiraConnection(config, deps.http, deps.tokens);
+      return jiraConnection(config, deps.http, deps.tokens, deps.ticketSources);
     case "azure-devops":
       return azureDevOpsConnection({ ...deps, id: config.id, organization: config.organization, backend: config.backend });
   }

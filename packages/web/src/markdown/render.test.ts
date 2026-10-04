@@ -87,6 +87,10 @@ describe("renderMarkdown", () => {
   it("leaves #123 as text without a repository", () => {
     expect(renderMarkdown("#12 is it")).toBe("<p>#12 is it</p>\n");
   });
+
+  it("links no @name or #123 in a ticket's text (issue #139)", () => {
+    expect(renderMarkdown("ask @dana about #12", undefined, { noReferences: true })).toBe("<p>ask @dana about #12</p>\n");
+  });
 });
 
 describe("renderMarkdown with embedded HTML", () => {

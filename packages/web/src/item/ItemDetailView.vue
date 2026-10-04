@@ -224,8 +224,8 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
               <p v-if="retryError" class="alert" role="alert">{{ retryError }}</p>
             </section>
             <section v-if="detail.body.trim()" class="panel" aria-labelledby="issue-h">
-              <h2 id="issue-h">{{ detail.source === "github-pr" ? "Pull request" : "Issue" }}</h2>
-              <MarkdownView class="body" :source="detail.body" :repo="repo" />
+              <h2 id="issue-h">{{ detail.source === "github-pr" ? "Pull request" : detail.source === "jira-issue" ? "Ticket" : "Issue" }}</h2>
+              <MarkdownView class="body" :source="detail.body" :repo="repo" :no-references="detail.source === 'jira-issue'" />
             </section>
           </template>
           <DiffPanel v-else-if="tab === 'changes' && detail.worktreePath" :diff="diff" :loading="diffLoading" :error="diffError" @refresh="reloadDiff" />

@@ -1,5 +1,5 @@
 import {
-  draftCreated, draftEdited, draftRejected, draftTitle, executedPr, replyThreads,
+  draftCreated, draftEdited, draftRejected, draftTitle, executedPr, prTitleFor, replyThreads,
   type CommentDraft, type Ctx, type Draft, type DraftCommit, type DraftReply, type DraftType, type PrDraft, type PrDraftPayload,
   type PushDraft, type WorkItem,
 } from "@donepm/core";
@@ -40,15 +40,17 @@ export function createPrDraft(deps: DraftDeps, itemId: string, input: { title: s
   const repo = item.repoId ? deps.repos.get(item.repoId) : undefined;
   if (!repo) throw new DraftError(409, "the item has no local clone");
 
+  // A ticket's PR title starts with its key, which links the two in Jira (issue #139).
+  const title = prTitleFor(item.externalId, input.title);
   const draft: PrDraft = {
     id: deps.ctx.newId(),
     itemId,
     type: "pr",
-    payload: { title: input.title, body: input.body, base: repo.defaultBranch },
+    payload: { title, body: input.body, base: repo.defaultBranch },
     state: "pending",
   };
   deps.drafts.insert(draft, deps.ctx.now());
-  deps.writer.commit(draftCreated(item, deps.ctx, draft.id, { type: "pr", title: input.title }));
+  deps.writer.commit(draftCreated(item, deps.ctx, draft.id, { type: "pr", title }));
   return draft;
 }
 

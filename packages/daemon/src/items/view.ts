@@ -67,6 +67,8 @@ export type PrView = PrDraftResult &
     conflict?: { base: string; files: string[]; waiting: boolean };
   };
 
+export const awaitingRepo = (item: WorkItem): boolean => item.repoCandidates !== undefined && !item.repoOrigin;
+
 export function toItemView(
   item: WorkItem,
   repo: Repo | undefined,
@@ -76,7 +78,8 @@ export function toItemView(
   allowedPlaybooks: string[] = [],
 ): ItemView {
   const badges: ItemBadge[] = [];
-  if (!repo) badges.push("no-local-clone");
+  // A ticket of several repositories waits for the user's choice, not for a clone (issue #139).
+  if (!repo && !awaitingRepo(item)) badges.push("no-local-clone");
   if (item.closedUpstream) badges.push("closed-upstream");
   return {
     ...item,

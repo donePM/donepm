@@ -49,3 +49,4 @@ export * from "./playbook/select.js";
 export * from "./playbook/allowed.js";
 export * from "./transcript/tool-summary.js";
 export * from "./transcript/subagent.js";
+export * from "./jira/ticket.js";

@@ -1,0 +1,35 @@
+{
+  "expand": "schema,names",
+  "startAt": 0,
+  "maxResults": 100,
+  "total": 1,
+  "issues": [
+    {
+      "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+      "id": "20001",
+      "self": "https://jira.acme.com/rest/api/2/issue/20001",
+      "key": "OPS-7",
+      "fields": {
+        "summary": "Rotate the build cache",
+        "description": "The cache grows without bound.\n\n* weekly\n* keep 3",
+        "priority": { "self": "https://jira.acme.com/rest/api/2/priority/1", "iconUrl": "https://jira.acme.com/images/icons/priorities/blocker.svg", "name": "Blocker", "id": "1" },
+        "status": {
+          "self": "https://jira.acme.com/rest/api/2/status/1",
+          "name": "Open",
+          "id": "1",
+          "statusCategory": { "self": "https://jira.acme.com/rest/api/2/statuscategory/2", "id": 2, "key": "new", "colorName": "blue-gray", "name": "To Do" }
+        },
+        "labels": ["infra"],
+        "components": [{ "self": "https://jira.acme.com/rest/api/2/component/10100", "id": "10100", "name": "CI" }],
+        "issuetype": { "self": "https://jira.acme.com/rest/api/2/issuetype/3", "id": "3", "name": "Task", "subtask": false },
+        "project": { "self": "https://jira.acme.com/rest/api/2/project/10200", "id": "10200", "key": "OPS", "name": "Operations" },
+        "created": "2026-09-20T10:00:00.000+0200",
+        "updated": "2026-09-21T10:00:00.000+0200",
+        "assignee": { "self": "https://jira.acme.com/rest/api/2/user?username=dana", "name": "dana", "key": "JIRAUSER10100", "displayName": "Dana Developer", "active": true }
+      },
+      "renderedFields": {
+        "description": "<p>The cache grows without bound.</p>\n\n<ul class=\"alternate\" type=\"square\">\n\t<li>weekly</li>\n\t<li>keep 3</li>\n</ul>\n<iframe src=\"https://example.invalid\"></iframe>"
+      }
+    }
+  ]
+}

@@ -662,6 +662,23 @@ the second agent behind the adapter of D49 (`daemon/src/agent/codex/`).
   through `agentKindChanged`). The dropdown appears once Codex is installed. Playbooks and
   repositories can name it too (D49).
 
+**D55. Jira tickets: ids carry the connection, the user picks among several repositories.** Issue
+#139. A ticket's id is `<connection>:<KEY>` (`jira:APP-123`), so it never collides with a GitHub id
+and names the connection its updates and drafts go through, even with two Jira sites. A Jira
+project does not map to one repository, so each ticket source lists its `repos`. With one the
+ticket goes there; with several the user picks per ticket, as an event (`item.repo_chosen`) through
+a core transition, because guessing from components or labels would put an agent in the wrong
+repository. The choice is open until the first start and fixed afterwards, like the playbook. The
+ticket keeps its candidates (`repo_candidates`) and the chosen origin in `origin_url`, which is
+empty until then; the board shows such tickets when any candidate is managed.
+
+The description comes from `renderedFields` and is turned into Markdown (`turndown`), not from the
+ADF or wiki source: one path serves Cloud and Data Center, and the UI sanitises Markdown already.
+Priority goes by the priority's name, since its ids differ per site. Closed detection batches
+`key in (…)` and falls back to single reads when Jira rejects a batch for one deleted key; a key
+Jira no longer knows stays undecided rather than closed. A 429 skips that connection for the poll
+instead of waiting inside it.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

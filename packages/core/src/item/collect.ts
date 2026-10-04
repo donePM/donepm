@@ -1,14 +1,23 @@
 import type { Ctx } from "../ids.js";
 import type { Event } from "../event/types.js";
 import { hostOfUrl, qualifiedRepository } from "../github/host.js";
-import { issuePriority } from "./priority.js";
+import { issuePriority, type PriorityTier } from "./priority.js";
 import type { ItemSource, WorkItem } from "./types.js";
 
 /** An issue as a source reports it, already validated. */
 export interface SourceIssue {
-  /** `owner/repo` */
+  /** `owner/repo`; a ticket's project key (`APP`). */
   repository: string;
   number: number;
+  /** A ticket's own id (`jira:APP-123`, issue #139); a GitHub issue's is made from its repository and number. */
+  externalId?: string;
+  /**
+   * A ticket's repositories, as normalised origins (issue #139): those its ticket sources map to.
+   * Absent for a GitHub issue, which lives in one.
+   */
+  origins?: string[];
+  /** A ticket source's own priority, as a tier (Jira's, issue #139); it wins over field and labels. */
+  priorityTier?: PriorityTier;
   url: string;
   title: string;
   body: string;
@@ -45,7 +54,8 @@ export function defaultPlaybookFor(source: ItemSource): string {
  * `owner/repo#123` on github.com, `host/owner/repo#123` on any other GitHub host (issue #140), so
  * the same `owner/repo#123` on two hosts are two items. The host comes from the issue's URL.
  */
-export function externalIdOf(issue: Pick<SourceIssue, "repository" | "number" | "url">): string {
+export function externalIdOf(issue: Pick<SourceIssue, "repository" | "number" | "url" | "externalId">): string {
+  if (issue.externalId !== undefined) return issue.externalId;
   return `${qualifiedRepository(hostOfUrl(issue.url), issue.repository)}#${issue.number}`;
 }
 
@@ -74,6 +84,7 @@ export function collect(
     updatedAt: at,
   };
   if (opts.repoId !== undefined) item.repoId = opts.repoId;
+  if (issue.origins) Object.assign(item, candidates(issue.origins));
   if (issue.author !== undefined) item.author = issue.author;
   const event: Event = {
     id: ctx.newId(),
@@ -99,6 +110,19 @@ export interface RefreshedChanges {
   labels?: Change<string[]>;
 }
 
+const sameList = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/**
+ * A ticket's repositories (issue #139). One is the repository; of several the user chooses. A
+ * choice stays while it is still a candidate, and always once the agent started there: its work is
+ * in that repository's worktree.
+ */
+function candidates(origins: readonly string[], item?: WorkItem): Pick<WorkItem, "repoCandidates" | "repoOrigin"> {
+  const kept = item?.repoOrigin !== undefined && (origins.includes(item.repoOrigin) || item.startedAt !== undefined) ? item.repoOrigin : undefined;
+  const repoOrigin = kept ?? (origins.length === 1 ? origins[0] : undefined);
+  return { repoCandidates: [...origins], ...(repoOrigin !== undefined ? { repoOrigin } : {}) };
+}
+
 const sameSet = (a: readonly string[], b: readonly string[]): boolean =>
   a.length === b.length && new Set(a).size === new Set([...a, ...b]).size;
 
@@ -122,6 +146,7 @@ export function refresh(item: WorkItem, issue: SourceIssue, ctx: Ctx): Collected
     item.priority !== priority ||
     item.issueCreatedAt !== issue.createdAt ||
     (issue.author !== undefined && item.author !== issue.author) ||
+    (issue.origins !== undefined && !sameList(item.repoCandidates ?? [], issue.origins)) ||
     item.closedUpstream === true;
   if (!changed) return undefined;
   const at = ctx.now();
@@ -136,6 +161,10 @@ export function refresh(item: WorkItem, issue: SourceIssue, ctx: Ctx): Collected
     updatedAt: at,
   };
   if (issue.author !== undefined) next.author = issue.author;
+  if (issue.origins !== undefined) {
+    delete next.repoOrigin;
+    Object.assign(next, candidates(issue.origins, item));
+  }
   delete next.closedUpstream;
 
   const changes: RefreshedChanges = {};

@@ -1,6 +1,6 @@
 import type { AgentKind, MergeMethod, PermissionGrant } from "@donepm/core";
 import type {
-  AskAnswer, CloneResult, ConnectionTest, DaemonInfo, Draft, ItemDetail, ItemDiff, ItemView, MoveOutcome, OpenTarget, OrphanWorktree, PlaybookList, PrDraftPayload, RepoView, Settings, SourceTest, Status,
+  AskAnswer, CloneResult, ConnectionTest, DaemonInfo, Draft, ItemDetail, ItemDiff, ItemView, MoveOutcome, OpenTarget, OrphanWorktree, PlaybookList, PrDraftPayload, RepoView, Settings, SourceTest, Status, TicketSourceTest,
   TranscriptMessage,
 } from "./types";
 
@@ -58,6 +58,8 @@ export const api = {
   updatePrBranch: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/pr/update-branch`),
   mergePr: (id: string, method: MergeMethod) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/pr/merge`, { method }),
   setAutoMerge: (id: string, on: boolean) => call<ItemView>("PUT", `/api/items/${encodeURIComponent(id)}/auto-merge`, { on }),
+  /** A ticket's repository, among its candidates; until the agent first starts (issue #139). */
+  chooseRepo: (id: string, origin: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/repo`, { origin }),
   setPlaybook: (id: string, playbook: string) => call<ItemView>("PUT", `/api/items/${encodeURIComponent(id)}/playbook`, { playbook }),
   setAgent: (id: string, agent: AgentKind) => call<ItemView>("PUT", `/api/items/${encodeURIComponent(id)}/agent`, { agent }),
   /** A note to the running agent; it joins the running turn. */
@@ -94,6 +96,8 @@ export const api = {
   /** Shows the log file or the global playbooks folder in Finder. */
   openDaemon: (what: "logs" | "playbooks") => call<{ ok: true }>("POST", "/api/daemon/open", { what }),
   testSource: (origin: string, query: string) => call<SourceTest>("POST", "/api/sources/test", { origin, query }),
+  /** Runs a ticket source's query once (issue #139). */
+  testTicketSource: (connection: string, query?: string) => call<TicketSourceTest>("POST", "/api/ticket-sources/test", { connection, ...(query ? { query } : {}) }),
   /** The token goes to the Keychain; the answer says only that one is set. */
   setToken: (id: string, token: string) => call<{ id: string; tokenSet: boolean }>("PUT", `/api/connections/${encodeURIComponent(id)}/token`, { token }),
   deleteToken: (id: string) => call<{ id: string; tokenSet: boolean }>("DELETE", `/api/connections/${encodeURIComponent(id)}/token`),

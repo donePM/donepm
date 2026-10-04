@@ -10,6 +10,7 @@ export const EVENT_TYPES = [
   "item.pr_merged",
   "item.archived",
   "item.refreshed",
+  "item.repo_chosen",
   "agent.started",
   "agent.resumed",
   "agent.turn_started",

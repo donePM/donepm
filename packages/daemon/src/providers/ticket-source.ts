@@ -16,6 +16,9 @@ export interface Search {
   result: FetchResult;
 }
 
+/** Whether a ticket is still open upstream. */
+export type TicketState = "OPEN" | "CLOSED";
+
 /** A ticket as an item names it: its `externalId` and the normalised origin it belongs to. */
 export interface TicketRef {
   externalId: string;
@@ -39,7 +42,9 @@ export interface TicketSource {
   /** The tickets with the fields read in a batch (priority, D45); one whose fields could not be read says so. */
   withFields(issues: readonly FetchedIssue[]): Promise<SourceIssue[]>;
   /** `OPEN` or `CLOSED`; undefined when it cannot be read. */
-  state(ticket: TicketRef): Promise<"OPEN" | "CLOSED" | undefined>;
+  state(ticket: TicketRef): Promise<TicketState | undefined>;
+  /** The states of many tickets in few calls, by `externalId`; one left out could not be read. */
+  states?(tickets: readonly TicketRef[]): Promise<Map<string, TicketState>>;
   /** Assign the ticket to the logged-in user (D28). */
   assignToMe(ticket: TicketRef): Promise<Done>;
 }

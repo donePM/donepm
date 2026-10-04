@@ -4,6 +4,7 @@ import { AGENT_KINDS, DEFAULT_WEB_FETCH_DOMAINS, isDomain, MERGE_METHODS, normal
 import { z } from "zod";
 import { connectionFor, connectionsOf, ConnectionsSchema } from "./connections.js";
 import { CiOptInSchema, pipelinesOptIn } from "./pipelines.js";
+import { ticketSourceProblem, TicketSourcesSchema } from "./ticket-sources.js";
 
 /**
  * Per repository: which issues donePM collects (spec 4.6). `query` is the provider's search
@@ -90,6 +91,8 @@ export const ConfigSchema = z
     connections: ConnectionsSchema.optional(),
     /** Keyed by normalised origin. Replaced as a whole by `PUT /api/settings`; `PUT /api/repos/:id` changes one entry. */
     sources: z.record(SourceKey, SourceSchema).default({}),
+    /** Searches of ticket providers and the repositories their tickets go to (issue #139). Replaced as a whole. */
+    ticketSources: TicketSourcesSchema.default([]),
     /** WebFetch to these hosts (and their subdomains) is allowed by the daemon, not asked (D31). */
     allowedWebFetchDomains: z
       .array(z.string().trim().toLowerCase().refine(isDomain, { message: "must be a host name like docs.github.com" }))
@@ -100,8 +103,9 @@ export const ConfigSchema = z
 export type Config = z.infer<typeof ConfigSchema>;
 
 /**
- * The config with what spans its keys checked: every `sources` key has a connection for its host,
- * and a `ci` opt-in knows its Azure DevOps project and has a connection for its organization.
+ * The config with what spans its keys checked: every `sources` key and ticket source repository has
+ * a connection for its host, a `ci` opt-in knows its Azure DevOps project and has a connection for
+ * its organization, and every ticket source has a ticket connection.
  */
 export const ValidConfigSchema = ConfigSchema.superRefine((config, ctx) => {
   const connections = connectionsOf(config);
@@ -115,6 +119,13 @@ export const ValidConfigSchema = ConfigSchema.superRefine((config, ctx) => {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["sources", origin, "ci"], message: `no connection for the Azure DevOps organization ${pipelines.organization}; add one under "connections"` });
     }
   }
+  config.ticketSources.forEach((entry, i) => {
+    const problem = ticketSourceProblem(entry, connections);
+    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ticketSources", i, "connection"], message: problem });
+    entry.repos.forEach((origin, j) => {
+      if (!connectionFor(connections, origin)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ticketSources", i, "repos", j], message: noConnectionFor(origin) });
+    });
+  });
 });
 
 export const DEFAULT_CONFIG: Config = ValidConfigSchema.parse({});

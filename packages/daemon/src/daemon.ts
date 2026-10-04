@@ -40,6 +40,7 @@ import { buildServer, type WorktreeChoice } from "./http/server.js";
 import { makeGuard } from "./http/guard.js";
 import { itemWriter } from "./items/commit.js";
 import { dismissItem } from "./items/dismiss.js";
+import { chooseRepo } from "./items/repo-choice.js";
 import { changePlaybook } from "./items/playbook.js";
 import { changeAgent } from "./items/agent-choice.js";
 import { sayToAgent } from "./agent/say.js";
@@ -57,7 +58,7 @@ import { databaseBytes } from "./system/info.js";
 import { withOrphanDetails } from "./worktrees/orphan-details.js";
 import { RepoCloner } from "./repos/clone.js";
 import { discoverRepos } from "./repos/discover.js";
-import { hiddenUnmanaged, isManaged, managedChanges, migrateManaged, withManaged } from "./repos/managed.js";
+import { hiddenUnmanaged, isManaged, itemManaged, managedChanges, migrateManaged, withManaged } from "./repos/managed.js";
 import { RepoStore } from "./repos/store.js";
 import { applyRetention } from "./retention/retention.js";
 import { StatusStore } from "./status/status.js";
@@ -147,7 +148,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const bridgeSessions = new BridgeSessions();
   let bridge: { close: () => Promise<void> } | undefined;
   const status = new StatusStore(opts.version, opts.ctx.now());
-  const providerDeps = { exec: opts.exec, http: opts.http ?? fetchHttp, tokens: opts.tokens ?? keychainTokens(opts.exec) };
+  const providerDeps = { exec: opts.exec, http: opts.http ?? fetchHttp, tokens: opts.tokens ?? keychainTokens(opts.exec), ticketSources: () => config.ticketSources };
   const providers = opts.providers ?? providersOf(connectionsOf(config), providerDeps);
   const boundPort = () => {
     const a = app.server.address();
@@ -173,7 +174,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const repoPathOf = (item: WorkItem, origin: string) => (item.repoId ? repos.get(item.repoId) : repos.byOrigin(origin))?.path;
   const view = (item: WorkItem): ItemView => {
     const repo = item.repoId ? repos.get(item.repoId) : undefined;
-    const origin = repo ? undefined : items.get(item.id)?.originUrl;
+    // A ticket whose repository is still to be chosen has no origin to clone (issue #139).
+    const origin = repo ? undefined : items.get(item.id)?.originUrl || undefined;
     const clone = origin === undefined ? undefined : cloner.state(origin);
     const itemEvents = events.forItem(item.id);
     const itemDrafts = drafts.forItem(item.id);
@@ -219,7 +221,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const onBoard = ({ item, originUrl }: StoredItem) =>
     item.archivedAt === undefined &&
     !hiddenUnmanaged({
-      managed: isManaged(config.sources, originUrl),
+      managed: itemManaged(config.sources, item, originUrl),
       state: item.state,
       hasPending: () => drafts.pending(item.id).length > 0 || asks.pending(item.id).length > 0,
     });
@@ -289,6 +291,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     worktreeRoot,
     branchPrefix: () => config.branchPrefix,
     sources: () => config.sources,
+    ticketSources: () => config.ticketSources,
   });
   /** Starts still preparing their worktree; shutdown waits for them before stopping agents. */
   const track = ({ item, done }: { item: WorkItem; done: Promise<void> }) => {
@@ -374,6 +377,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     const flipped = new Set(managedChanges(prev.sources, next.sources));
     for (const { item, originUrl } of items.all()) if (flipped.has(originUrl)) pushItem(item);
     if ([...flipped].some((origin) => isManaged(next.sources, origin))) void poller.runNow();
+    // A changed ticket source shows its tickets now rather than at the next poll (issue #139).
+    else if (JSON.stringify(next.ticketSources) !== JSON.stringify(prev.ticketSources)) void poller.runNow();
     if (next.repoRoot !== prev.repoRoot) void rescan().catch((e) => app.log.error({ err: e }, "rescan failed"));
     // The connections are read once at start (D50).
     const connectionsChanged = JSON.stringify(connectionsOf(next)) !== JSON.stringify(connectionsOf(prev));
@@ -382,6 +387,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
 
   const app = buildServer({
     port: boundPort,
+    providers,
     items,
     events,
     repos,
@@ -425,6 +431,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     ...(opts.service ? { restart: opts.service.restart } : {}),
     removeOrphan: (path) => removeOrphan({ exec: opts.exec, orphans }, path),
     stopItem: (id) => runner.stop(id),
+    chooseRepo: (id, origin) => chooseRepo({ items, repos, writer, ctx: opts.ctx }, id, origin),
     dismissItem: (id) => dismissItem({ items, writer, ctx: opts.ctx, agentActive: (i) => runner.isRunning(i) }, id),
     rerunCi: (id) => rerunCi({ items, events, writer, ctx: opts.ctx, providers }, id),
     markCiDone: (id) => markCiDone({ items, events, writer, ctx: opts.ctx, agentActive: (i) => runner.isRunning(i) }, id),
