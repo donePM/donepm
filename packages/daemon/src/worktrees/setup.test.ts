@@ -51,6 +51,13 @@ describe("runSetup", () => {
     expect(d.steps[0]).toMatchObject({ step: "copy", file: ".env", ok: false });
   });
 
+  it("skips dependencies with dependencies: off", async () => {
+    const d = await dirs("dependencies: off\nrun: [pwd]\n");
+    await writeFile(join(d.worktree, "pnpm-lock.yaml"), "");
+    expect(await d.run()).toBe(true);
+    expect(d.steps.map((s) => s.step)).toEqual(["run"]);
+  });
+
   it("fails on an invalid setup file", async () => {
     const d = await dirs("copy: [../../etc/passwd]\n");
     expect(await d.run()).toBe(false);
