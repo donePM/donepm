@@ -6,9 +6,10 @@ export interface CloneOrigin {
   repo: string;
 }
 
-// GitHub: owners are letters, digits and hyphens; repository names also have `.` and `_`.
+// GitHub: owners are letters, digits and hyphens, plus `_` for managed users on GitHub Enterprise
+// (`jdoe_acme`); repository names also have `.` and `_`.
 const HOST = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
-const OWNER = /^[a-z0-9][a-z0-9-]*$/;
+const OWNER = /^[a-z0-9][a-z0-9_-]*$/;
 const REPO = /^[a-z0-9._][a-z0-9._-]*$/;
 
 /**

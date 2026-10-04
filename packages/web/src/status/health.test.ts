@@ -26,6 +26,12 @@ describe("problems", () => {
     expect(problems(withStatus({ claude: { state: "not_logged_in" } }), true)).toEqual(["claude is not logged in"]);
   });
 
+  it("names a further GitHub host gh is not logged in to (issue #140)", () => {
+    const status = withStatus({ ghHosts: { "github.acme.com": { state: "not_logged_in" }, "acme.ghe.com": { state: "ready" } } });
+    expect(problems(status, true)).toEqual(["gh is not logged in to github.acme.com"]);
+    expect(problems(status, true, tools.filter((t) => t.name === "claude"))).toEqual([]);
+  });
+
   it("reports a failed poll, but not a missing one", () => {
     expect(problems(withStatus({ lastPoll: { at: "2026-01-01T00:00:00Z", ok: false, error: "boom" } }), true)).toEqual(["last poll failed"]);
     expect(problems(withStatus({ lastPoll: undefined }), true)).toEqual([]);

@@ -35,6 +35,7 @@ const keys = (lanes: { key: string }[]) => lanes.map((l) => l.key);
 
 describe("repoName", () => {
   it("drops the host", () => expect(repoName("github.com/acme/widgets")).toBe("acme/widgets"));
+  it("keeps a host other than github.com (issue #140)", () => expect(repoName("github.acme.com/team/app")).toBe("github.acme.com/team/app"));
   it("normalises an unnormalised origin", () => expect(repoName("git@github.com:Acme/Widgets.git")).toBe("acme/widgets"));
 });
 

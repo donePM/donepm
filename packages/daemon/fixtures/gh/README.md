@@ -56,3 +56,15 @@ Recorded with `gh` 2.102.0 on 2026-10-03.
   `headRefOid` (issue #146).
 - `pr-status-not-found.json`: the same for donePM/donepm#87 (behind its base, `BEHIND`) and a
   made-up #99999 (gh exits 1, the found pull request is still there).
+
+## Other GitHub hosts (issue #140)
+
+Written by hand, not recorded: synthetic data in the shape of the github.com recordings above,
+which is the shape gh documents for every GitHub host. The hosts are made up.
+
+- `ghe-search-issues.json`: `gh search issues --assignee=@me …` with `GH_HOST=github.acme.com` (a
+  GitHub Enterprise Server host); one issue, `team/app#7`.
+- `ghe-search-prs.json`: `gh search prs --review-requested=@me …` with `GH_HOST=acme.ghe.com` (a
+  GHE.com host); one pull request, `team/app#42`.
+- `ghe-pr-status.json`: `gh api graphql --hostname acme.ghe.com -f query=<prStatusQuery(refs)>` for
+  that pull request, waiting for checks and a review.

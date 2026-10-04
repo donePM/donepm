@@ -38,7 +38,7 @@ export interface CodeHost {
   clone(origin: string, target: string): Promise<Done>;
   createPr(input: PrCreate): Promise<PrCreated>;
   prState(pr: CiPr): Promise<PrState>;
-  /** Someone else's pull requests (D47), keyed `owner/repo#N`; a missing key could not be read. */
+  /** Someone else's pull requests (D47), keyed by item `externalId` (`owner/repo#N`, `host/owner/repo#N` off github.com, #140); a missing key could not be read. */
   prStatuses(refs: readonly PrRef[]): Promise<Map<string, PrStatus>>;
   /** Review feedback on a pull request donePM opened (D39), oldest first. */
   prFeedback(pr: CiPr): Promise<PrFeedbackResult>;

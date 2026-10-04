@@ -15,6 +15,14 @@ describe("hintDot", () => {
   });
 });
 
+describe("ghHint", () => {
+  it("names a GitHub host other than github.com when logging in (issue #140)", () => {
+    expect(ghHint("not_logged_in")).toMatchObject({ command: "gh auth login" });
+    expect(ghHint("not_logged_in", "github.acme.com")).toMatchObject({ tone: "warn", command: "gh auth login --hostname github.acme.com" });
+    expect(ghHint("ready", "github.acme.com")).toMatchObject({ tone: "ok" });
+  });
+});
+
 describe("helperHint", () => {
   it("offers the install command only when missing", () => {
     expect(helperHint({ installed: true, path: "/bin/x" }, "npm i -g x")).toEqual({ label: "installed", tone: "ok" });

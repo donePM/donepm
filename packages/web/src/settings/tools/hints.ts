@@ -10,15 +10,20 @@ export interface CliHint {
   command?: string;
 }
 
-/** Spec §6.1: `brew install gh` / `gh auth login` as copyable hints. */
-export function ghHint(state: CliState): CliHint {
+/**
+ * Spec §6.1: `brew install gh` / `gh auth login` as copyable hints. With a `host`, for a GitHub host
+ * other than github.com (issue #140): logging in names it.
+ */
+export function ghHint(state: CliState, host?: string): CliHint {
   switch (state) {
     case "ready":
       return { label: "ready", tone: "ok" };
     case "not_installed":
       return { label: "not installed", tone: "warn", why: "Issues cannot be collected until gh is installed. Run this in a terminal, then check again:", command: "brew install gh" };
     case "not_logged_in":
-      return { label: "found, not logged in", tone: "warn", why: "Issues cannot be collected until gh is logged in. Run this in a terminal, then check again:", command: "gh auth login" };
+      return host
+        ? { label: "found, not logged in", tone: "warn", why: `Work on ${host} cannot be collected until gh is logged in there. Run this in a terminal, then check again:`, command: `gh auth login --hostname ${host}` }
+        : { label: "found, not logged in", tone: "warn", why: "Issues cannot be collected until gh is logged in. Run this in a terminal, then check again:", command: "gh auth login" };
   }
 }
 

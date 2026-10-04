@@ -40,7 +40,10 @@ export interface Status {
   pid: number;
   /** When this daemon process started; Settings shows the uptime. */
   startedAt: string;
+  /** `gh` for github.com. */
   gh: GhStatus | undefined;
+  /** `gh` for each other GitHub host donePM works with, by host (issue #140); unset without any. */
+  ghHosts?: Record<string, GhStatus>;
   claude: ClaudeStatus | undefined;
   /** Optional helper CLIs by id (issue #152); undefined until first detected. */
   helpers: Record<string, HelperStatus> | undefined;

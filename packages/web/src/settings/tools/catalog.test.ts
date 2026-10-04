@@ -30,6 +30,15 @@ describe("toolRows", () => {
     expect(pw).toMatchObject({ tag: "playwright-cli 0.1.1", hint: { tone: "ok" }, detail: "/opt/homebrew/bin/playwright-cli · drives a browser, for agents that check a UI" });
   });
 
+  it("adds a row per further GitHub host, after github.com (issue #140)", () => {
+    const rows = toolRows({ ...status, ghHosts: { "github.acme.com": { state: "not_logged_in", path: "/opt/homebrew/bin/gh" } } });
+    expect(rows.map((r) => r.id)).toEqual(["claude", "gh", "gh:github.acme.com", "playwright-cli"]);
+    expect(rows[2]).toMatchObject({
+      category: "source", name: "GitHub CLI on github.acme.com",
+      hint: { tone: "warn", command: "gh auth login --hostname github.acme.com" }, detail: "/opt/homebrew/bin/gh · used for github.acme.com",
+    });
+  });
+
   it("has no hint until the daemon has checked, then a missing helper is muted", () => {
     expect(toolRows(undefined).every((r) => r.hint === undefined)).toBe(true);
     const pw = toolRows({ ...status, helpers: {} }).find((r) => r.id === "playwright-cli");

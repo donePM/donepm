@@ -13,15 +13,20 @@ import taskLists from "markdown-it-task-lists";
 export interface RepoRef {
   owner: string;
   name: string;
+  /** A GitHub host other than github.com (issue #140). */
+  host?: string;
 }
 
-/** `owner/repo#12` → the repo; undefined for anything else. */
+/** `owner/repo#12` or `host/owner/repo#12` (issue #140) → the repo; undefined for anything else. */
 export function repoOf(externalId: string): RepoRef | undefined {
-  const m = /^([\w.-]+)\/([\w.-]+)#\d+$/.exec(externalId);
-  return m ? { owner: m[1]!, name: m[2]! } : undefined;
+  const m = /^(?:([\w.-]+)\/)?([\w.-]+)\/([\w.-]+)#\d+$/.exec(externalId);
+  if (!m) return undefined;
+  const host = m[1]?.toLowerCase();
+  return host && host !== "github.com" ? { owner: m[2]!, name: m[3]!, host } : { owner: m[2]!, name: m[3]! };
 }
 
-const GITHUB = "https://github.com";
+/** Where the repository's references and relative links go: its own GitHub host. */
+const siteOf = (repo: RepoRef | undefined) => `https://${repo?.host ?? "github.com"}`;
 
 const md = new MarkdownIt({ html: true, linkify: true, breaks: false }).use(taskLists);
 
@@ -30,6 +35,7 @@ const REFERENCE = /(^|[^\w/@#&])(?:(?:([\w.-]+)\/([\w.-]+))?#(\d+)|@([A-Za-z0-9]
 
 md.core.ruler.push("github-references", (state) => {
   const repo = state.env?.repo as RepoRef | undefined;
+  const site = siteOf(repo);
   for (const block of state.tokens) {
     if (block.type !== "inline" || !block.children) continue;
     const out: typeof block.children = [];
@@ -47,11 +53,11 @@ md.core.ruler.push("github-references", (state) => {
       for (const m of token.content.matchAll(REFERENCE)) {
         const [whole, lead, owner, name, number, user] = m;
         const href = user
-          ? `${GITHUB}/${user}`
+          ? `${site}/${user}`
           : owner && name
-            ? `${GITHUB}/${owner}/${name}/issues/${number}`
+            ? `${site}/${owner}/${name}/issues/${number}`
             : repo
-              ? `${GITHUB}/${repo.owner}/${repo.name}/issues/${number}`
+              ? `${site}/${repo.owner}/${repo.name}/issues/${number}`
               : undefined;
         if (!href) continue;
         const start = m.index + lead!.length;
@@ -84,7 +90,7 @@ function resolve(url: string, repo: RepoRef | undefined, kind: "blob" | "raw" = 
   if (url.startsWith("#")) return url;
   if (ABSOLUTE.test(url) || url.startsWith("//")) return SAFE_LINK.test(url) ? url : undefined;
   if (!repo) return undefined;
-  const base = `${GITHUB}/${repo.owner}/${repo.name}/${kind}/HEAD/`;
+  const base = `${siteOf(repo)}/${repo.owner}/${repo.name}/${kind}/HEAD/`;
   try {
     return new URL(url.replace(/^\.?\//, ""), base).href;
   } catch {

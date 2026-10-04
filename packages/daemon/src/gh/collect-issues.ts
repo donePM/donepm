@@ -1,4 +1,4 @@
-import { externalIdOf, initialPlaybook, type Ctx, type ItemSource, type SourceIssue, type WorkItem } from "@donepm/core";
+import { externalIdOf, GITHUB_COM, initialPlaybook, type Ctx, type ItemSource, type SourceIssue, type WorkItem } from "@donepm/core";
 import type { Config } from "../config/config.js";
 import type { Db } from "../db/database.js";
 import type { EventStore } from "../events/store.js";
@@ -11,9 +11,10 @@ import { managedOrigins } from "../repos/managed.js";
 import type { RepoStore } from "../repos/store.js";
 import { TombstoneStore } from "../retention/tombstones.js";
 import type { SourcePollStatus, StatusStore } from "../status/status.js";
-import type { Providers } from "../providers/registry.js";
+import { hostOf, type Connection, type Providers } from "../providers/registry.js";
 import type { FetchedIssue, FetchResult, TicketSource } from "../providers/ticket-source.js";
-import { detectGh } from "./detect.js";
+import { detectHost, ghStatusOf } from "./host-status.js";
+import { githubHosts } from "./hosts.js";
 
 export interface CollectDeps {
   db: Db;
@@ -34,43 +35,69 @@ export interface CollectDeps {
 
 const RAW_LOG_LIMIT = 10_000;
 
+/** Where a connection's tickets live: its host, or its id for one without a host. */
+const placeOf = (connection: Connection) => connection.host ?? connection.id;
+
 /**
  * One poll cycle (spec 6.2): the default search (assigned to me), the pull requests that ask for
  * the user's review (issue #48, D40) or are assigned to them (issue #98, D47), and one query per repository that has its own (issue #32),
  * merged by `externalId`. A failing source does not stop the others.
  * Only managed repositories (D46) are polled with their own query, and only their issues are kept
  * from the searches; the others found there are counted for Settings' discovered list.
+ * Every GitHub host donePM works with is searched on its own (issue #140); a host whose `gh` is
+ * logged out or fails is skipped and reported, and the others go on.
  * Never throws: failures are logged and recorded in the status, so Settings can show them.
  */
 export async function collectIssues(deps: CollectDeps): Promise<void> {
   const { exec, providers, repos, status, ctx, log } = deps;
   const at = ctx.now();
   try {
-    if (status.get().gh?.state !== "ready") {
-      status.update({ gh: await detectGh(exec) });
-      if (status.get().gh?.state !== "ready") {
-        status.update({ lastPoll: { at, ok: false, error: `gh ${status.get().gh?.state}` } });
-        return;
-      }
+    // `gh` is logged in to each GitHub host on its own; a host it is not ready for is skipped.
+    const hosts = githubHosts(providers);
+    const stateOf = (host: string) => ghStatusOf(status.get(), host)?.state;
+    for (const host of hosts) if (stateOf(host) !== "ready") await detectHost(exec, status, host);
+    const isReady = (place: string) => !hosts.includes(place) || stateOf(place) === "ready";
+    const places = providers.ticketSources().map(({ connection }) => placeOf(connection));
+    // github.com alone reads as before; with more hosts each label and error names its host.
+    const named = (place: string, what?: string) =>
+      places.length === 1 && place === GITHUB_COM ? what : what ? `${what} on ${place}` : place;
+    const notReady = hosts.filter((host) => !isReady(host)).map((host) => [host, named(host, `gh ${stateOf(host)}`)!] as const);
+    if (!places.some(isReady)) {
+      status.update({ lastPoll: { at, ok: false, error: notReady.map(([, error]) => error).join("; ") || "no ticket source" } });
+      return;
     }
 
     const sourceConfig = deps.sources();
     const managed = managedOrigins(sourceConfig);
-    // The searches are one call each however many repositories there are, and they find the
-    // repositories to offer; an unmanaged repository costs no call of its own.
-    const fetched: Array<{ origin?: string; label?: string; result: FetchResult }> = [];
+    // The searches are one call each per host however many repositories there are, and they find
+    // the repositories to offer; an unmanaged repository costs no call of its own.
+    const fetched: Array<{ place: string; origin?: string; label?: string; result: FetchResult }> = [];
+    const mainOf = new Map<string, FetchResult>();
     const known = () => repos.all().map((r) => r.originUrl).filter((origin) => managed.has(origin));
-    for (const { source } of providers.ticketSources()) fetched.push(...(await source.collect(known)));
+    for (const { connection, source } of providers.ticketSources()) {
+      const place = placeOf(connection);
+      if (!isReady(place)) continue;
+      const searches = await source.collect(known);
+      if (searches[0]) mainOf.set(place, searches[0].result);
+      for (const { label, result } of searches) {
+        const text = named(place, label);
+        fetched.push({ place, ...(text ? { label: text } : {}), result });
+      }
+    }
     for (const [origin, source] of Object.entries(sourceConfig)) {
       const tickets = providers.ticketSource(origin);
-      if (source.query && managed.has(origin) && tickets) fetched.push({ origin, result: await tickets.query(origin, source.query) });
+      const place = hostOf(origin);
+      if (source.query && managed.has(origin) && tickets && isReady(place)) fetched.push({ place, origin, result: await tickets.query(origin, source.query) });
     }
 
     const issues: FetchedIssue[] = [];
-    const errors: string[] = [];
+    const errors: string[] = notReady.map(([, error]) => error);
+    // Hosts not every source answered for: their items may just not have been asked.
+    const unanswered = new Set<string>(notReady.map(([host]) => host));
+    let failedSources = 0;
     const sources: Record<string, SourcePollStatus> = {};
     const discovered = new Map<string, Set<number>>();
-    for (const { origin, label, result } of fetched) {
+    for (const { place, origin, label, result } of fetched) {
       if (result.ok) {
         for (const issue of result.issues) {
           const from = issueOrigin(issue);
@@ -88,12 +115,13 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
       const where = origin ?? label;
       errors.push(where ? `${where}: ${result.error}` : result.error);
       if (origin) sources[origin] = { ok: false, error: result.error };
+      unanswered.add(place);
+      failedSources++;
     }
     // The default search failing on the command maybe means logged out; detect again next cycle.
-    const main = fetched[0]?.result;
-    if (main && !main.ok && main.kind === "command") status.update({ gh: await detectGh(exec) });
+    for (const [place, main] of mainOf) if (hosts.includes(place) && !main.ok && main.kind === "command") await detectHost(exec, status, place);
 
-    // GitHub's "Priority" issue field, one batched call for all issues of the poll (D45).
+    // GitHub's "Priority" issue field, one batched call per host for all issues of the poll (D45).
     const synced = syncIssues(
       await withFields(providers, issues),
       {
@@ -104,26 +132,28 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
     );
     for (const item of [...synced.collected, ...synced.updated]) deps.onItemUpdated(item);
 
-    // An item is only "missing" if every source answered; otherwise it may just not have been asked.
-    if (errors.length === 0) {
-      for (const item of synced.missing) {
-        const origin = deps.items.get(item.id)?.originUrl;
-        const state = origin && (await providers.ticketSource(origin)?.state({ externalId: item.externalId, origin }));
-        if (state !== "CLOSED") continue;
-        const flagged = applyClosedUpstream(item.id, deps);
-        if (flagged) deps.onItemUpdated(flagged);
-      }
-      // A purged issue seen closed is imported fresh if it ever shows up again (D37).
-      const tombstones = new TombstoneStore(deps.db);
-      for (const t of synced.openTombstones) {
-        const state = await providers.ticketSource(t.originUrl)?.state({ externalId: t.externalId, origin: t.originUrl });
-        if (state === "CLOSED") tombstones.markClosed(t.externalId);
-      }
+    // An item is only "missing" if every source of its host answered; otherwise it may just not
+    // have been asked.
+    const answered = (origin: string) => isReady(hostOf(origin)) && !unanswered.has(hostOf(origin));
+    for (const item of synced.missing) {
+      const origin = deps.items.get(item.id)?.originUrl;
+      if (!origin || !answered(origin)) continue;
+      const state = await providers.ticketSource(origin)?.state({ externalId: item.externalId, origin });
+      if (state !== "CLOSED") continue;
+      const flagged = applyClosedUpstream(item.id, deps);
+      if (flagged) deps.onItemUpdated(flagged);
+    }
+    // A purged issue seen closed is imported fresh if it ever shows up again (D37).
+    const tombstones = new TombstoneStore(deps.db);
+    for (const t of synced.openTombstones) {
+      if (!answered(t.originUrl)) continue;
+      const state = await providers.ticketSource(t.originUrl)?.state({ externalId: t.externalId, origin: t.originUrl });
+      if (state === "CLOSED") tombstones.markClosed(t.externalId);
     }
 
     // Where the pull requests of others stand: conflicts, reviews, checks (D47). Not a source: a
     // failed read leaves the last status in place.
-    await refreshPrStatuses(deps, (origin) => managed.has(origin));
+    await refreshPrStatuses(deps, (origin) => managed.has(origin) && isReady(hostOf(origin)));
 
     const count = new Set(issues.map(externalIdOf)).size;
     log.info({ issues: count, collected: synced.collected.length, updated: synced.updated.length, failed: errors.length }, "poll done");
@@ -131,7 +161,7 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
       lastPoll: {
         at,
         ok: errors.length === 0,
-        ...(errors.length < fetched.length ? { issues: count } : {}),
+        ...(failedSources < fetched.length ? { issues: count } : {}),
         ...(errors.length ? { error: errors.join("; ") } : {}),
         ...(Object.keys(sources).length ? { sources } : {}),
         ...(discovered.size ? { discovered: Object.fromEntries([...discovered].map(([origin, numbers]) => [origin, numbers.size])) } : {}),

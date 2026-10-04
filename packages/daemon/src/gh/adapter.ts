@@ -1,10 +1,11 @@
-import type { CheckLog, CiPr } from "@donepm/core";
+import { GITHUB_COM, parseExternalId, type CheckLog, type CiPr } from "@donepm/core";
 import type { CiSource } from "../providers/ci-source.js";
 import type { CodeHost } from "../providers/code-host.js";
 import { providerRegistry, type Connection, type Providers } from "../providers/registry.js";
 import type { Done } from "../providers/result.js";
 import type { TicketRef, TicketSource } from "../providers/ticket-source.js";
 import type { Exec } from "../process/exec.js";
+import { onHost } from "./hosts.js";
 import { withPriorityFields } from "./issue-fields.js";
 import { assignIssueToMe, fetchAssignedIssues, fetchIssueState, fetchQueryIssues } from "./issues.js";
 import { fetchFailedLogs, fetchPrChecks, rerunFailedRuns } from "./pr-checks.js";
@@ -20,22 +21,25 @@ import { cloneRepo } from "./repo-clone.js";
 
 export type GitHubAdapter = TicketSource & CodeHost & CiSource;
 
-/** `owner/repo` and number of an `owner/repo#N` ticket. */
+/** The `--repo` value and number of an `owner/repo#N` or `host/owner/repo#N` ticket (issue #140). */
 function split(ticket: TicketRef): [string, number] {
-  const [repository, number] = ticket.externalId.split("#");
-  return [repository!, Number(number)];
+  const ref = parseExternalId(ticket.externalId);
+  if (!ref) throw new Error(`not an issue id: ${ticket.externalId}`);
+  return [ref.repo, ref.number];
 }
 
 /**
  * GitHub through the user's `gh` (the `cli` backend, issue #138): every role GitHub has. `gh`
- * holds the credentials; the daemon runs it, never the agent.
+ * holds the credentials; the daemon runs it, never the agent. One adapter per GitHub host
+ * (issue #140): its searches and batched reads go to that host, and every other call names the
+ * host in its `--repo` or URL.
  */
-export function gitHubCliAdapter(exec: Exec): GitHubAdapter {
+export function gitHubCliAdapter(exec: Exec, host = GITHUB_COM): GitHubAdapter {
   return {
     collect: async (knownOrigins) => [
-      { result: await fetchAssignedIssues(exec, knownOrigins) },
-      { label: "review requests", result: await fetchPullRequests(exec, "--review-requested=@me") },
-      { label: "assigned pull requests", result: await fetchPullRequests(exec, "--assignee=@me") },
+      { result: await fetchAssignedIssues(exec, () => knownOrigins().filter((origin) => onHost(origin, [host])), host) },
+      { label: "review requests", result: await fetchPullRequests(exec, "--review-requested=@me", host) },
+      { label: "assigned pull requests", result: await fetchPullRequests(exec, "--assignee=@me", host) },
     ],
     query: (origin, query) => fetchQueryIssues(exec, origin, query),
     withFields: (issues) => withPriorityFields(exec, issues),
@@ -45,7 +49,7 @@ export function gitHubCliAdapter(exec: Exec): GitHubAdapter {
     clone: (origin, target) => cloneRepo(exec, origin, target),
     createPr: (input) => createPr(exec, input),
     prState: (pr) => fetchPrState(exec, pr),
-    prStatuses: (refs) => fetchPrStatuses(exec, refs),
+    prStatuses: (refs) => fetchPrStatuses(exec, refs, host),
     prFeedback: (pr) => fetchPrFeedback(exec, pr),
     reply: (pr, reply) => postReply(exec, pr, reply),
     postReview: (review) => postReview(exec, review),
@@ -66,9 +70,12 @@ export function gitHubCliAdapter(exec: Exec): GitHubAdapter {
   };
 }
 
-/** github.com through `gh`, the connection donePM has without a `connections` config. */
-export function gitHubCliConnection(exec: Exec, host = "github.com", id = "github"): Connection {
-  const adapter = gitHubCliAdapter(exec);
+/**
+ * A GitHub host through `gh`: github.com is the connection donePM has without a `connections`
+ * config; a GitHub Enterprise host is one more with its own `host` and `id` (issue #140).
+ */
+export function gitHubCliConnection(exec: Exec, host = GITHUB_COM, id = "github"): Connection {
+  const adapter = gitHubCliAdapter(exec, host);
   return { id, kind: "github", backend: "cli", host, ticketSource: adapter, codeHost: adapter, ciSource: adapter };
 }
 

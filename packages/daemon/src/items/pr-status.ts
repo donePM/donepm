@@ -1,4 +1,4 @@
-import { withPrStatus, type Ctx, type PrStatus, type WorkItem } from "@donepm/core";
+import { parseExternalId, withPrStatus, type Ctx, type PrStatus, type WorkItem } from "@donepm/core";
 import type { CodeHost, PrRef } from "../providers/code-host.js";
 import type { Providers } from "../providers/registry.js";
 import type { ItemStore } from "./store.js";
@@ -24,8 +24,9 @@ export async function refreshPrStatuses(deps: PrStatusDeps, managed: (origin: st
   for (const { item, originUrl } of stored) {
     const host = deps.providers.codeHost(originUrl);
     if (!host) continue;
-    const [repository, number] = item.externalId.split("#");
-    byHost.set(host, [...(byHost.get(host) ?? []), { repository: repository!, number: Number(number) }]);
+    const ref = parseExternalId(item.externalId);
+    if (!ref) continue;
+    byHost.set(host, [...(byHost.get(host) ?? []), { repository: ref.repository, number: ref.number }]);
   }
   const read = new Map<string, PrStatus>();
   for (const [host, refs] of byHost) for (const [key, status] of await host.prStatuses(refs)) read.set(key, status);

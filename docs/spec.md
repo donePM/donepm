@@ -59,7 +59,7 @@ functions. `daemon` calls them and persists the result.
 |---|---|---|
 | id | uuid | |
 | source | `github-issue` \| `github-pr` | `github-pr`: a pull request that requests the user's review (D40) |
-| externalId | string | `owner/repo#123` |
+| externalId | string | `owner/repo#123`; `host/owner/repo#123` on a GitHub host other than github.com (6.10) |
 | externalUrl | string | |
 | repoId | uuid | |
 | title | string | |
@@ -556,6 +556,27 @@ gh api --hostname <host> --method POST repos/<o>/<r>/pulls/<n>/comments/<thread>
 
 `inReplyTo` must be a thread from a `pr.feedback` of this item; anything else is refused when the
 draft is created, so a reply cannot land on an unrelated thread.
+
+### 6.10 Other GitHub hosts
+
+GitHub Enterprise Server and GHE.com work like github.com, through the same `gh` (issue #140).
+Each host is one `github` connection with its `host` (`gitHubCliConnection(exec, host, id)`);
+github.com is the one there is without a `connections` config. Which hosts the user enables is
+configured with connections (issue #138).
+
+- An item off github.com keeps its host in `externalId`: `github.acme.com/team/app#7`, so two
+  repositories of the same name on two hosts never merge. github.com ids stay `owner/repo#N`.
+- `gh` is logged in to each host on its own: detection runs `gh auth status --hostname <host>` per
+  host. github.com's state is `status.gh`, the others are `status.ghHosts[host]`; Settings shows a
+  row per host with `gh auth login --hostname <host>` as the hint.
+- `gh search` takes no `--hostname`: the poll sets `GH_HOST=<host>` for the searches of each
+  host. `gh api` takes `--hostname <host>` (issue fields, PR status, feedback, replies, reviews).
+  Every `--repo` names the host off github.com (`host/owner/repo`), and so does `gh repo clone`.
+- A host that is not logged in, or whose searches fail, is skipped and reported; the other hosts
+  are polled. Its items are not checked for closing until it answers again.
+- The agent's environment drops `GH_HOST` and the tokens, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` included, and `gh` stays
+  behind the same shim and empty config directory as on github.com: GitHub Enterprise is no way
+  out either.
 
 ## 7. Worktrees
 

@@ -10,7 +10,15 @@ describe("sourceLink (#151)", () => {
   it("goes by the URL's host, subdomains and case included", () => {
     expect(sourceLink({ source: "github-issue", externalUrl: "https://GitHub.com/o/r/issues/4" }).icon).toBe("github");
     expect(sourceLink({ source: "github-issue", externalUrl: "https://gist.github.com/o/1" }).icon).toBe("github");
-    expect(sourceLink({ source: "github-issue", externalUrl: "https://notgithub.com/o/r" }).icon).toBe("web");
+    expect(sourceLink({ source: "jira", externalUrl: "https://notgithub.com/o/r" }).icon).toBe("web");
+  });
+
+  it("marks GitHub Enterprise links as GitHub, naming a host of its own (issue #140)", () => {
+    expect(sourceLink({ source: "github-issue", externalUrl: "https://acme.ghe.com/team/app/issues/7" })).toEqual({ icon: "github", site: "GitHub" });
+    expect(sourceLink({ source: "github-pr", externalUrl: "https://github.acme.com/team/app/pull/42" })).toEqual({
+      icon: "github", site: "GitHub (github.acme.com)",
+    });
+    expect(sourceLink({ source: "jira", externalUrl: "https://github.acme.com/team/app/pull/42" }).icon).toBe("web");
   });
 
   it("shows the globe and the host for a source it does not know", () => {

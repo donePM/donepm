@@ -1,5 +1,6 @@
 import type { Ctx } from "../ids.js";
 import type { Event } from "../event/types.js";
+import { hostOfUrl, qualifiedRepository } from "../github/host.js";
 import { issuePriority } from "./priority.js";
 import type { ItemSource, WorkItem } from "./types.js";
 
@@ -40,9 +41,12 @@ export function defaultPlaybookFor(source: ItemSource): string {
   return source === "github-pr" ? REVIEW_PLAYBOOK : DEFAULT_PLAYBOOK;
 }
 
-/** `owner/repo#123` */
-export function externalIdOf(issue: Pick<SourceIssue, "repository" | "number">): string {
-  return `${issue.repository}#${issue.number}`;
+/**
+ * `owner/repo#123` on github.com, `host/owner/repo#123` on any other GitHub host (issue #140), so
+ * the same `owner/repo#123` on two hosts are two items. The host comes from the issue's URL.
+ */
+export function externalIdOf(issue: Pick<SourceIssue, "repository" | "number" | "url">): string {
+  return `${qualifiedRepository(hostOfUrl(issue.url), issue.repository)}#${issue.number}`;
 }
 
 /** A newly seen issue (or pull request) becomes a `ready` item plus its `item.collected` event. */

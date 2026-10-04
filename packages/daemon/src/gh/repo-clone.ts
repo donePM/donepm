@@ -1,4 +1,4 @@
-import { parseCloneOrigin } from "@donepm/core";
+import { parseCloneOrigin, qualifiedRepository } from "@donepm/core";
 import type { Done } from "../providers/result.js";
 import type { Exec } from "../process/exec.js";
 
@@ -15,7 +15,7 @@ const STDERR_TAIL_LINES = 20;
 export async function cloneRepo(exec: Exec, origin: string, target: string): Promise<Done> {
   const parsed = parseCloneOrigin(origin);
   if (!parsed) return { ok: false, error: `${origin} is not host/owner/repo` };
-  const r = await exec("gh", ["repo", "clone", `${parsed.owner}/${parsed.repo}`, target], { timeoutMs: CLONE_TIMEOUT_MS });
+  const r = await exec("gh", ["repo", "clone", qualifiedRepository(parsed.host, `${parsed.owner}/${parsed.repo}`), target], { timeoutMs: CLONE_TIMEOUT_MS });
   if (r.code !== 0) return { ok: false, error: tail(r.stderr) || `gh repo clone exited with ${r.code}` };
   return { ok: true };
 }
