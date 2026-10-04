@@ -95,8 +95,8 @@ describe("collectIssues", () => {
 
   it("adds the issues of a repository query to the default search, one item per issue", async () => {
     const queried = JSON.stringify([
-      { number: 161, title: "[Feature] Support nested relations", body: "", labels: [], url: "https://github.com/acme/widgets/issues/161" },
-      { number: 200, title: "Unassigned bug", body: "", labels: [{ name: "bug" }], url: "https://github.com/acme/widgets/issues/200" },
+      { number: 161, title: "[Feature] Support nested relations", body: "", labels: [], url: "https://github.com/acme/widgets/issues/161", createdAt: "2026-09-01T00:00:00Z" },
+      { number: 200, title: "Unassigned bug", body: "", labels: [{ name: "bug" }], url: "https://github.com/acme/widgets/issues/200", createdAt: "2026-09-01T00:00:00Z" },
     ]);
     const exec = fakeExec({
       ...ready,

@@ -37,7 +37,7 @@ function execWith(search: () => string, view = () => fixture("gh/issue-view-open
     "gh search issues": () => ok(search()),
     "gh issue view": () => ok(view()),
     "gh issue list": ok(JSON.stringify([
-      { number: 200, title: "Unassigned bug", body: "", labels: [], url: "https://github.com/acme/widgets/issues/200" },
+      { number: 200, title: "Unassigned bug", body: "", labels: [], url: "https://github.com/acme/widgets/issues/200", createdAt: "2026-09-01T00:00:00Z" },
     ])),
     "gh issue edit": ok("https://github.com/acme/widgets/issues/161\n"),
     "which claude": ok("/usr/local/bin/claude\n"),

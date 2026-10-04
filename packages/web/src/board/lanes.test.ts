@@ -17,6 +17,7 @@ function item(over: Partial<ItemView> & { repoKey?: string | null; origin?: stri
     state: "ready",
     playbook: "implement",
     priority: n,
+    stateSince: "2026-10-01T00:00:00Z",
     createdAt: "2026-10-01T00:00:00Z",
     updatedAt: "2026-10-01T00:00:00Z",
     repo: repoKey === null ? null : { id: repoKey, path: `/x/${repoKey}`, originUrl: origin, defaultBranch: "main" },

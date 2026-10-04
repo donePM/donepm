@@ -1,5 +1,6 @@
 import type { Ctx } from "../ids.js";
 import type { Event } from "../event/types.js";
+import { priorityTier } from "./priority.js";
 import type { WorkItem } from "./types.js";
 
 /** An issue as a source reports it, already validated. */
@@ -11,6 +12,8 @@ export interface SourceIssue {
   title: string;
   body: string;
   labels: string[];
+  /** When the issue was opened, ISO 8601. */
+  createdAt: string;
 }
 
 export interface Collected {
@@ -29,7 +32,7 @@ export function externalIdOf(issue: Pick<SourceIssue, "repository" | "number">):
 export function collect(
   issue: SourceIssue,
   ctx: Ctx,
-  opts: { priority: number; repoId?: string; playbook?: string },
+  opts: { repoId?: string; playbook?: string } = {},
 ): Collected {
   const at = ctx.now();
   const item: WorkItem = {
@@ -42,7 +45,9 @@ export function collect(
     labels: [...issue.labels],
     state: "ready",
     playbook: opts.playbook ?? DEFAULT_PLAYBOOK,
-    priority: opts.priority,
+    priority: priorityTier(issue.labels),
+    issueCreatedAt: issue.createdAt,
+    stateSince: at,
     createdAt: at,
     updatedAt: at,
   };
@@ -60,7 +65,8 @@ export function collect(
 
 /**
  * Apply the latest upstream content to a known item. Returns undefined when nothing changed.
- * An issue seen open again clears `closedUpstream`. State is never touched.
+ * An issue seen open again clears `closedUpstream`. The priority follows the labels. State is never
+ * touched.
  */
 export function refresh(item: WorkItem, issue: SourceIssue, ctx: Ctx): WorkItem | undefined {
   const sameLabels =
@@ -70,6 +76,8 @@ export function refresh(item: WorkItem, issue: SourceIssue, ctx: Ctx): WorkItem 
     item.body !== issue.body ||
     item.externalUrl !== issue.url ||
     !sameLabels ||
+    item.priority !== priorityTier(issue.labels) ||
+    item.issueCreatedAt !== issue.createdAt ||
     item.closedUpstream === true;
   if (!changed) return undefined;
   const next: WorkItem = {
@@ -78,6 +86,8 @@ export function refresh(item: WorkItem, issue: SourceIssue, ctx: Ctx): WorkItem 
     body: issue.body,
     externalUrl: issue.url,
     labels: [...issue.labels],
+    priority: priorityTier(issue.labels),
+    issueCreatedAt: issue.createdAt,
     updatedAt: ctx.now(),
   };
   delete next.closedUpstream;

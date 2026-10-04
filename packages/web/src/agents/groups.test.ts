@@ -4,7 +4,7 @@ import { agentGroups, FINISHED_SHOWN } from "./groups";
 
 const item = (id: string, over: Partial<ItemView>): ItemView => ({
   id, source: "github-issue", externalId: `o/r#${id}`, externalUrl: "", title: id, body: "", labels: [],
-  state: "ready", playbook: "implement", priority: 1, createdAt: "t0", updatedAt: "t0",
+  state: "ready", playbook: "implement", priority: 1, stateSince: "t0", createdAt: "t0", updatedAt: "t0",
   repo: null, badges: [], agent: { running: false }, ...over,
 });
 

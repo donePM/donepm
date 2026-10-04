@@ -15,10 +15,11 @@ const issue: SourceIssue = {
   title: "Fix it",
   body: "Body",
   labels: ["bug"],
+  createdAt: "2026-09-01T08:00:00Z",
 };
 
 function existing(extra: Partial<WorkItem> = {}): WorkItem {
-  return { ...collect(issue, makeCtx(), { priority: 0 }).item, updatedAt: "2026-10-01T00:00:00.000Z", ...extra };
+  return { ...collect(issue, makeCtx()).item, updatedAt: "2026-10-01T00:00:00.000Z", ...extra };
 }
 
 describe("externalIdOf", () => {
@@ -29,10 +30,11 @@ describe("externalIdOf", () => {
 
 describe("collect", () => {
   it("creates a ready item and an item.collected event", () => {
-    const { item, events } = collect(issue, makeCtx(), { priority: 3, repoId: "r-1" });
+    const { item, events } = collect(issue, makeCtx(), { repoId: "r-1" });
     expect(item).toMatchObject({
       id: "id-1", source: "github-issue", externalId: "owner/repo#7", externalUrl: issue.url, repoId: "r-1",
-      title: "Fix it", body: "Body", labels: ["bug"], state: "ready", playbook: "implement", priority: 3,
+      title: "Fix it", body: "Body", labels: ["bug"], state: "ready", playbook: "implement", priority: 2,
+      issueCreatedAt: "2026-09-01T08:00:00Z", stateSince: "2026-10-03T12:00:00.000Z",
     });
     expect(events).toEqual([
       {
@@ -43,7 +45,11 @@ describe("collect", () => {
   });
 
   it("leaves repoId absent without a local clone", () => {
-    expect(collect(issue, makeCtx(), { priority: 0 }).item).not.toHaveProperty("repoId");
+    expect(collect(issue, makeCtx()).item).not.toHaveProperty("repoId");
+  });
+
+  it("derives the priority from the labels", () => {
+    expect(collect({ ...issue, labels: ["bug", "P1"] }, makeCtx()).item.priority).toBe(1);
   });
 });
 
@@ -55,6 +61,16 @@ describe("refresh", () => {
   it("applies new title, body and labels without touching state", () => {
     const next = refresh(existing({ state: "running" }), { ...issue, title: "New", labels: ["bug", "x"] }, makeCtx());
     expect(next).toMatchObject({ title: "New", labels: ["bug", "x"], state: "running", updatedAt: "2026-10-03T12:00:00.000Z" });
+  });
+
+  it("recomputes the priority when the labels change", () => {
+    expect(refresh(existing(), { ...issue, labels: ["priority: critical"] }, makeCtx())?.priority).toBe(0);
+    expect(refresh(existing({ priority: 0 }), issue, makeCtx())?.priority).toBe(2);
+  });
+
+  it("fills in issueCreatedAt on an item collected without it", () => {
+    const { issueCreatedAt: _gone, ...old } = existing();
+    expect(refresh(old, issue, makeCtx())?.issueCreatedAt).toBe("2026-09-01T08:00:00Z");
   });
 
   it("clears closedUpstream when the issue is open again", () => {

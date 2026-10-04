@@ -12,16 +12,17 @@ const IssueFields = {
     .transform((b) => b ?? ""),
   labels: z.array(Label),
   url: z.string().url(),
+  createdAt: z.string().datetime({ offset: true }),
 };
 
-/** One entry of `gh search issues --json number,title,body,labels,repository,url`. */
+/** One entry of `gh search issues --json number,title,body,createdAt,labels,repository,url`. */
 export const SearchIssueSchema = z.object({
   ...IssueFields,
   repository: z.object({ nameWithOwner: z.string().regex(/^[^/\s]+\/[^/\s]+$/) }).passthrough(),
 });
 export const SearchIssuesSchema = z.array(SearchIssueSchema);
 
-/** One entry of `gh issue list --json number,title,body,labels,url` (no repository field). */
+/** One entry of `gh issue list --json number,title,body,createdAt,labels,url` (no repository field). */
 export const ListIssueSchema = z.object(IssueFields);
 export const ListIssuesSchema = z.array(ListIssueSchema);
 
@@ -38,5 +39,6 @@ export function toSourceIssue(i: z.infer<typeof ListIssueSchema>, repository: st
     title: i.title,
     body: i.body,
     labels: i.labels.map((l) => l.name),
+    createdAt: i.createdAt,
   };
 }

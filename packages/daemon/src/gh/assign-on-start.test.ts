@@ -14,7 +14,7 @@ import { assignOnStart } from "./assign-on-start.js";
 const ITEM: WorkItem = {
   id: "item-1", source: "github-issue", externalId: "Acme/API#12", externalUrl: "https://github.com/Acme/API/issues/12",
   title: "T", body: "", labels: [], state: "running", playbook: "implement", priority: 0,
-  createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z",
+  stateSince: "2026-10-01T00:00:00.000Z", createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z",
 };
 
 function setup(exec: Exec, sources: Config["sources"]) {
