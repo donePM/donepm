@@ -871,6 +871,20 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
   in plain words ("Bash commands matching `pnpm test *`"), the raw rule (`Bash(pnpm test *)`), when
   it was granted, how often and when it was last used, the call it was granted for, and Remove.
   Remove hides the row and stops it matching at once, also for running agents.
+- Notifications (per browser, kept in `localStorage`, not in the daemon's config, because the
+  browser's own permission is per browser too): a switch "Notify me about new permission asks"
+  (on by default) and, while the browser's permission is still undecided, an "Allow browser
+  notifications" button (browsers need a user gesture; the page never asks on load).
+
+Pending asks outside the board (#74). Whatever view is open, the tab title is `(n) donePM` while
+`n` items wait on a permission ask (the `ask` attention of 12.1) and the favicon gets a red dot;
+both clear when the asks are answered. Independently, when the switch is on and the permission is
+granted, each ask that newly appears pending raises one `Notification`: title the item's title, body
+`Tool: first line of what it wants`, tagged with the ask id. Clicking it focuses the tab and opens
+the item. Asks the daemon answers itself (D31 hosts, D38 grants) are never pending, so they never
+notify. The ids already announced are kept in `localStorage` (newest 200), so a reload or a second
+tab does not announce an ask again; asks that wait when the user grants permission are marked as
+announced, not announced in a burst. Works on `127.0.0.1` (a secure context).
 
 ### 12.5 Archive
 

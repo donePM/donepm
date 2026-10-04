@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { useRouter } from "vue-router";
+import { watchAskNotifications } from "../asks/notifications";
 import { status, watchStatus } from "../status/status";
 import StatusBar from "../status/StatusBar.vue";
 
 watchStatus();
+watchAskNotifications(useRouter());
 </script>
 
 <template>
