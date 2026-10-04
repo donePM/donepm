@@ -200,14 +200,41 @@ export interface ConnectionStatus {
   state: ConnectionState;
   /** The account for a `cli` connection, or why it is not ready. */
   detail?: string;
+  /** For an `api` connection: whether its token is in the Keychain. The token never reaches the UI. */
+  tokenSet?: boolean;
 }
 
 /** One provider instance donePM talks to (D50), as configured. */
-export interface ConnectionConfig {
+export interface GitHubConnectionConfig {
   id: string;
   kind: "github";
-  backend: "cli" | "api";
+  backend: "cli";
   host: string;
+}
+
+export type JiraDeployment = "cloud" | "datacenter";
+
+/** Jira over its REST API (D51); the token is in the Keychain under the id. */
+export interface JiraConnectionConfig {
+  id: string;
+  kind: "jira";
+  backend: "api";
+  baseUrl: string;
+  deployment: JiraDeployment;
+  /** The account the Cloud API token belongs to. */
+  email?: string;
+}
+
+export type ConnectionConfig = GitHubConnectionConfig | JiraConnectionConfig;
+
+/** The Test button of a connection. */
+export interface ConnectionTest {
+  id: string;
+  ok: boolean;
+  state: ConnectionState;
+  detail?: string;
+  tokenSet?: boolean;
+  deployment?: JiraDeployment;
 }
 
 export interface Status {

@@ -43,9 +43,16 @@ describe("connectionStatuses", () => {
 
   it("is unauthorized for an api connection without a token, ready with one, never reading it", async () => {
     expect(await connectionStatuses([jira], statusWith(), tokens([]))).toEqual([
-      { id: "jira", kind: "jira", backend: "api", host: "acme.atlassian.net", state: "unauthorized", detail: "no API token in the Keychain" },
+      { id: "jira", kind: "jira", backend: "api", host: "acme.atlassian.net", tokenSet: false, state: "unauthorized", detail: "no API token in the Keychain" },
     ]);
-    expect((await connectionStatuses([jira], statusWith(), tokens(["jira"])))[0]!.state).toBe("ready");
+    expect((await connectionStatuses([jira], statusWith(), tokens(["jira"])))[0]).toMatchObject({ state: "ready", tokenSet: true });
+  });
+
+  it("is what the provider says of a set token", async () => {
+    const health = async () => ({ state: "unauthorized" as const, detail: "Jira answered 401" });
+    expect((await connectionStatuses([{ ...jira, health }], statusWith(), tokens(["jira"])))[0]).toMatchObject({
+      tokenSet: true, state: "unauthorized", detail: "Jira answered 401",
+    });
   });
 });
 

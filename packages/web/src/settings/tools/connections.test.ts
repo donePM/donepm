@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Settings, Status } from "../../api/types";
-import { connectionId, offeredHosts, restartPending, withGitHubHost, DEFAULT_CONNECTIONS } from "./connections";
+import { connectionId, connectionRows, offeredHosts, restartPending, withGitHubHost, withJira, withoutConnection, DEFAULT_CONNECTIONS } from "./connections";
 
 const status = (patch: Partial<Status>): Status => ({ version: "0", pid: 1, startedAt: "", runningAgents: 0, pollErrors: [], ...patch });
 const settings = (patch: Partial<Settings>): Settings => ({ ...({} as Settings), ...patch });
@@ -28,5 +28,23 @@ describe("connections", () => {
     const running = status({ connections: [{ id: "github", kind: "github", backend: "cli", host: "github.com", state: "ready" }] });
     expect(restartPending(running, settings({}))).toBe(false);
     expect(restartPending(running, settings({ connections: withGitHubHost(DEFAULT_CONNECTIONS, "github.acme.com") }))).toBe(true);
+  });
+
+  it("adds a Jira site as `jira`, with the email only for Cloud", () => {
+    const cloud = withJira(DEFAULT_CONNECTIONS, { baseUrl: " https://acme.atlassian.net ", deployment: "cloud", email: "dana@acme.com" });
+    expect(cloud[1]).toEqual({ id: "jira", kind: "jira", backend: "api", baseUrl: "https://acme.atlassian.net", deployment: "cloud", email: "dana@acme.com" });
+    const dc = withJira(cloud, { baseUrl: "https://jira.acme.com", deployment: "datacenter", email: "dana@acme.com" });
+    expect(dc[2]).toEqual({ id: "jira-2", kind: "jira", backend: "api", baseUrl: "https://jira.acme.com", deployment: "datacenter" });
+    expect(withoutConnection(dc, "jira").map((c) => c.id)).toEqual(["github", "jira-2"]);
+  });
+
+  it("lists every saved connection, with its running status once the daemon has it", () => {
+    const running = status({ connections: [{ id: "github", kind: "github", backend: "cli", host: "github.com", state: "ready" }] });
+    const saved = settings({ connections: withJira(DEFAULT_CONNECTIONS, { baseUrl: "https://acme.atlassian.net", deployment: "cloud", email: "d@acme.com" }) });
+    const rows = connectionRows(running, saved);
+    expect(rows.map((r) => [r.config.id, r.host, r.status?.state])).toEqual([["github", "github.com", "ready"], ["jira", "acme.atlassian.net", undefined]]);
+    expect(restartPending(running, saved)).toBe(true);
+    const both = status({ connections: [...running.connections!, { id: "jira", kind: "jira", backend: "api", host: "acme.atlassian.net", state: "unauthorized", tokenSet: false }] });
+    expect(restartPending(both, saved)).toBe(false);
   });
 });

@@ -1,0 +1,11 @@
+{
+  "baseUrl": "https://jira.acme.com",
+  "version": "9.12.15",
+  "versionNumbers": [9, 12, 15],
+  "deploymentType": "Server",
+  "buildNumber": 9120015,
+  "buildDate": "2026-08-01T00:00:00.000+0000",
+  "serverTime": "2026-10-04T12:00:00.000+0200",
+  "scmInfo": "0000000000000000000000000000000000000000",
+  "serverTitle": "Acme Jira"
+}

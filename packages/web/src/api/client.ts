@@ -1,6 +1,6 @@
 import type { MergeMethod, PermissionGrant } from "@donepm/core";
 import type {
-  AskAnswer, CloneResult, DaemonInfo, Draft, ItemDetail, ItemDiff, ItemView, MoveOutcome, OpenTarget, OrphanWorktree, PlaybookList, PrDraftPayload, RepoView, Settings, SourceTest, Status,
+  AskAnswer, CloneResult, ConnectionTest, DaemonInfo, Draft, ItemDetail, ItemDiff, ItemView, MoveOutcome, OpenTarget, OrphanWorktree, PlaybookList, PrDraftPayload, RepoView, Settings, SourceTest, Status,
   TranscriptMessage,
 } from "./types";
 
@@ -93,4 +93,8 @@ export const api = {
   /** Shows the log file or the global playbooks folder in Finder. */
   openDaemon: (what: "logs" | "playbooks") => call<{ ok: true }>("POST", "/api/daemon/open", { what }),
   testSource: (origin: string, query: string) => call<SourceTest>("POST", "/api/sources/test", { origin, query }),
+  /** The token goes to the Keychain; the answer says only that one is set. */
+  setToken: (id: string, token: string) => call<{ id: string; tokenSet: boolean }>("PUT", `/api/connections/${encodeURIComponent(id)}/token`, { token }),
+  deleteToken: (id: string) => call<{ id: string; tokenSet: boolean }>("DELETE", `/api/connections/${encodeURIComponent(id)}/token`),
+  testConnection: (id: string) => call<ConnectionTest>("POST", `/api/connections/${encodeURIComponent(id)}/test`, {}),
 };

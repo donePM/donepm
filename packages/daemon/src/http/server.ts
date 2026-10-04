@@ -34,9 +34,10 @@ import { isManaged, withManaged } from "../repos/managed.js";
 import type { RepoStore } from "../repos/store.js";
 import type { StatusStore } from "../status/status.js";
 import type { TranscriptStore } from "../transcript/store.js";
+import { connectionRoutes, type ConnectionRouteDeps } from "./connection-routes.js";
 import { makeGuard } from "./guard.js";
 
-export interface ServerDeps {
+export interface ServerDeps extends ConnectionRouteDeps {
   /** The port actually bound; checked against Host and Origin. */
   port: () => number;
   items: ItemStore;
@@ -520,6 +521,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     await deps.recheck();
     return deps.status.get();
   });
+
+  connectionRoutes(app, deps);
 
   app.get("/api/settings", async () => deps.getConfig());
 

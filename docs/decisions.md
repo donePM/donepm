@@ -517,8 +517,30 @@ Status reports one `ConnectionStatus` per connection: `not_installed`, `not_logg
 their ids: GitHub's stay `owner/repo#N` (`host/owner/repo#N` off github.com, #140). A future kind
 names its own ids with a prefix such as `jira:KEY`, so no stored id changes meaning.
 
+**D51. Jira auth: the deployment is set, not guessed.** Issue #139. A `jira` connection has
+`backend: "api"`, a `baseUrl` and a `deployment`, and is never matched to a repository origin.
+- `cloud`: REST API v3, Basic auth with the account's `email` and an Atlassian API token. The
+  email is required in the config.
+- `datacenter`: REST API v2, a personal access token as `Bearer`.
+- Username and password, OAuth and Connect apps are out of scope.
+
+The deployment is a setting rather than a probe on every call: a proxy or an SSO page can answer
+`serverInfo` with something misleading, and the two auth schemes fail differently. "Test" in
+Settings (`POST /api/connections/:id/test`) reads `/rest/api/2/serverInfo` and says when the
+setting does not match the site, then checks the token against `/myself`. Health uses `/myself`
+alone: `ready`, `unauthorized` (also without a token) or `unreachable`.
+
+The base URL must be https, without query, fragment or user info. It may carry a context path
+(`https://jira.acme.com/jira`). Its host is the connection's host, and two connections may not
+share one.
+
+The token is set, replaced and deleted with `PUT`/`DELETE /api/connections/:id/token`, from
+Settings or `donepm token set|delete <id>` (stdin or a prompt that does not echo, never argv). The
+endpoint accepts the token once, writes it to the Keychain (D50) and answers only `tokenSet`. A
+`cli` connection refuses a token. `JIRA_TOKEN`, `JIRA_PAT`, `JIRA_PERSONAL_TOKEN` and
+`ATLASSIAN_TOKEN` join the variables dropped from the agent's environment.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.
-- Jira Cloud vs Server auth details. Decide when the Jira adapter starts.
 - Team/server component. Not before a second user asks.

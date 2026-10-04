@@ -36,6 +36,8 @@ export interface ConnectionStatus {
   state: ConnectionState;
   /** The account for a `cli` connection, or why it is not ready. Never a token. */
   detail?: string;
+  /** For an `api` connection: whether its token is in the Keychain. The token itself never leaves the daemon. */
+  tokenSet?: boolean;
 }
 
 /** A failed poll, kept for Settings > Tools. */
