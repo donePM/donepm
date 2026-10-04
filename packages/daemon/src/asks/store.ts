@@ -1,4 +1,6 @@
-import { offerableRules, parseRules, type PermissionAsk, type PermissionAskState } from "@donepm/core";
+import {
+  claudeAskSubject, isAgentKind, offerableRules, parseRules, type AskSubject, type PermissionAsk, type PermissionAskState,
+} from "@donepm/core";
 import type { Db } from "../db/database.js";
 
 interface AskRow {
@@ -11,15 +13,21 @@ interface AskRow {
   rules: string;
   reason: string | null;
   outcome_reason: string | null;
+  agent_kind: string | null;
+  subject: string | null;
 }
 
 function fromRow(r: AskRow): PermissionAsk {
+  const input = JSON.parse(r.input) as unknown;
   return {
     id: r.id,
     itemId: r.item_id,
+    // NULL: asked before issue #136, when only Claude Code asked.
+    agentKind: r.agent_kind !== null && isAgentKind(r.agent_kind) ? r.agent_kind : "claude-code",
     requestId: r.request_id,
     toolName: r.tool_name,
-    input: JSON.parse(r.input) as unknown,
+    input,
+    subject: r.subject !== null ? (JSON.parse(r.subject) as AskSubject) : claudeAskSubject(r.tool_name, input),
     state: r.state as PermissionAskState,
     rules: parseRules(JSON.parse(r.rules) as unknown),
     ...(r.reason ? { reason: r.reason } : {}),
@@ -53,10 +61,10 @@ export class AskStore {
   insert(ask: PermissionAsk, at: string): void {
     this.db
       .prepare(
-        "INSERT INTO asks (id, item_id, request_id, tool_name, input, state, rules, reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO asks (id, item_id, agent_kind, request_id, tool_name, input, subject, state, rules, reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
-        ask.id, ask.itemId, ask.requestId, ask.toolName, JSON.stringify(ask.input), ask.state, JSON.stringify(offerableRules(ask.rules)),
+        ask.id, ask.itemId, ask.agentKind, ask.requestId, ask.toolName, JSON.stringify(ask.input), JSON.stringify(ask.subject), ask.state, JSON.stringify(offerableRules(ask.rules)),
         ask.reason ?? null, at, at,
       );
   }

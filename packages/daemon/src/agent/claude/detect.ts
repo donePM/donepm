@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Exec } from "../process/exec.js";
+import type { Exec } from "../../process/exec.js";
 
 export type ClaudeState = "not_installed" | "not_logged_in" | "ready";
 

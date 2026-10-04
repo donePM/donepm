@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rm, symlink } from "node:fs/promises";
 import { delimiter, join } from "node:path";
-import { BLOCKED_COMMANDS } from "./argv.js";
+import { BLOCKED_COMMANDS } from "@donepm/core";
 
 /**
  * `PATH` for the agent without `gh`, `glab` and `jira` (spec 9.1).

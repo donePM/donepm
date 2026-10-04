@@ -1,4 +1,4 @@
-import type { ClaudeStatus } from "../claude/detect.js";
+import type { ClaudeStatus } from "../agent/claude/detect.js";
 import type { GhStatus } from "../gh/detect.js";
 import type { HelperStatus } from "../helpers/detect.js";
 

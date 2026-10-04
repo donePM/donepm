@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { attentionOf } from "./attention.js";
 
 const ask = (state: PermissionAsk["state"]): PermissionAsk => ({
-  id: `ask-${state}`, itemId: "i", requestId: "r", toolName: "Bash", input: { command: "ls" }, state, rules: [],
+  id: `ask-${state}`, itemId: "i", agentKind: "claude-code", requestId: "r", toolName: "Bash", input: { command: "ls" }, subject: { kind: "command", command: "ls" }, state, rules: [],
 });
 const draft = (over: Partial<PrDraft> = {}): PrDraft => ({
   id: "d1", itemId: "i", type: "pr", state: "pending", payload: { title: "Agent title", body: "", base: "main" }, ...over,

@@ -12,10 +12,9 @@ import { resumeItem, startItem, type StartDeps } from "./agent/start.js";
 import { GrantStore } from "./asks/grants.js";
 import { revokeGrant } from "./asks/revoke.js";
 import { AskStore } from "./asks/store.js";
-import { writeMcpConfig } from "./bridge/mcp-config.js";
 import { listenBridge } from "./bridge/server.js";
 import { BridgeSessions } from "./bridge/sessions.js";
-import { detectClaude } from "./claude/detect.js";
+import { detectClaude } from "./agent/claude/detect.js";
 import { loadConfig, saveConfig, type Config } from "./config/config.js";
 import { connectionsOf } from "./config/connections.js";
 import { expandHome, pathsFor } from "./config/paths.js";
@@ -229,7 +228,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     ctx: opts.ctx,
     log: { info: (o, m) => app.log.info(o, m), warn: (o, m) => app.log.warn(o, m), error: (o, m) => app.log.error(o, m) },
     spawn: opts.spawn ?? spawnProcess,
-    claudePath: () => status.get().claude?.path ?? "claude",
+    agentPath: (kind) => (kind === "claude-code" ? status.get().claude?.path : undefined),
     env: () =>
       agentEnv(opts.env ?? process.env, { shimRoot: join(paths.dataDir, "bin-filtered"), emptyConfigDir: join(paths.dataDir, "no-credentials") }),
     maxConcurrent: () => config.maxConcurrentAgents,
@@ -241,15 +240,10 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     },
     mcp: (item, playbook) => {
       const token = bridgeSessions.mint({ itemId: item.id, drafts: playbook.drafts });
-      const file = writeMcpConfig({
-        dir: bridgeDir, itemId: item.id, nodePath: process.execPath, bridgePath: BRIDGE_SCRIPT, socketPath: bridgeSocket, token,
-      });
       return {
-        configPath: file.path,
-        close: () => {
-          bridgeSessions.revoke(token);
-          file.remove();
-        },
+        // `node`, so the shim runs even when the filtered PATH lost it.
+        server: { command: process.execPath, args: [BRIDGE_SCRIPT], env: { DONEPM_SOCKET: bridgeSocket, DONEPM_TOKEN: token }, dir: bridgeDir },
+        close: () => bridgeSessions.revoke(token),
       };
     },
   });

@@ -32,7 +32,7 @@ function setup(maxConcurrent = 1, webFetchDomains: string[] = []) {
   const runner = new AgentRunner({
     items, writer, asks, grants, transcript, ctx, log: silentLog, spawn,
     push: (type, payload) => pushed.push({ type, payload }),
-    claudePath: () => "/usr/local/bin/claude",
+    agentPath: () => "/usr/local/bin/claude",
     env: async () => ({ PATH: "/filtered" }),
     maxConcurrent: () => maxConcurrent,
     onActivity: (id) => activity.push(id),
@@ -198,7 +198,7 @@ describe("AgentRunner", () => {
     const proc = await t.launch(t.addItem(1));
     proc.emit({ type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" } } });
     const [ask] = t.asks.forItem("item-1");
-    expect(() => t.runner.answer(ask!.id, { behavior: "allow", answers: { x: "y" } })).toThrow("only AskUserQuestion takes answers");
+    expect(() => t.runner.answer(ask!.id, { behavior: "allow", answers: { x: "y" } })).toThrow("only a question takes answers");
   });
 
   it("allows a WebFetch to a listed host itself, without asking the user", async () => {

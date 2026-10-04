@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fail, fakeExec, fixture, ok } from "../test-support/fake-exec.js";
+import { fail, fakeExec, fixture, ok } from "../../test-support/fake-exec.js";
 import { detectClaude } from "./detect.js";
 
 const found = {

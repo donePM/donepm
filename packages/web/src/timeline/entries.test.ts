@@ -7,7 +7,7 @@ const ev = (type: string, payload: Record<string, unknown> = {}, over: Partial<E
   n++;
   return { id: `e${n}`, itemId: "i", at: `2026-10-03T09:${String(n).padStart(2, "0")}:00Z`, actor: "system", type: type as Event["type"], payload, ...over };
 };
-const ask: PermissionAsk = { id: "a1", itemId: "i", requestId: "r", toolName: "Bash", input: { command: "composer test" }, state: "allowed", rules: [] };
+const ask: PermissionAsk = { id: "a1", itemId: "i", agentKind: "claude-code", requestId: "r", toolName: "Bash", input: { command: "composer test" }, subject: { kind: "command", command: "composer test" }, state: "allowed", rules: [] };
 
 describe("timelineEntries", () => {
   it("lists newest first with text for each event", () => {
@@ -36,7 +36,7 @@ describe("timelineEntries", () => {
   });
 
   it("names the rules of an allow for the run and the daemon's own answers", () => {
-    const web: PermissionAsk = { id: "a2", itemId: "i", requestId: "r2", toolName: "WebFetch", input: { url: "https://nodejs.org/en" }, state: "allowed", rules: [] };
+    const web: PermissionAsk = { id: "a2", itemId: "i", agentKind: "claude-code", requestId: "r2", toolName: "WebFetch", input: { url: "https://nodejs.org/en" }, subject: { kind: "network", host: "nodejs.org", url: "https://nodejs.org/en" }, state: "allowed", rules: [] };
     const events = [
       ev("permission.answered", { behavior: "allow", rules: [{ toolName: "Bash", ruleContent: "curl *" }] }, { refId: "a1", actor: "user" }),
       ev("permission.auto_allowed", { toolName: "WebFetch", host: "nodejs.org", domain: "nodejs.org" }, { refId: "a2" }),
@@ -74,8 +74,9 @@ describe("timelineEntries", () => {
 
   it("shows questions and the user's answers", () => {
     const q: PermissionAsk = {
-      id: "q1", itemId: "i", requestId: "r3", toolName: "AskUserQuestion", state: "allowed", rules: [],
+      id: "q1", itemId: "i", agentKind: "claude-code", requestId: "r3", toolName: "AskUserQuestion", state: "allowed", rules: [],
       input: { questions: [{ question: "Which color?", header: "Color", options: [] }, { question: "Which sizes?", options: [] }] },
+      subject: { kind: "question", questions: [{ question: "Which color?", header: "Color", options: [], multiSelect: false }, { question: "Which sizes?", header: "", options: [], multiSelect: false }] },
     };
     const events = [
       ev("permission.asked", { toolName: "AskUserQuestion" }, { refId: "q1", actor: "agent" }),

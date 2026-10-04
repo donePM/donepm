@@ -97,7 +97,7 @@ describe("applyRetention: archive", () => {
     t.add("d");
     t.drafts.insert({ id: "d-d", itemId: "d", type: "pr", payload: { title: "d", body: "", base: "main" }, state: "pending" }, T0);
     t.add("k");
-    t.asks.insert({ id: "k-a", itemId: "k", requestId: "r1", toolName: "Bash", input: {}, state: "pending", rules: [] }, T0);
+    t.asks.insert({ id: "k-a", itemId: "k", agentKind: "claude-code", requestId: "r1", toolName: "Bash", input: {}, subject: { kind: "tool", name: "Bash", input: {} }, state: "pending", rules: [] }, T0);
     expect(t.run().archived).toEqual([]);
   });
 
@@ -117,7 +117,7 @@ describe("applyRetention: purge", () => {
     t.add("a", { closedUpstream: true });
     t.withPr("a");
     t.writer.commit(prMerged(t.item("a")!, t.ctx, PR));
-    t.asks.insert({ id: "a-k", itemId: "a", requestId: "r1", toolName: "Bash", input: {}, state: "allowed", rules: [] }, T0);
+    t.asks.insert({ id: "a-k", itemId: "a", agentKind: "claude-code", requestId: "r1", toolName: "Bash", input: {}, subject: { kind: "tool", name: "Bash", input: {} }, state: "allowed", rules: [] }, T0);
     t.transcript.append({ id: "a-t", itemId: "a", sessionId: "s", at: T0, kind: "assistant_text", raw: { type: "assistant" } });
     expect(t.run().archived).toEqual(["a"]);
 
