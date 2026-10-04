@@ -33,7 +33,7 @@ onMounted(async () => {
       <SourcesPanel :poll-seconds="settings?.pollIntervalSeconds" :queries="Object.values(settings?.sources ?? {}).filter((s) => s.query).length" />
       <ReposPanel :repo-root="settings?.repoRoot" :sources="settings?.sources" @saved="settings = $event" />
       <GrantsPanel />
-      <OrphansPanel :worktree-root="settings?.worktreeRoot" />
+      <OrphansPanel :worktree-root="settings?.worktreeRoot" :previous-roots="settings?.previousWorktreeRoots" />
     </div>
     <div class="side">
       <GeneralForm v-if="settings" :settings="settings" @saved="settings = $event" />

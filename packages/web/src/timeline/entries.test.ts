@@ -229,6 +229,13 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("shows a moved worktree with its new path", () => {
+    const events = [ev("worktree.moved", { from: "/old/r/dp-1-x", to: "/new/r/dp-1-x" }, { actor: "user" })];
+    expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail }))).toEqual([
+      { tone: "user", text: "You moved the worktree", detail: "to /new/r/dp-1-x" },
+    ]);
+  });
+
   it("keeps insertion order for events in the same instant", () => {
     const at = "2026-10-03T10:00:00Z";
     const events = [ev("draft.created", {}, { at, id: "first" }), ev("draft.edited", {}, { at, id: "second" })];

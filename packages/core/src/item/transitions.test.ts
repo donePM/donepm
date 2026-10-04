@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Ctx } from "../ids.js";
 import {
   InvalidTransitionError, agentAsked, agentFailed, answered, autoAllowed, draftApproved, draftCreated, draftEdited, draftExecuted,
-  draftExecutionFailed, draftRejected, interrupted, issueAssignFailed, issueAssigned, resume, start, worktreeRemoved,
+  draftExecutionFailed, draftRejected, interrupted, issueAssignFailed, issueAssigned, resume, start, worktreeRemoved, worktreeMoved,
   turnEnded, turnStarted, closedUpstream, ciFailed, ciFix, ciMarkedDone, ciPassed, ciRerun, dismissed, wasStarted, prMerged, worktreeRemovedOnMerge, worktreeRemoveSkipped,
   prConflicted, prConflictResolved, prConflictDismissed, prConflictFix, archived, alwaysAllowed, grantRevoked,
   prFeedback, prFeedbackFix, prFeedbackDismissed, repliesPosted, reviewPosted,
@@ -213,6 +213,22 @@ describe("worktreeRemoved", () => {
 
   it.each(["ready", "running", "needs_you"] as const)("throws from %s", (state) => {
     expect(() => worktreeRemoved(item(state), makeCtx())).toThrow(InvalidTransitionError);
+  });
+});
+
+describe("worktreeMoved", () => {
+  it.each(["ready", "needs_you", "checking", "done", "failed"] as const)("keeps %s and the session, points to the new path", (state) => {
+    const before = item(state, { worktreePath: "/old/r/dp-1-t", branch: "dp/1-t", agentSessionId: "sess" });
+    const { item: after, events } = worktreeMoved(before, makeCtx(), { from: "/old/r/dp-1-t", to: "/new/r/dp-1-t" });
+    expect(after).toMatchObject({
+      state, worktreePath: "/new/r/dp-1-t", agentSessionId: "sess", branch: "dp/1-t", stateSince: "2026-10-01T00:00:00.000Z",
+    });
+    expect(before.worktreePath).toBe("/old/r/dp-1-t");
+    expect(events[0]).toMatchObject({ type: "worktree.moved", actor: "user", payload: { from: "/old/r/dp-1-t", to: "/new/r/dp-1-t" } });
+  });
+
+  it("throws while the agent is running", () => {
+    expect(() => worktreeMoved(item("running", { worktreePath: "/a" }), makeCtx(), { from: "/a", to: "/b" })).toThrow(InvalidTransitionError);
   });
 });
 

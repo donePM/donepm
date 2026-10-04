@@ -46,6 +46,9 @@ import { applyRetention } from "./retention/retention.js";
 import { StatusStore } from "./status/status.js";
 import { TranscriptStore } from "./transcript/store.js";
 import { failMissingWorktrees, findOrphans } from "./worktrees/reconcile.js";
+import { formerRootsAfter, occupiedRoots } from "./worktrees/former-roots.js";
+import { moveWorktrees, worktreesUnder } from "./worktrees/move.js";
+import { sameDir } from "./worktrees/paths.js";
 import { watchPrs } from "./prs/watch.js";
 import { addressFeedback, dismissConflict, dismissFeedback, resolveConflict } from "./prs/actions.js";
 import { fixCi, markCiDone, rerunCi } from "./ci/actions.js";
@@ -198,8 +201,24 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const draftDeps = { items, repos, drafts, events, writer, ctx: opts.ctx };
   failInterrupted(draftDeps);
 
-  const worktreeRoot = () => expandHome(config.worktreeRoot, opts.home);
-  const orphans = () => findOrphans({ exec: opts.exec, repos, items, worktreeRoot: worktreeRoot(), log: app.log });
+  const expand = (p: string) => expandHome(p, opts.home);
+  const worktreeRoot = () => expand(config.worktreeRoot);
+  const agentActive = (itemId: string) => runner.isRunning(itemId);
+  /** Item worktrees under the current root when `next` changes it (issue #93); none otherwise. */
+  const worktreesAtOldRoot = (next: Config) =>
+    sameDir(expand(next.worktreeRoot), worktreeRoot()) ? [] : worktreesUnder({ items, agentActive }, worktreeRoot());
+  /** Former roots are looked at until nothing is left under them; then they are forgotten. */
+  const orphans = async () => {
+    const former = config.previousWorktreeRoots;
+    const found = await findOrphans({ exec: opts.exec, repos, items, roots: [worktreeRoot(), ...former.map(expand)], log: app.log });
+    const present = [...found.map((o) => o.path), ...items.all().flatMap(({ item }) => (item.worktreePath ? [item.worktreePath] : []))];
+    const kept = occupiedRoots(former, present, expand);
+    if (kept.length !== former.length) {
+      config = { ...config, previousWorktreeRoots: kept };
+      await saveConfig(paths.configFile, config);
+    }
+    return found;
+  };
   const startDeps = (): StartDeps => ({
     items, repos, writer, runner, transcript, exec: opts.exec, ctx: opts.ctx, log: app.log,
     push: (type, payload) => hub.push(type, payload),
@@ -257,17 +276,24 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     transcript,
     onBoard,
     getConfig: () => config,
-    saveConfig: async (next) => {
-      await saveConfig(paths.configFile, next);
+    worktreesAtOldRoot,
+    saveConfig: async (next, choice) => {
       const prev = config;
+      const oldRoot = sameDir(expand(next.worktreeRoot), worktreeRoot()) ? undefined : worktreeRoot();
+      if (oldRoot) next = { ...next, previousWorktreeRoots: formerRootsAfter(prev, next, expand) };
+      await saveConfig(paths.configFile, next);
       config = next;
+      // Only after the new root is in force: a Start meanwhile already creates its worktree there.
+      const worktrees = oldRoot && choice === "move"
+        ? await moveWorktrees({ items, repos, writer, exec: opts.exec, ctx: opts.ctx, log: app.log, agentActive }, oldRoot, worktreeRoot())
+        : undefined;
       if (next.pollIntervalSeconds !== prev.pollIntervalSeconds) poller.setInterval(next.pollIntervalSeconds * 1000);
       // Hidden items leave the board and shown ones come back; nothing is read from gh for that.
       const flipped = new Set(ignoreChanges(prev.sources, next.sources));
       for (const { item, originUrl } of items.all()) if (flipped.has(originUrl)) pushItem(item);
       if ([...flipped].some((origin) => !isIgnored(next.sources, origin))) void poller.runNow();
       if (next.repoRoot !== prev.repoRoot) void rescan().catch((e) => app.log.error({ err: e }, "rescan failed"));
-      return { restartRequired: next.port !== prev.port };
+      return { restartRequired: next.port !== prev.port, ...(worktrees ? { worktrees } : {}) };
     },
     rescan,
     recheck,

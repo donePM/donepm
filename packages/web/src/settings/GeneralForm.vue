@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from "vue";
-import { api, ApiError } from "../api/client";
-import type { Settings } from "../api/types";
+import { api, ApiError, type WorktreeChoice } from "../api/client";
+import type { Settings, WorktreeAtOldRoot } from "../api/types";
+import MoveWorktreesDialog from "./MoveWorktreesDialog.vue";
+import { moveResult, worktreesAtOldRoot } from "./move-worktrees";
 import { parseRetention, retentionInput } from "./retention";
 
 const props = defineProps<{ settings: Settings }>();
@@ -21,7 +23,7 @@ watch(
 const saving = ref(false);
 const message = ref<{ text: string; tone: "ok" | "error" }>();
 
-const fields: { key: Exclude<keyof Settings, "sources" | "allowedWebFetchDomains" | "removeWorktreeOnMerge" | "archiveAfterHours" | "deleteAfterDays">; label: string; type: "text" | "number"; min?: number }[] = [
+const fields: { key: Exclude<keyof Settings, "sources" | "previousWorktreeRoots" | "allowedWebFetchDomains" | "removeWorktreeOnMerge" | "archiveAfterHours" | "deleteAfterDays">; label: string; type: "text" | "number"; min?: number }[] = [
   { key: "repoRoot", label: "Repository root", type: "text" },
   { key: "worktreeRoot", label: "Worktree root", type: "text" },
   { key: "branchPrefix", label: "Branch prefix", type: "text" },
@@ -37,18 +39,38 @@ async function save() {
     message.value = { text: kept.error, tone: "error" };
     return;
   }
+  // Only this form's fields: the repositories and web access panels save theirs on their own.
+  await send({
+    ...Object.fromEntries(fields.map((f) => [f.key, form[f.key]])),
+    removeWorktreeOnMerge: form.removeWorktreeOnMerge,
+    ...kept.value,
+  });
+}
+
+type Patch = Parameters<typeof api.saveSettings>[0];
+
+/** A new worktree root with worktrees under the old one: the daemon saves nothing until the user chose (#93). */
+const pending = ref<{ patch: Patch; worktrees: WorktreeAtOldRoot[] }>();
+
+async function choose(choice: WorktreeChoice) {
+  if (!pending.value) return;
+  await send(pending.value.patch, choice);
+  pending.value = undefined;
+}
+
+async function send(patch: Patch, choice?: WorktreeChoice) {
   saving.value = true;
   try {
-    // Only this form's fields: the repositories and web access panels save theirs on their own.
-    const patch = {
-      ...Object.fromEntries(fields.map((f) => [f.key, form[f.key]])),
-      removeWorktreeOnMerge: form.removeWorktreeOnMerge,
-      ...kept.value,
-    };
-    const { settings, restartRequired } = await api.saveSettings(patch);
+    const { settings, restartRequired, worktrees } = await api.saveSettings(patch, choice);
     emit("saved", settings);
-    message.value = { text: restartRequired ? "Saved. The new port applies after a restart." : "Saved.", tone: "ok" };
+    const text = worktrees ? moveResult(worktrees) : "Saved.";
+    message.value = { text: restartRequired ? `${text} The new port applies after a restart.` : text, tone: "ok" };
   } catch (e) {
+    const atOldRoot = worktreesAtOldRoot(e);
+    if (atOldRoot && !choice) {
+      pending.value = { patch, worktrees: atOldRoot };
+      return;
+    }
     const issues = e instanceof ApiError ? (e.body as { issues?: { path: string; message: string }[] }).issues : undefined;
     const text = issues?.map((i) => `${i.path}: ${i.message}`).join("; ") ?? (e instanceof Error ? e.message : String(e));
     message.value = { text, tone: "error" };
@@ -107,6 +129,13 @@ async function save() {
         <button class="btn btn-primary" type="submit" :disabled="saving">{{ saving ? "Saving…" : "Save" }}</button>
       </div>
     </form>
+    <MoveWorktreesDialog
+      v-if="pending"
+      :worktrees="pending.worktrees"
+      :busy="saving"
+      @choose="choose"
+      @close="pending = undefined"
+    />
   </section>
 </template>
 

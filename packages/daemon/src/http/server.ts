@@ -8,6 +8,7 @@ import { AskError, StopError } from "../agent/runner.js";
 import { StartError } from "../agent/start.js";
 import { WorktreeError } from "../worktrees/create.js";
 import type { OrphanWorktree } from "../worktrees/reconcile.js";
+import type { MoveOutcome, WorktreeAtOldRoot } from "../worktrees/move.js";
 import { RemoveError } from "../worktrees/remove.js";
 import { DismissError } from "../items/dismiss.js";
 import { CiActionError } from "../ci/actions.js";
@@ -42,8 +43,14 @@ export interface ServerDeps {
   /** The item belongs on the board: its repository is not ignored, or it still needs attention (issue #33). */
   onBoard: (stored: StoredItem) => boolean;
   getConfig: () => Config;
-  /** Validated full config; returns what changed needs a restart. Pushes the items an ignore change shows or hides. */
-  saveConfig: (next: Config) => Promise<{ restartRequired: boolean }>;
+  /**
+   * Validated full config; returns what changed needs a restart. Pushes the items an ignore change
+   * shows or hides. With a changed worktree root and `"move"`, moves the item worktrees under the
+   * old root and returns what moved and what was skipped (issue #93).
+   */
+  saveConfig: (next: Config, worktrees?: WorktreeChoice) => Promise<{ restartRequired: boolean; worktrees?: MoveOutcome }>;
+  /** Item worktrees under the current root if `next` changes the root; empty otherwise. */
+  worktreesAtOldRoot: (next: Config) => WorktreeAtOldRoot[];
   rescan: () => Promise<void>;
   /** Detect `gh` and `claude` again ("Check again" in Settings). */
   recheck: () => Promise<void>;
@@ -157,7 +164,12 @@ const SourceTestSchema = z.object({ origin: SourceKey, query: z.string().trim().
 const SOURCE_TEST_SAMPLE = 10;
 
 /** Partial update; unknown keys are rejected. */
-const SettingsPatch = ConfigSchema.partial().strict();
+/** `previousWorktreeRoots` is the daemon's bookkeeping (issue #93), not a setting. */
+const SettingsPatch = ConfigSchema.omit({ previousWorktreeRoots: true }).partial().strict();
+
+/** What happens to the worktrees under the old root when `worktreeRoot` changes (issue #93). */
+const WorktreeChoiceSchema = z.object({ worktrees: z.enum(["move", "leave"]).optional() });
+export type WorktreeChoice = "move" | "leave";
 
 async function draftCall(reply: FastifyReply, fn: () => Draft | Promise<Draft>) {
   try {
@@ -406,9 +418,16 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!patch.success) {
       return reply.code(400).send({ error: "invalid settings", issues: patch.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })) });
     }
+    const choice = WorktreeChoiceSchema.safeParse(req.query ?? {});
+    if (!choice.success) return reply.code(400).send({ error: "worktrees must be move or leave" });
     const next = ConfigSchema.parse({ ...deps.getConfig(), ...patch.data });
-    const { restartRequired } = await deps.saveConfig(next);
-    return { settings: next, restartRequired };
+    // A new worktree root with worktrees under the old one: nothing is saved until the user chose.
+    const atOldRoot = deps.worktreesAtOldRoot(next);
+    if (atOldRoot.length && !choice.data.worktrees) {
+      return reply.code(409).send({ error: `${atOldRoot.length} worktrees are in the old location`, worktreesAtOldRoot: atOldRoot });
+    }
+    const { restartRequired, worktrees } = await deps.saveConfig(next, choice.data.worktrees);
+    return { settings: deps.getConfig(), restartRequired, ...(worktrees ? { worktrees } : {}) };
   });
 
   const ui = deps.publicDir && existsSync(join(deps.publicDir, "index.html")) ? deps.publicDir : undefined;

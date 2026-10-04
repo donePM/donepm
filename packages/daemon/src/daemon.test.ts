@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -416,6 +416,101 @@ describe("daemon", { timeout: 30_000 }, () => {
     expect(existsSync(orphan)).toBe(false);
     expect((await get(d, "/api/worktrees/orphaned")).body).toEqual([]);
     expect(existsSync(join(h, "elsewhere"))).toBe(true);
+  });
+
+  describe("a new worktree root (#93)", () => {
+    const put = (d: Daemon, body: object, query = "") =>
+      get(d, `/api/settings${query}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    /** #161 has a worktree and a session but no agent; the second item's agent is still running. */
+    async function twoItems() {
+      // Resolved (`/var` → `/private/var`), so the paths git lists compare with ours.
+      const h = realpathSync(await homeWithHistory());
+      const spawn = fakeProcesses();
+      const d = await start(h, undefined, undefined, spawn);
+      await put(d, { maxConcurrentAgents: 2 });
+      const all = (await get(d, "/api/items")).body.filter((i: any) => i.repo);
+      const idle = all.find((i: any) => i.externalId === "acme/widgets#161");
+      const busy = all.find((i: any) => i !== idle);
+      await get(d, `/api/items/${idle.id}/start`, { method: "POST" });
+      await waitFor(() => expect(spawn.spawned).toHaveLength(1));
+      spawn.last().emit({ type: "system", subtype: "init", session_id: "s1" });
+      await get(d, `/api/items/${idle.id}/stop`, { method: "POST" });
+      await get(d, `/api/items/${busy.id}/start`, { method: "POST" });
+      await waitFor(() => expect(spawn.spawned).toHaveLength(2));
+      const path = (id: string) => get(d, `/api/items/${id}`).then((r) => r.body.worktreePath as string);
+      return { h, d, spawn, idle, busy, idlePath: await path(idle.id), busyPath: await path(busy.id), clone: join(h, "Code", "acme", "widgets") };
+    }
+
+    it("asks first, then moves with git worktree move, skips running agents, and the session resumes there", async () => {
+      const { h, d, spawn, idle, busy, idlePath, busyPath, clone } = await twoItems();
+      const newRoot = join(h, "new-root");
+
+      const asked = await put(d, { worktreeRoot: newRoot });
+      expect(asked.status).toBe(409);
+      expect(asked.body.worktreesAtOldRoot).toEqual(expect.arrayContaining([
+        { itemId: idle.id, title: idle.title, path: idlePath, running: false },
+        { itemId: busy.id, title: busy.title, path: busyPath, running: true },
+      ]));
+      expect((await get(d, "/api/settings")).body.worktreeRoot).toBe("~/.local/share/donepm/worktrees");
+      expect((await put(d, { worktreeRoot: newRoot }, "?worktrees=sideways")).status).toBe(400);
+
+      const moved = await put(d, { worktreeRoot: newRoot }, "?worktrees=move");
+      expect(moved.status).toBe(200);
+      expect(moved.body.settings).toMatchObject({ worktreeRoot: newRoot, previousWorktreeRoots: ["~/.local/share/donepm/worktrees"] });
+      const target = join(newRoot, "acme-widgets", idlePath.split("/").at(-1)!);
+      expect(moved.body.worktrees).toEqual({
+        moved: [{ itemId: idle.id, title: idle.title, from: idlePath, to: target }],
+        skipped: [{ itemId: busy.id, title: busy.title, path: busyPath, reason: "its agent is running" }],
+      });
+      expect(existsSync(target)).toBe(true);
+      expect(existsSync(idlePath)).toBe(false);
+      expect(existsSync(busyPath)).toBe(true);
+      const listed = git(clone, "worktree", "list", "--porcelain");
+      expect(listed).toContain(`worktree ${target}\n`);
+      expect(listed).not.toContain(`worktree ${idlePath}\n`);
+      const after = (await get(d, `/api/items/${idle.id}`)).body;
+      expect(after).toMatchObject({ worktreePath: target, agentSessionId: "s1" });
+      expect(after.events.at(-1)).toMatchObject({ type: "worktree.moved", actor: "user", payload: { from: idlePath, to: target } });
+
+      // Former root still holds the running item's worktree, so its orphans are still found.
+      const orphan = join(h, ".local/share/donepm/worktrees/acme-widgets/leftover");
+      git(clone, "worktree", "add", "-q", "-b", "leftover", orphan);
+      expect((await get(d, "/api/worktrees/orphaned")).body.map((o: any) => o.branch)).toEqual(["leftover"]);
+
+      await get(d, `/api/items/${idle.id}/start`, { method: "POST" });
+      await waitFor(() => expect(spawn.spawned).toHaveLength(3));
+      expect(spawn.last().args).toEqual(expect.arrayContaining(["--resume", "s1"]));
+      expect(spawn.last().opts.cwd).toBe(target);
+    });
+
+    it("leaves them where they are: paths, git and resume unchanged, new worktrees under the new root", async () => {
+      const { h, d, spawn, idle, busy, idlePath, clone } = await twoItems();
+      const newRoot = join(h, "new-root");
+      const left = await put(d, { worktreeRoot: newRoot }, "?worktrees=leave");
+      expect(left.status).toBe(200);
+      expect(left.body.worktrees).toBeUndefined();
+      expect(left.body.settings.previousWorktreeRoots).toEqual(["~/.local/share/donepm/worktrees"]);
+      expect((await get(d, `/api/items/${idle.id}`)).body.worktreePath).toBe(idlePath);
+      expect(git(clone, "worktree", "list", "--porcelain")).toContain(`worktree ${idlePath}\n`);
+      // Changing something else asks nothing.
+      expect((await put(d, { branchPrefix: "dp/" })).status).toBe(200);
+
+      await get(d, `/api/items/${idle.id}/start`, { method: "POST" });
+      await waitFor(() => expect(spawn.spawned).toHaveLength(3));
+      expect(spawn.last().opts.cwd).toBe(idlePath);
+
+      // A fresh worktree goes to the new root.
+      await get(d, `/api/items/${busy.id}/stop`, { method: "POST" });
+      expect((await get(d, `/api/items/${busy.id}/worktree/remove`, { method: "POST" })).status).toBe(200);
+      await get(d, `/api/items/${busy.id}/start`, { method: "POST" });
+      await waitFor(() => expect(spawn.spawned).toHaveLength(4));
+      expect(spawn.last().opts.cwd.startsWith(join(newRoot, "acme-widgets"))).toBe(true);
+
+      // Back to the old root: it is no former root any more.
+      const back = await put(d, { worktreeRoot: "~/.local/share/donepm/worktrees" }, "?worktrees=leave");
+      expect(back.body.settings.previousWorktreeRoots).toEqual([newRoot]);
+    });
   });
 
   it("starts an agent: worktree, setup, claude in the worktree, transcript stored", async () => {

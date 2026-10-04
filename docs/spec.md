@@ -454,6 +454,19 @@ draft is created, so a reply cannot land on an unrelated thread.
 `worktreeRoot`, default `~/.local/share/donepm/worktrees/`. Path per item:
 `<worktreeRoot>/<repo-slug>/<branch-slug>/`.
 
+Changing the root (#93, D44). New worktrees go to the new root. Items' worktrees under the old one,
+review worktrees (D41) included, are not left behind silently: `PUT /api/settings` with a new root
+answers 409 with the list (`worktreesAtOldRoot`: item, title, path, whether an agent runs in it) and
+saves nothing until the user chooses, by `?worktrees=move` or `?worktrees=leave`. Move runs, per
+item, `git -C <main clone> worktree move <old> <new>` with the same relative path under the new
+root, so git's metadata follows. It never touches a worktree an agent works in, never overwrites an
+existing target, and skips a missing worktree or a failed `git`; each skip comes back with its
+reason. A moved item gets the new `worktreePath` and an event `worktree.moved { from, to }`
+(actor `user`); its state and `agentSessionId` stay, and a later resume runs `claude --resume` in
+the new directory. Leave keeps every path as it is; those items go on working there. Either way the
+old root is kept in `previousWorktreeRoots` (14) so orphans there are still found (7.5), until
+nothing donePM knows is left under it.
+
 ### 7.2 Create
 
 ```
@@ -515,7 +528,8 @@ the PR is merged, with `removeWorktreeOnMerge` on and a clean worktree (6.5, D33
 ### 7.5 Reconcile on start
 
 On daemon start: for each repo, `git worktree list --porcelain`. Compare with items. Worktrees
-not in the database → show in Settings as "orphaned" with a remove button. Items whose worktree
+not in the database, under the worktree root or a former one (`previousWorktreeRoots`, 7.1) → show in
+Settings as "orphaned" with a remove button. Items whose worktree
 is missing → mark `failed` with reason.
 
 ## 8. Playbooks
@@ -850,7 +864,7 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/worktrees/orphaned/remove` | `{ path }`; only paths from the orphan list |
 | GET | `/api/repos` | |
 | POST | `/api/repos/rescan` | |
-| GET/PUT | `/api/settings` | PUT is partial; `sources` is replaced as a whole |
+| GET/PUT | `/api/settings` | PUT is partial; `sources` is replaced as a whole. A new `worktreeRoot` with item worktrees under the old one needs `?worktrees=move\|leave`, else 409 `{ worktreesAtOldRoot }` and nothing saved; with move the answer has `worktrees: { moved, skipped }` (7.1) |
 | POST | `/api/sources/test` | `{ origin, query }`; runs the query once: `{ count, issues }` (first 10) |
 | GET | `/api/status` | CLI detection, daemon version, running agents |
 
@@ -965,6 +979,11 @@ you". Amber means "you have something to do"; red stays for daemon problems.
 ### 12.4 Settings
 
 - Repo root, worktree root, branch prefix, port, poll interval, max agents.
+- Saving a new worktree root while item worktrees are under the old one (7.1) opens a dialog:
+  "N worktrees are in the old location. Move them to the new one?", the items listed with their
+  paths, those with a running agent marked and noted as staying where they are. Buttons: Move,
+  "Leave them where they are", Cancel (nothing saved). After a move the form says how many moved and
+  names each one not moved with its reason. The orphan list also covers former roots.
 - Group "Finished items" (6.8), whole numbers of 0 or more, applied on the next poll:
   - `archiveAfterHours`: "Finished items (done and PR merged, or done without a PR) leave the board
     after this many hours. They stay in the Archive with their agent run. 0 hides them immediately."
@@ -1045,6 +1064,9 @@ and `PATH`, because launchd starts jobs with a bare `PATH` and the daemon needs 
 
 `archiveAfterHours` and `deleteAfterDays` (6.8): whole numbers of 0 or more; `deleteAfterDays:
 null` never deletes.
+
+`previousWorktreeRoots` (7.1): kept by the daemon, not set through the settings API; former
+worktree roots that may still hold worktrees. Default `[]`.
 
 Database: `~/.local/share/donepm/donepm.db`.
 

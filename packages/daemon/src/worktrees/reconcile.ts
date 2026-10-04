@@ -1,11 +1,11 @@
-import { existsSync, realpathSync } from "node:fs";
-import { sep } from "node:path";
+import { existsSync } from "node:fs";
 import { agentFailed, type Ctx, type Repo, type WorkItem } from "@donepm/core";
 import type { ItemWriter } from "../items/commit.js";
 import type { ItemStore } from "../items/store.js";
 import type { Log } from "../log.js";
 import type { Exec } from "../process/exec.js";
 import type { RepoStore } from "../repos/store.js";
+import { isUnder, real } from "./paths.js";
 
 /** A worktree under donePM's root that no item points to (spec 7.5). */
 export interface OrphanWorktree {
@@ -31,18 +31,18 @@ export function failMissingWorktrees(deps: { items: ItemStore; writer: ItemWrite
 }
 
 /**
- * `git worktree list` per repo, compared with the items: worktrees under `worktreeRoot` that no
- * item uses. Worktrees elsewhere belong to the user and are none of donePM's business. A repo
- * whose listing fails is skipped.
+ * `git worktree list` per repo, compared with the items: worktrees under one of `roots` (the
+ * worktree root and former roots that still hold worktrees, issue #93) that no item uses.
+ * Worktrees elsewhere belong to the user and are none of donePM's business. A repo whose listing
+ * fails is skipped.
  */
 export async function findOrphans(deps: {
   exec: Exec;
   repos: RepoStore;
   items: ItemStore;
-  worktreeRoot: string;
+  roots: readonly string[];
   log: Log;
 }): Promise<OrphanWorktree[]> {
-  const root = withSep(real(deps.worktreeRoot));
   const used = new Set(
     deps.items.all().flatMap(({ item }: { item: WorkItem }) => (item.worktreePath ? [real(item.worktreePath)] : [])),
   );
@@ -57,7 +57,7 @@ export async function findOrphans(deps: {
     }
     for (const wt of listed) {
       const path = real(wt.path);
-      if (!path.startsWith(root) || used.has(path)) continue;
+      if (used.has(path) || !deps.roots.some((root) => isUnder(path, root))) continue;
       orphans.push({ repoId: repo.id, repoPath: repo.path, path: wt.path, ...(wt.branch ? { branch: wt.branch } : {}) });
     }
   }
@@ -75,14 +75,3 @@ export async function listWorktrees(exec: Exec, repo: Pick<Repo, "path">): Promi
   }
   return out;
 }
-
-/** Resolves symlinks (`/var` → `/private/var` on macOS) so git's paths and ours compare. */
-function real(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return path;
-  }
-}
-
-const withSep = (p: string) => (p.endsWith(sep) ? p : p + sep);
