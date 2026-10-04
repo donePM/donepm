@@ -25,7 +25,7 @@ import type { FetchResult } from "../gh/issues.js";
 import type { ItemStore, StoredItem } from "../items/store.js";
 import type { ItemView } from "../items/view.js";
 import { CloneError } from "../repos/clone.js";
-import { isIgnored, withIgnored } from "../repos/ignore.js";
+import { isManaged, withManaged } from "../repos/managed.js";
 import type { RepoStore } from "../repos/store.js";
 import type { StatusStore } from "../status/status.js";
 import type { TranscriptStore } from "../transcript/store.js";
@@ -41,12 +41,12 @@ export interface ServerDeps {
   transcript: TranscriptStore;
   repos: RepoStore;
   status: StatusStore;
-  /** The item belongs on the board: its repository is not ignored, or it still needs attention (issue #33). */
+  /** The item belongs on the board: its repository is managed, or it still needs attention (D46). */
   onBoard: (stored: StoredItem) => boolean;
   getConfig: () => Config;
   /**
-   * Validated full config; returns what changed needs a restart. Pushes the items an ignore change
-   * shows or hides. With a changed worktree root and `"move"`, moves the item worktrees under the
+   * Validated full config; returns what changed needs a restart. Pushes the items a managed change
+   * shows or hides, and polls when a repository became managed. With a changed worktree root and `"move"`, moves the item worktrees under the
    * old root and returns what moved and what was skipped (issue #93).
    */
   saveConfig: (next: Config, worktrees?: WorktreeChoice) => Promise<{ restartRequired: boolean; worktrees?: MoveOutcome }>;
@@ -55,7 +55,8 @@ export interface ServerDeps {
   rescan: () => Promise<void>;
   /**
    * Throws CloneError. `cloned`: a clone of the origin was at the target and is registered now.
-   * `started`: `gh repo clone` runs; `repo.*` pushes tell how it ends (issue #37).
+   * `started`: `gh repo clone` runs; `repo.*` pushes tell how it ends (issue #37). Either way the
+   * origin is managed from then on (D46).
    */
   cloneRepo: (origin: string) => Promise<{ target: string; result: "cloned" | "started" }>;
   /** Detect `gh` and `claude` again ("Check again" in Settings). */
@@ -139,7 +140,7 @@ const DraftEditSchema = z
 const OpenSchema = z.object({ target: z.enum(["finder", "terminal"]) }).strict();
 export type OpenTarget = z.infer<typeof OpenSchema>["target"];
 
-const RepoPatchSchema = z.object({ ignored: z.boolean() }).strict();
+const RepoPatchSchema = z.object({ managed: z.boolean() }).strict();
 
 const RepoCloneSchema = z.object({ origin: z.string().min(1) }).strict();
 
@@ -377,7 +378,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   const repoViews = () => {
     const { sources } = deps.getConfig();
-    return deps.repos.all().map((r) => ({ ...r, ignored: isIgnored(sources, r.originUrl) }));
+    return deps.repos.all().map((r) => ({ ...r, managed: isManaged(sources, r.originUrl) }));
   };
 
   app.get("/api/repos", async () => repoViews());
@@ -402,12 +403,12 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   // The flag belongs to the origin, so every clone of it changes together.
   app.put<{ Params: { id: string } }>("/api/repos/:id", async (req, reply) => {
     const body = RepoPatchSchema.safeParse(req.body ?? {});
-    if (!body.success) return reply.code(400).send({ error: "body must be {ignored: boolean}" });
+    if (!body.success) return reply.code(400).send({ error: "body must be {managed: boolean}" });
     const repo = deps.repos.get(req.params.id);
     if (!repo) return reply.code(404).send({ error: "repository not found" });
     const settings = ConfigSchema.parse({
       ...deps.getConfig(),
-      sources: withIgnored(deps.getConfig().sources, repo.originUrl, body.data.ignored),
+      sources: withManaged(deps.getConfig().sources, repo.originUrl, body.data.managed),
     });
     await deps.saveConfig(settings);
     return { repos: repoViews(), settings };

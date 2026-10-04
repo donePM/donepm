@@ -12,6 +12,7 @@ import { loadPlaybooks } from "../playbooks/load.js";
 import type { Exec } from "../process/exec.js";
 import type { RepoStore } from "../repos/store.js";
 import type { TranscriptStore } from "../transcript/store.js";
+import { isManaged } from "../repos/managed.js";
 import { ensureWorktree, WorktreeError } from "../worktrees/create.js";
 import { ensureReviewWorktree } from "../worktrees/review.js";
 import { runSetup } from "../worktrees/setup.js";
@@ -58,6 +59,8 @@ export async function startItem(deps: StartDeps, itemId: string): Promise<{ item
   if (!stored) throw new StartError(404, "item not found");
   const { item } = stored;
   if (item.state !== "ready" && item.state !== "failed") throw new StartError(409, `item is ${item.state}`);
+  // Work starts only in a repository the user chose (D46); a resume finishes what was started.
+  if (!isManaged(deps.sources(), stored.originUrl)) throw new StartError(409, `${stored.originUrl} is not managed`);
   const playbook = await playbookFor(deps, item);
   const slot = reserve(deps, item.id);
   const running = deps.writer.commit(start(item, deps.ctx));

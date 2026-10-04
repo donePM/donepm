@@ -28,7 +28,7 @@ import { collectIssues } from "./gh/collect-issues.js";
 import { detectGh } from "./gh/detect.js";
 import { fetchQueryIssues } from "./gh/issues.js";
 import { Poller } from "./gh/poller.js";
-import { buildServer } from "./http/server.js";
+import { buildServer, type WorktreeChoice } from "./http/server.js";
 import { makeGuard } from "./http/guard.js";
 import { itemWriter } from "./items/commit.js";
 import { dismissItem } from "./items/dismiss.js";
@@ -41,7 +41,7 @@ import type { Exec } from "./process/exec.js";
 import { ensureDefaultPlaybooks } from "./playbooks/load.js";
 import { RepoCloner } from "./repos/clone.js";
 import { discoverRepos } from "./repos/discover.js";
-import { hiddenByIgnore, ignoreChanges, isIgnored } from "./repos/ignore.js";
+import { hiddenUnmanaged, isManaged, managedChanges, migrateManaged, withManaged } from "./repos/managed.js";
 import { RepoStore } from "./repos/store.js";
 import { applyRetention } from "./retention/retention.js";
 import { StatusStore } from "./status/status.js";
@@ -103,6 +103,11 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const items = new ItemStore(db);
   const events = new EventStore(db);
   const repos = new RepoStore(db);
+  const migrated = migrateManaged(config.sources, items.all().map((s) => s.originUrl));
+  if (migrated) {
+    config = { ...config, sources: migrated };
+    await saveConfig(paths.configFile, config);
+  }
   const asks = new AskStore(db);
   const grants = new GrantStore(db);
   const transcript = new TranscriptStore(db);
@@ -149,13 +154,13 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     return { ...v, ...(finished ? { finishedAt: finished } : {}), ...(clone ? { clone } : {}) };
   };
   /**
-   * Issue #33: items of an ignored repository stay off the board unless they still need attention.
+   * D46: items of an unmanaged repository stay off the board unless they still need attention.
    * D37: archived items are only in the Archive.
    */
   const onBoard = ({ item, originUrl }: StoredItem) =>
     item.archivedAt === undefined &&
-    !hiddenByIgnore({
-      ignored: isIgnored(config.sources, originUrl),
+    !hiddenUnmanaged({
+      managed: isManaged(config.sources, originUrl),
       state: item.state,
       hasPending: () => drafts.pending(item.id).length > 0 || asks.pending(item.id).length > 0,
     });
@@ -244,7 +249,6 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     ctx: opts.ctx,
     log: { info: (o, m) => app.log.info(o, m), warn: (o, m) => app.log.warn(o, m), error: (o, m) => app.log.error(o, m) },
     root: () => expand(config.repoRoot),
-    ignored: (origin) => isIgnored(config.sources, origin),
     push: (type, payload) => hub.push(type, payload),
     // Every item of the origin gets the clone, or shows that it is cloning or why it failed.
     changed: (origin) => {
@@ -284,6 +288,25 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     config.pollIntervalSeconds * 1000,
   );
 
+  const applyConfig = async (next: Config, choice?: WorktreeChoice) => {
+    const prev = config;
+    const oldRoot = sameDir(expand(next.worktreeRoot), worktreeRoot()) ? undefined : worktreeRoot();
+    if (oldRoot) next = { ...next, previousWorktreeRoots: formerRootsAfter(prev, next, expand) };
+    await saveConfig(paths.configFile, next);
+    config = next;
+    // Only after the new root is in force: a Start meanwhile already creates its worktree there.
+    const worktrees = oldRoot && choice === "move"
+      ? await moveWorktrees({ items, repos, writer, exec: opts.exec, ctx: opts.ctx, log: app.log, agentActive }, oldRoot, worktreeRoot())
+      : undefined;
+    if (next.pollIntervalSeconds !== prev.pollIntervalSeconds) poller.setInterval(next.pollIntervalSeconds * 1000);
+    // Hidden items leave the board and shown ones come back; a newly managed repository is polled now.
+    const flipped = new Set(managedChanges(prev.sources, next.sources));
+    for (const { item, originUrl } of items.all()) if (flipped.has(originUrl)) pushItem(item);
+    if ([...flipped].some((origin) => isManaged(next.sources, origin))) void poller.runNow();
+    if (next.repoRoot !== prev.repoRoot) void rescan().catch((e) => app.log.error({ err: e }, "rescan failed"));
+    return { restartRequired: next.port !== prev.port, ...(worktrees ? { worktrees } : {}) };
+  };
+
   const app = buildServer({
     port: boundPort,
     items,
@@ -296,27 +319,12 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     onBoard,
     getConfig: () => config,
     worktreesAtOldRoot,
-    saveConfig: async (next, choice) => {
-      const prev = config;
-      const oldRoot = sameDir(expand(next.worktreeRoot), worktreeRoot()) ? undefined : worktreeRoot();
-      if (oldRoot) next = { ...next, previousWorktreeRoots: formerRootsAfter(prev, next, expand) };
-      await saveConfig(paths.configFile, next);
-      config = next;
-      // Only after the new root is in force: a Start meanwhile already creates its worktree there.
-      const worktrees = oldRoot && choice === "move"
-        ? await moveWorktrees({ items, repos, writer, exec: opts.exec, ctx: opts.ctx, log: app.log, agentActive }, oldRoot, worktreeRoot())
-        : undefined;
-      if (next.pollIntervalSeconds !== prev.pollIntervalSeconds) poller.setInterval(next.pollIntervalSeconds * 1000);
-      // Hidden items leave the board and shown ones come back; nothing is read from gh for that.
-      const flipped = new Set(ignoreChanges(prev.sources, next.sources));
-      for (const { item, originUrl } of items.all()) if (flipped.has(originUrl)) pushItem(item);
-      if ([...flipped].some((origin) => !isIgnored(next.sources, origin))) void poller.runNow();
-      if (next.repoRoot !== prev.repoRoot) void rescan().catch((e) => app.log.error({ err: e }, "rescan failed"));
-      return { restartRequired: next.port !== prev.port, ...(worktrees ? { worktrees } : {}) };
-    },
+    saveConfig: applyConfig,
     rescan,
     cloneRepo: async (origin) => {
       const r = await cloner.clone(origin);
+      // "Clone and manage": the click is the choice to work on it (D46).
+      if (!isManaged(config.sources, origin)) await applyConfig({ ...config, sources: withManaged(config.sources, origin, true) });
       if (r.result === "started") void r.done.catch((e) => app.log.error({ err: e, origin }, "clone bookkeeping failed"));
       return r;
     },

@@ -41,7 +41,6 @@ async function setup(exec: Exec, root?: string) {
   const cloner = new RepoCloner({
     exec, repos, ctx: testCtx(), log: silentLog,
     root: () => r,
-    ignored: (o) => o === "github.com/acme/ignored",
     push: (type, payload) => pushes.push([type, payload]),
     changed: (o) => changed.push(o),
   });
@@ -137,13 +136,11 @@ describe("RepoCloner", () => {
     expect(repos.all()).toEqual([]);
   });
 
-  it("refuses origins it cannot clone and ignored ones", async () => {
+  it("refuses origins it cannot clone", async () => {
     const { cloner } = await setup(ghFails);
     expect(cloner.state("gitlab.com/acme/widgets")).toBeUndefined();
-    expect(cloner.state("github.com/acme/ignored")).toBeUndefined();
     await expect(cloner.clone("gitlab.com/acme/widgets")).rejects.toMatchObject({ status: 400 });
     await expect(cloner.clone("github.com/../etc")).rejects.toMatchObject({ status: 400 });
-    await expect(cloner.clone("github.com/acme/ignored")).rejects.toMatchObject({ status: 409 });
   });
 
   it("refuses an origin that has a clone already", async () => {

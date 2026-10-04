@@ -58,7 +58,9 @@ const shownCounts = (lane: Lane) => COLUMNS.filter((c) => lane.counts[c.key] > 0
           <RouterLink v-if="col.key === 'done'" to="/archive" class="archive-link">Archive</RouterLink>
         </div>
       </div>
-      <p v-if="itemsLoaded && !lanes.length" class="empty">No open issues assigned to you.</p>
+      <p v-if="itemsLoaded && !lanes.length" class="empty">
+        Nothing to do in the repositories you manage. Choose them in <RouterLink to="/settings">Settings</RouterLink>.
+      </p>
       <section v-for="lane in lanes" :key="lane.key" class="lane" :aria-labelledby="`lane-${lane.key}`">
         <h3 class="lane-head">
           <button

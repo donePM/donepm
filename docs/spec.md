@@ -192,6 +192,7 @@ config under `sources`, keyed by `originUrl`, not in `.donepm/` (see 14). Per re
 |---|---|---|
 | query | string? | the provider's issue search, pasted from its UI. Absent: issues assigned to me |
 | assignOnStart | boolean | default `false`; see 6.4 |
+| managed | boolean | default `false`: donePM collects and starts work only in managed repos (D46) |
 
 The provider follows from the host. Only `github.com` is supported; GitLab (issue list params via
 `glab api`) and Jira (JQL) can be added without changing the format. Other hosts are rejected.
@@ -217,9 +218,11 @@ Keep the raw line always. Decode what is known. Never fail on unknown event type
 - For each repo: read `origin` URL, normalise (strip `https://`, `git@`, `.git`, trailing
   slash). Store in `repos`.
 - Rescan on daemon start and on button click in Settings. Cache in SQLite.
-- Match issues to repos by normalised origin URL. Issues without a local repo are shown in Ready
-  with a "no local clone" badge and cannot be started, but can be cloned.
-- Clone (issue #37): for a `github.com` origin that is not ignored, the daemon (never the agent)
+- Match issues to repos by normalised origin URL. Issues of a managed repo (4.6) without a local
+  repo are shown in Ready with a "no local clone" badge and cannot be started, but can be cloned.
+  Issues of unmanaged repos without a local clone are not collected; Settings lists those repos as
+  found on GitHub (6.2) with "Clone and manage".
+- Clone (issue #37): for a `github.com` origin, the daemon (never the agent)
   runs `gh repo clone <owner>/<repo> <repoRoot>/<owner>/<repo>`. Read-only towards GitHub and the
   user's click, so no draft. `gh` uses the user's auth and protocol and sets `upstream` for forks.
   - Target exists: a clone of the same origin is registered without cloning; an empty folder is
@@ -297,7 +300,13 @@ On start and on Settings open:
   tombstone missing from the results with `gh issue view` and marks it closed. A closed tombstone
   whose issue shows up again is removed and the issue is collected fresh. External ids are unique
   among live items only.
-- Repos with a `query` (4.6) are polled in addition, one call each:
+- Managed repos only (D46). The searches above stay one call each and return issues of every
+  repo; those of unmanaged repos are dropped. Unmanaged repos without a local clone are counted
+  per origin into `lastPoll.discovered` (`{ origin: count }`) for Settings. Without a `gh search`,
+  the per-repo fallback runs for managed repos only. Items of unmanaged repos are not checked for
+  closing and leave the board unless running, `needs_you`, or holding an open ask or draft; nothing
+  is deleted, and managing the repo again brings them back.
+- Managed repos with a `query` (4.6) are polled in addition, one call each:
   ```
   gh issue list --repo <origin> --search "<query>" --state open --json number,title,body,createdAt,labels,url
   ```
@@ -877,7 +886,7 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | GET | `/api/items` | items on the board (archived ones excluded) with state, playbook, repo, `finishedAt` |
 | GET | `/api/archive` | archived items, newest archived first (12.5) |
 | GET | `/api/items/:id` | item + events + drafts + asks; archived items too |
-| POST | `/api/items/:id/start` | create worktree, run setup, start agent |
+| POST | `/api/items/:id/start` | create worktree, run setup, start agent; 409 when the repo is not managed (D46) |
 | POST | `/api/items/:id/playbook` | `{ name }` |
 | GET | `/api/items/:id/transcript?after=<id>` | paged transcript |
 | POST | `/api/asks/:id/answer` | `{ behavior: allow\|deny, scope?: run\|always, answers?, message? }` |
@@ -900,7 +909,8 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/worktrees/orphaned/remove` | `{ path }`; only paths from the orphan list |
 | GET | `/api/repos` | |
 | POST | `/api/repos/rescan` | |
-| POST | `/api/repos/clone` | `{ origin }`; clones into `<repoRoot>/<owner>/<repo>` (5). 202 `{ origin, path, result: "started" }`, the outcome arrives as `repo.*` pushes; 200 with `result: "cloned"` when a clone of the origin was at the target already; 400 for an origin donePM cannot clone; 409 while it clones, when it has a clone, is ignored, or the target is occupied |
+| POST | `/api/repos/clone` | `{ origin }`; clones into `<repoRoot>/<owner>/<repo>` (5). 202 `{ origin, path, result: "started" }`, the outcome arrives as `repo.*` pushes; 200 with `result: "cloned"` when a clone of the origin was at the target already; 400 for an origin donePM cannot clone; 409 while it clones, when it has a clone, or the target is occupied. A clone makes the origin managed (D46) |
+| PUT | `/api/repos/:id` | `{ managed: boolean }`; manages or stops managing the repo's origin (D46). Managing polls at once |
 | GET/PUT | `/api/settings` | PUT is partial; `sources` is replaced as a whole. A new `worktreeRoot` with item worktrees under the old one needs `?worktrees=move\|leave`, else 409 `{ worktreesAtOldRoot }` and nothing saved; with move the answer has `worktrees: { moved, skipped }` (7.1) |
 | POST | `/api/sources/test` | `{ origin, query }`; runs the query once: `{ count, issues }` (first 10) |
 | GET | `/api/status` | CLI detection, daemon version, running agents |
@@ -1048,6 +1058,10 @@ you". Amber means "you have something to do"; red stays for daemon problems.
     poll. Never removes a worktree with uncommitted changes."
 - CLI status for `gh` and `claude`, with hints and "Check again".
 - Repos list with rescan. Orphaned worktrees.
+- Per repo a "Manage" checkbox (D46), first column; the header says "N of M managed", unmanaged rows
+  are muted. A fresh install manages nothing and the board stays empty. "Without a clone" lists
+  managed repos that have no local clone ("Stop managing") and repos the poll found on GitHub
+  without a clone, with their item count and "Clone and manage".
 - Per repo: what it collects (query or "assigned to you"), and an editor with the query field, a
   Test button (count and first titles), "Open in GitHub" (the repo's issue list with this query, to
   refine it there and paste it back) and the assign-on-start checkbox. A failed query shows on its
@@ -1113,7 +1127,7 @@ and `PATH`, because launchd starts jobs with a bare `PATH` and the daemon needs 
 
 ```json
 "sources": {
-  "github.com/spatie/bloom": { "query": "is:issue state:open no:assignee", "assignOnStart": true }
+  "github.com/spatie/bloom": { "managed": true, "query": "is:issue state:open no:assignee", "assignOnStart": true }
 }
 ```
 

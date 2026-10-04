@@ -4,9 +4,9 @@ import type { SourceSettings } from "../api/types";
 export const DEFAULT_QUERY = "is:issue state:open assignee:@me";
 
 /**
- * The sources map with one repository's query and assign opt-in replaced; its `ignored` flag stays.
- * An entry that says nothing beyond the defaults (no query, no assign, not ignored) is dropped, so
- * the config stays small.
+ * The sources map with one repository's query and assign opt-in replaced; its `managed` flag stays.
+ * An entry that says nothing beyond the defaults (no query, no assign, no managed choice) is
+ * dropped, so the config stays small.
  */
 export function withSource(
   sources: Readonly<Record<string, SourceSettings>>,
@@ -15,9 +15,9 @@ export function withSource(
 ): Record<string, SourceSettings> {
   const { [origin]: old, ...rest } = sources;
   const query = next.query.trim();
-  const ignored = old?.ignored === true;
-  if (!query && !next.assignOnStart && !ignored) return rest;
-  return { ...rest, [origin]: { ...(query ? { query } : {}), assignOnStart: next.assignOnStart, ...(ignored ? { ignored } : {}) } };
+  const managed = old?.managed;
+  if (!query && !next.assignOnStart && managed === undefined) return rest;
+  return { ...rest, [origin]: { ...(query ? { query } : {}), assignOnStart: next.assignOnStart, ...(managed === undefined ? {} : { managed }) } };
 }
 
 /** The repository's issue list on GitHub, filtered by the query, to refine it there. */

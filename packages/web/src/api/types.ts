@@ -146,6 +146,8 @@ export interface PollStatus {
   issues?: number;
   /** Repositories with their own query, keyed by normalised origin. */
   sources?: Record<string, SourcePollStatus>;
+  /** Unmanaged origins without a clone the searches found work in, with how much (D46). */
+  discovered?: Record<string, number>;
 }
 
 export interface Status {
@@ -183,13 +185,13 @@ export interface SourceSettings {
   /** GitHub issue search, as pasted. Absent: issues assigned to me. */
   query?: string;
   assignOnStart: boolean;
-  /** Not polled, and its items stay off the board unless they need attention. */
-  ignored?: boolean;
+  /** Polled and shown on the board (D46). Otherwise its items stay off the board unless they need attention. */
+  managed?: boolean;
 }
 
-/** `GET /api/repos`: a clone, and whether its origin is ignored. */
+/** `GET /api/repos`: a clone, and whether its origin is managed. */
 export interface RepoView extends Repo {
-  ignored: boolean;
+  managed: boolean;
 }
 
 /** `POST /api/sources/test`. */

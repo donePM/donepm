@@ -70,7 +70,6 @@ export interface ClonerDeps {
   log: Log;
   /** `repoRoot`, expanded. */
   root: () => string;
-  ignored: (origin: string) => boolean;
   push: (type: ClonePush, payload: unknown) => void;
   /** A clone started, finished or failed: relink items and show the new state. */
   changed: (origin: string) => void;
@@ -99,7 +98,7 @@ export class RepoCloner {
   /** Undefined when the origin cannot be cloned from the board. */
   state(origin: string): CloneState | undefined {
     const parsed = cloneableOrigin(origin);
-    if (!parsed || this.deps.ignored(origin)) return undefined;
+    if (!parsed) return undefined;
     const error = this.failures.get(origin);
     return {
       origin,
@@ -116,7 +115,6 @@ export class RepoCloner {
   async clone(origin: string): Promise<{ target: string } & ({ result: "cloned" } | { result: "started"; done: Promise<void> })> {
     const parsed = cloneableOrigin(origin);
     if (!parsed) throw new CloneError(`${origin} cannot be cloned from donePM`, 400);
-    if (this.deps.ignored(origin)) throw new CloneError(`${origin} is ignored`, 409);
     if (this.running.has(origin)) throw new CloneError(`${origin} is being cloned`, 409);
     const known = this.deps.repos.byOrigin(origin);
     if (known) throw new CloneError(`${origin} has a local clone at ${known.path}`, 409);

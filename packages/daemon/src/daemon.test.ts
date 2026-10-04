@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -84,6 +84,18 @@ async function homeWithHistory(): Promise<string> {
   return h;
 }
 
+/** The repositories of the recorded searches, managed (D46) unless a test wrote its own config. */
+const FIXTURE_SOURCES = Object.fromEntries(
+  ["github.com/acme/widgets", "github.com/acme/api", "github.com/solo/tool"].map((o) => [o, { assignOnStart: false, managed: true }]),
+);
+
+function manageFixtureRepos(h: string) {
+  const file = join(h, ".config/donepm/config.json");
+  if (existsSync(file)) return;
+  mkdirSync(join(h, ".config/donepm"), { recursive: true });
+  writeFileSync(file, JSON.stringify({ sources: FIXTURE_SOURCES }));
+}
+
 async function start(
   h: string,
   search = () => fixture("gh/search-issues.json"),
@@ -91,6 +103,7 @@ async function start(
   spawn = fakeProcesses(),
   view?: () => string,
 ): Promise<Daemon> {
+  manageFixtureRepos(h);
   daemon = await createDaemon({
     home: h, exec: execWith(search, view), ctx: testCtx(), version: "0.0.0-test", port: 0, publicDir, spawn,
     env: { PATH: "/usr/bin:/bin", GH_TOKEN: "secret" },
@@ -146,10 +159,9 @@ async function get(d: Daemon, path: string, init?: RequestInit): Promise<{ statu
 }
 
 describe("daemon", { timeout: 30_000 }, () => {
-  it("creates the config on first start and serves polled items", async () => {
+  it("serves polled items", async () => {
     const h = await home();
     const d = await start(h);
-    expect(JSON.parse(await readFile(join(h, ".config/donepm/config.json"), "utf8")).port).toBe(6174);
 
     const { status, body } = await get(d, "/api/items");
     expect(status).toBe(200);
@@ -615,7 +627,7 @@ describe("daemon", { timeout: 30_000 }, () => {
     const h = await homeWithHistory();
     await mkdir(join(h, ".config/donepm"), { recursive: true });
     await writeFile(join(h, ".config/donepm/config.json"), JSON.stringify({
-      sources: { "github.com/acme/widgets": { query: "is:issue no:assignee", assignOnStart: true } },
+      sources: { ...FIXTURE_SOURCES, "github.com/acme/widgets": { query: "is:issue no:assignee", assignOnStart: true, managed: true } },
     }));
     const spawn = fakeProcesses();
     const d = await start(h, undefined, undefined, spawn);
@@ -907,29 +919,86 @@ describe("daemon", { timeout: 30_000 }, () => {
     expect((await get(d, "/api/settings", { method: "PUT", headers: json, body: JSON.stringify({ archiveAfterHours: -1 }) })).status).toBe(400);
   });
 
-  describe("ignored repositories", () => {
+  describe("managed repositories (D46)", () => {
     const WIDGETS = "github.com/acme/widgets";
     const json = { "content-type": "application/json" };
     const put = (d: Daemon, path: string, body: unknown) => get(d, path, { method: "PUT", headers: json, body: JSON.stringify(body) });
-    const ignore = async (d: Daemon, ignored: boolean) => {
+    const manage = async (d: Daemon, managed: boolean) => {
       const repo = (await get(d, "/api/repos")).body.find((r: any) => r.originUrl === WIDGETS);
-      return put(d, `/api/repos/${repo.id}`, { ignored });
+      return put(d, `/api/repos/${repo.id}`, { managed });
     };
     const externalIds = async (d: Daemon) => (await get(d, "/api/items")).body.map((i: any) => i.externalId);
+    const configFile = (h: string) => join(h, ".config/donepm/config.json");
+    const fresh = async (h: string) => {
+      daemon = await createDaemon({
+        home: h, exec: execWith(() => fixture("gh/search-issues.json")), ctx: testCtx(), version: "0.0.0-test", port: 0,
+        publicDir: join(h, "no-ui"), spawn: fakeProcesses(), env: { PATH: "/usr/bin:/bin" },
+      });
+      await daemon.start();
+      await daemon.pollNow();
+      return daemon;
+    };
 
-    it("hides the idle items of an ignored repository, stops polling it and brings the same items back", async () => {
+    it("starts a fresh install with nothing managed and offers what the search found", async () => {
+      const h = await home();
+      const d = await fresh(h);
+      const config = JSON.parse(await readFile(configFile(h), "utf8"));
+      expect(config).toMatchObject({ port: 6174, sources: {} });
+      expect(await externalIds(d)).toEqual([]);
+      expect((await get(d, "/api/repos")).body.map((r: any) => [r.originUrl, r.managed])).toEqual([[WIDGETS, false]]);
+      expect((await get(d, "/api/status")).body.lastPoll).toMatchObject({
+        ok: true, issues: 0, discovered: { "github.com/acme/api": 1, "github.com/solo/tool": 1 },
+      });
+
+      // "Clone and manage": the clone starts and the repository's work is collected.
+      const res = await get(d, "/api/repos/clone", { method: "POST", headers: json, body: JSON.stringify({ origin: "github.com/solo/tool" }) });
+      expect(res.status).toBe(202);
+      expect(JSON.parse(await readFile(configFile(h), "utf8")).sources).toEqual({ "github.com/solo/tool": { assignOnStart: false, managed: true } });
+      await waitFor(async () => expect(await externalIds(d)).toEqual(["solo/tool#61"]));
+
+      expect((await manage(d, true)).status).toBe(200);
+      await waitFor(async () => expect((await externalIds(d)).sort()).toEqual(["acme/widgets#157", "acme/widgets#161", "solo/tool#61"]));
+      expect((await get(d, "/api/status")).body.lastPoll.discovered).toEqual({ "github.com/acme/api": 1 });
+    });
+
+    it("migrates once: origins with items or settings are managed, ignored ones are not", async () => {
+      const h = await home();
+      await start(h);
+      await daemon!.stop();
+      daemon = undefined;
+      await writeFile(configFile(h), JSON.stringify({ sources: { "github.com/acme/api": { assignOnStart: false, ignored: true } } }));
+
+      const d = await start(h, () => fixture("gh/search-issues-empty.json"));
+      expect(JSON.parse(await readFile(configFile(h), "utf8")).sources).toEqual({
+        [WIDGETS]: { assignOnStart: false, managed: true },
+        "github.com/solo/tool": { assignOnStart: false, managed: true },
+        "github.com/acme/api": { assignOnStart: false, managed: false },
+      });
+      expect(await externalIds(d)).toEqual(["acme/widgets#161", "acme/widgets#157", "solo/tool#61"]);
+
+      // Unmanaging everything is a choice the next start keeps.
+      for (const origin of [WIDGETS, "github.com/solo/tool"]) {
+        const { sources } = (await get(d, "/api/settings")).body;
+        await put(d, "/api/settings", { sources: { ...sources, [origin]: { assignOnStart: false, managed: false } } });
+      }
+      await daemon!.stop();
+      daemon = undefined;
+      const again = await start(h, () => fixture("gh/search-issues-empty.json"));
+      expect(await externalIds(again)).toEqual([]);
+    });
+
+    it("hides the idle items of an unmanaged repository, stops polling it and brings the same items back", async () => {
       const h = await home();
       const d = await start(h);
       const before = (await get(d, "/api/items")).body.map((i: any) => [i.externalId, i.id]);
-      expect((await get(d, "/api/repos")).body.map((r: any) => [r.originUrl, r.ignored])).toEqual([[WIDGETS, false]]);
+      expect((await get(d, "/api/repos")).body.map((r: any) => [r.originUrl, r.managed])).toEqual([[WIDGETS, true]]);
 
-      const hidden = await ignore(d, true);
+      const hidden = await manage(d, false);
       expect(hidden.status).toBe(200);
-      expect(hidden.body.repos.map((r: any) => [r.originUrl, r.ignored])).toEqual([[WIDGETS, true]]);
-      expect(hidden.body.settings.sources).toEqual({ [WIDGETS]: { assignOnStart: false, ignored: true } });
-      expect(JSON.parse(await readFile(join(h, ".config/donepm/config.json"), "utf8")).sources).toEqual(hidden.body.settings.sources);
+      expect(hidden.body.repos.map((r: any) => [r.originUrl, r.managed])).toEqual([[WIDGETS, false]]);
+      expect(hidden.body.settings.sources[WIDGETS]).toEqual({ assignOnStart: false, managed: false });
+      expect(JSON.parse(await readFile(configFile(h), "utf8")).sources).toEqual(hidden.body.settings.sources);
       expect(await externalIds(d)).toEqual(["solo/tool#61", "Acme/API#12"]);
-      expect((await get(d, "/api/repos")).body[0].ignored).toBe(true);
 
       // Nothing is deleted: the item is still there by id, and the next poll leaves it alone.
       const [hiddenId] = before[0]!.slice(1);
@@ -939,14 +1008,14 @@ describe("daemon", { timeout: 30_000 }, () => {
       expect((await get(d, "/api/status")).body.lastPoll).toMatchObject({ ok: true, issues: 2 });
       expect(d.db.prepare("SELECT COUNT(*) AS n FROM items").get()).toEqual({ n: 4 });
 
-      const shown = await ignore(d, false);
-      expect(shown.body.settings.sources).toEqual({});
+      const shown = await manage(d, true);
+      expect(shown.body.settings.sources[WIDGETS]).toEqual({ assignOnStart: false, managed: true });
       await d.pollNow();
       expect((await get(d, "/api/items")).body.map((i: any) => [i.externalId, i.id])).toEqual(before);
       expect((await get(d, "/api/status")).body.lastPoll).toMatchObject({ ok: true, issues: 4 });
     });
 
-    it("keeps an ignored repository's running items and items with a pending draft on the board", async () => {
+    it("keeps an unmanaged repository's running items and items with a pending draft on the board", async () => {
       const d = await start(await home());
       const [pendingDraft, running] = ["acme/widgets#161", "acme/widgets#157"];
       const at = "2026-10-03T12:00:00.000Z";
@@ -956,7 +1025,7 @@ describe("daemon", { timeout: 30_000 }, () => {
         .run("d1", id(pendingDraft!), JSON.stringify({ title: "Fix", body: "", base: "main" }), at, at);
       d.db.prepare("UPDATE items SET state = 'running' WHERE id = ?").run(id(running!));
 
-      await ignore(d, true);
+      await manage(d, false);
       expect(await externalIds(d)).toEqual(["acme/widgets#161", "acme/widgets#157", "solo/tool#61", "Acme/API#12"]);
 
       // Once the draft is settled and the agent is done, nothing needs the user and the items go.
@@ -974,42 +1043,52 @@ describe("daemon", { timeout: 30_000 }, () => {
       const of = (type: string) => messages.filter((m) => m.type === type).map((m) => m.payload.externalId ?? m.payload.id);
       const ids = Object.fromEntries((await get(d, "/api/items")).body.map((i: any) => [i.externalId, i.id]));
 
-      await ignore(d, true);
+      await manage(d, false);
       await waitFor(() => expect(of("item.removed")).toEqual([ids["acme/widgets#161"], ids["acme/widgets#157"]]));
       expect(of("item.updated")).toEqual([]);
 
-      await ignore(d, false);
-      await waitFor(() => expect(of("item.updated")).toEqual(["acme/widgets#161", "acme/widgets#157"]));
+      await manage(d, true);
+      await waitFor(() => expect(of("item.updated").slice(0, 2)).toEqual(["acme/widgets#161", "acme/widgets#157"]));
       await d.pollNow();
       ws.close();
     });
 
     it("changes one origin at a time and needs no restart, also through the settings patch", async () => {
       const d = await start(await home());
-      const other = { query: "label:bug", assignOnStart: true };
-      const saved = await put(d, "/api/settings", { sources: { "github.com/solo/tool": other } });
+      const other = { query: "label:bug", assignOnStart: true, managed: true };
+      const saved = await put(d, "/api/settings", { sources: { ...FIXTURE_SOURCES, "github.com/solo/tool": other } });
       expect(saved.body).toMatchObject({ settings: { sources: { "github.com/solo/tool": other } }, restartRequired: false });
 
-      expect((await ignore(d, true)).body.settings.sources).toEqual({
+      expect((await manage(d, false)).body.settings.sources).toMatchObject({
         "github.com/solo/tool": other,
-        [WIDGETS]: { assignOnStart: false, ignored: true },
+        [WIDGETS]: { assignOnStart: false, managed: false },
       });
-      expect((await ignore(d, false)).body.settings.sources).toEqual({ "github.com/solo/tool": other });
+      expect((await manage(d, true)).body.settings.sources[WIDGETS]).toEqual({ assignOnStart: false, managed: true });
 
-      const patched = await put(d, "/api/settings", { sources: { [WIDGETS]: { ignored: true } } });
+      const patched = await put(d, "/api/settings", { sources: { ...FIXTURE_SOURCES, [WIDGETS]: { managed: false } } });
       expect(patched.body.restartRequired).toBe(false);
       expect(await externalIds(d)).toEqual(["solo/tool#61", "Acme/API#12"]);
-      expect((await put(d, "/api/settings", { sources: {} })).body.restartRequired).toBe(false);
+      expect((await put(d, "/api/settings", { sources: FIXTURE_SOURCES })).body.restartRequired).toBe(false);
       await d.pollNow();
       expect(await externalIds(d)).toEqual(expect.arrayContaining(["acme/widgets#161", "acme/widgets#157"]));
+    });
+
+    it("refuses to start an item of an unmanaged repository", async () => {
+      const d = await start(await home());
+      const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
+      await manage(d, false);
+      expect(await get(d, `/api/items/${item.id}/start`, { method: "POST" })).toEqual({
+        status: 409, body: { error: `${WIDGETS} is not managed` },
+      });
+      expect((await get(d, `/api/items/${item.id}`)).body.state).toBe("ready");
     });
 
     it("rejects a bad body and an unknown repository", async () => {
       const d = await start(await home());
       const repo = (await get(d, "/api/repos")).body[0];
-      expect((await put(d, `/api/repos/${repo.id}`, { ignored: "yes" })).status).toBe(400);
-      expect((await put(d, `/api/repos/${repo.id}`, { ignored: true, query: "x" })).status).toBe(400);
-      expect((await put(d, "/api/repos/nope", { ignored: true })).status).toBe(404);
+      expect((await put(d, `/api/repos/${repo.id}`, { managed: "yes" })).status).toBe(400);
+      expect((await put(d, `/api/repos/${repo.id}`, { managed: true, query: "x" })).status).toBe(400);
+      expect((await put(d, "/api/repos/nope", { managed: true })).status).toBe(404);
     });
   });
 });

@@ -296,8 +296,8 @@ that ask for the user's review were the other half of #48. Each poll also runs
 `gh search prs --review-requested=@me --state=open` with the same fields as the issue search, so the
 answer goes through the same schema and upsert; the item's `source` is `github-pr`, its
 `externalId` `owner/repo#N` like an issue's (issue and PR numbers share one sequence per repo, so
-they cannot collide), and its default playbook is `review` (8.1). Repos the user ignores stay off
-the board as for issues. A failing PR search is a failing source: the issues still come in, and
+they cannot collide), and its default playbook is `review` (8.1). Repos the user does not manage
+(D46) stay off the board as for issues. A failing PR search is a failing source: the issues still come in, and
 nothing is checked for "closed upstream" (6.2). Closed and merged PRs are found with the existing
 `gh issue view --json state`, which answers `MERGED` for a merged PR; the daemon reads it as
 closed, so D32 applies unchanged and an untouched review request that someone else merged goes to
@@ -390,6 +390,24 @@ default P2. Items the poll does not return are not refreshed: `done` and archive
 finished and their card is muted, and an item no longer assigned or matching its query left the
 user's scope; refreshing them would need a call per item per poll. They are still checked for
 closing (6.2) as before. Review requests (`github-pr`) have no issue fields and keep the labels.
+
+**D46. donePM works only in repositories the user manages; managing replaces ignoring.** With
+#33 every assigned issue of every repo came onto the board until the user ignored its repo, and a
+fresh install filled the board with work from repositories the user never meant donePM to touch
+(#94). Opt-in fits "the user approves every outward action" better than opt-out. `sources` gets
+`managed` (default false); `ignored` is read once for the migration and then dropped. Migration:
+when no entry has a `managed` key yet and items exist, every origin with items or a source entry
+becomes managed unless it was ignored, so an upgrade keeps the board as it was. Unmanaging writes an
+explicit `managed: false`, so the migration never runs twice, even when nothing is managed. The
+global searches (assigned issues, review requests) stay one call each: dropping them would hide
+what the user could manage, and a per-repo search costs a call per repo per poll. Their results
+from unmanaged repos are dropped; those without a local clone are counted into a "found on GitHub"
+list in Settings with "Clone and manage", since a clone is the user's statement that they want to
+work there. Unmanaged repos with a local clone are in the repos list with their checkbox. Items of
+an unmanaged repo leave the board but are not deleted or closed, so managing the repo again brings
+them back as they were; items that are running, `needs_you`, or hold an open ask or draft stay
+visible, because hiding them would hide work waiting on the user. Start refuses an item of an
+unmanaged repo (409); a resume of an already started item is not blocked.
 
 ## Open (not decided)
 

@@ -3,7 +3,7 @@ import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
 
 /**
- * `item.removed` is `{ id }`: the item is off the board now (its repository is ignored), but not deleted.
+ * `item.removed` is `{ id }`: the item is off the board now (its repository is not managed), but not deleted.
  * `repo.cloning`, `repo.cloned` are `{ origin, path }`, `repo.clone_failed` adds `error` (issue #37).
  */
 export type PushType =
