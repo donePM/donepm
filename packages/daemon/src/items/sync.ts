@@ -1,6 +1,6 @@
 import {
   closedUpstream, collect, externalIdOf, wasStarted, linkRepo, markClosedUpstream, normalizeOriginUrl, refresh,
-  type Ctx, type SourceIssue, type WorkItem,
+  type Ctx, type ItemSource, type SourceIssue, type WorkItem,
 } from "@donepm/core";
 import { transaction, type Db } from "../db/database.js";
 import type { EventStore } from "../events/store.js";
@@ -14,8 +14,8 @@ export interface SyncDeps {
   events: EventStore;
   repos: RepoStore;
   ctx: Ctx;
-  /** The repository's default playbook for new issues (issue #127); pull requests keep theirs (D40). */
-  playbookFor?: (origin: string) => string | undefined;
+  /** The playbook a new item of the repository starts with (issue #127, #153); missing: the built-in default. */
+  playbookFor?: (origin: string, source: ItemSource) => string | undefined;
 }
 
 /** `github.com/owner/repo` for an issue, matching a clone's normalised origin. */
@@ -70,7 +70,7 @@ export function syncIssues(issues: readonly SourceIssue[], deps: SyncDeps, asked
 
       if (!known) {
         if (finishedBefore(externalId)) continue;
-        const playbook = (issue.source ?? "github-issue") === "github-issue" ? deps.playbookFor?.(origin) : undefined;
+        const playbook = deps.playbookFor?.(origin, issue.source ?? "github-issue");
         const c = collect(issue, ctx, { ...(repoId === undefined ? {} : { repoId }), ...(playbook ? { playbook } : {}) });
         items.insert(c.item, origin);
         events.append(c.events);

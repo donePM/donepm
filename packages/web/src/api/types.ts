@@ -80,6 +80,8 @@ export interface ItemView extends WorkItem {
   clone?: CloneState;
   /** Someone else's pull request: what still blocks the Merge button, and how it merges (D47). */
   merge?: MergeView;
+  /** The playbooks its repository offers the item's ingest; the card's choice (issue #153). */
+  allowedPlaybooks?: string[];
   /** While it waits for CI: the checks of the last poll (spec 12.1). */
   ci?: { checks: CiCheckView[] };
 }
@@ -236,6 +238,16 @@ export interface SourceSettings {
   mergeMethod?: MergeMethod;
   /** The playbook its new issues start with; absent: chosen by labels. */
   playbook?: string;
+  /**
+   * The playbooks each ingest may run (issue #153). Absent: issues get every playbook that is not
+   * read-only, pull requests `review`.
+   */
+  playbooks?: IngestPlaybooks;
+}
+
+export interface IngestPlaybooks {
+  issue?: string[];
+  pr?: string[];
 }
 
 /** `GET /api/repos`: a clone, and whether its origin is managed. */

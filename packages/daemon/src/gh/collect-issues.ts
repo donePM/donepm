@@ -1,4 +1,4 @@
-import { externalIdOf, type Ctx, type WorkItem } from "@donepm/core";
+import { externalIdOf, initialPlaybook, type Ctx, type ItemSource, type WorkItem } from "@donepm/core";
 import type { Config } from "../config/config.js";
 import type { Db } from "../db/database.js";
 import type { EventStore } from "../events/store.js";
@@ -29,6 +29,8 @@ export interface CollectDeps {
   /** Managed flags (D46) and per-repository queries (issue #32); repos without a query only get the default search. */
   sources: () => Config["sources"];
   onItemUpdated: (item: WorkItem) => void;
+  /** The playbooks a repository offers an ingest (issue #153); a new item starts with one of them. */
+  allowedPlaybooks?: (origin: string, source: ItemSource) => readonly string[];
 }
 
 const RAW_LOG_LIMIT = 10_000;
@@ -96,7 +98,10 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
     // GitHub's "Priority" issue field, one batched call for all issues of the poll (D45).
     const synced = syncIssues(
       await withPriorityFields(exec, issues),
-      { ...deps, playbookFor: (origin) => sourceConfig[origin]?.playbook },
+      {
+        ...deps,
+        playbookFor: (origin, source) => initialPlaybook(source, sourceConfig[origin]?.playbook, deps.allowedPlaybooks?.(origin, source) ?? []),
+      },
       (origin) => managed.has(origin),
     );
     for (const item of [...synced.collected, ...synced.updated]) deps.onItemUpdated(item);

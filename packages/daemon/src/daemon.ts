@@ -1,4 +1,4 @@
-import { autoMergeOn, executedPr, finishedAt, mergeBlockers, prConflictOf, prMergeOf, type CiCheck, type Ctx, type PrConflict, type WorkItem } from "@donepm/core";
+import { allowedPlaybooks, autoMergeOn, executedPr, finishedAt, mergeBlockers, prConflictOf, prMergeOf, type CiCheck, type Ctx, type ItemSource, type Playbook, type PrConflict, type WorkItem } from "@donepm/core";
 import type { FastifyInstance } from "fastify";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -41,7 +41,8 @@ import { agentHistory, liveHistory } from "./items/agent-info.js";
 import { attentionOf } from "./items/attention.js";
 import { toItemView, type CiCheckView, type CurrentTool, type ItemView, type MergeView } from "./items/view.js";
 import type { Exec } from "./process/exec.js";
-import { ensureDefaultPlaybooks, loadPlaybooks } from "./playbooks/load.js";
+import { PlaybookCatalog } from "./playbooks/catalog.js";
+import { ensureDefaultPlaybooks } from "./playbooks/load.js";
 import { listPlaybooks } from "./playbooks/list.js";
 import { databaseBytes } from "./system/info.js";
 import { withOrphanDetails } from "./worktrees/orphan-details.js";
@@ -145,6 +146,12 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     const stored = items.get(itemId);
     if (stored?.item.state === "checking") pushItem(stored.item);
   };
+  /** Each repository's playbooks in memory, so a view can list what its card offers (issue #153). */
+  const catalog = new PlaybookCatalog(paths.playbooksDir);
+  const refreshCatalog = () => catalog.refresh(repos.all().map((r) => r.path)).catch((e) => app.log.warn({ err: e }, "could not read the playbooks"));
+  const allowedFor = (origin: string, source: ItemSource, loaded: readonly Playbook[]) =>
+    allowedPlaybooks(source, config.sources[origin]?.playbooks, loaded);
+  const repoPathOf = (item: WorkItem, origin: string) => (item.repoId ? repos.get(item.repoId) : repos.byOrigin(origin))?.path;
   const view = (item: WorkItem): ItemView => {
     const repo = item.repoId ? repos.get(item.repoId) : undefined;
     const origin = repo ? undefined : items.get(item.id)?.originUrl;
@@ -170,6 +177,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
         events: itemEvents,
       }),
       pr ? { ...pr, ...prMergeOf(itemEvents), ...conflictView(prConflictOf(itemEvents)) } : undefined,
+      allowedFor(items.get(item.id)?.originUrl ?? "", item.source, catalog.get(repo?.path)),
     );
     const merge = item.source === "github-pr" ? mergeView(item, items.get(item.id)?.originUrl) : undefined;
     const checks = item.state === "checking" ? ciChecks.get(item.id) : undefined;
@@ -299,7 +307,12 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
 
   const poller = new Poller(
     async () => {
-      await collectIssues({ db, exec: opts.exec, items, events, repos, status, ctx: opts.ctx, log: app.log, sources: () => config.sources, onItemUpdated: pushItem });
+      // Playbook files may have changed since the last poll; new items start with an allowed one (#153).
+      await refreshCatalog();
+      await collectIssues({
+        db, exec: opts.exec, items, events, repos, status, ctx: opts.ctx, log: app.log, sources: () => config.sources, onItemUpdated: pushItem,
+        allowedPlaybooks: (origin, source) => allowedFor(origin, source, catalog.get(repos.byOrigin(origin)?.path)),
+      });
       if (status.get().gh?.state === "ready") {
         for (const id of ciChecks.keys()) if (items.get(id)?.item.state !== "checking") ciChecks.delete(id);
         await watchCi({ items, events, writer, exec: opts.exec, ctx: opts.ctx, log: app.log, onChecks });
@@ -403,9 +416,11 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       changePlaybook(
         {
           items, writer, ctx: opts.ctx,
-          available: async (item) => {
+          playbooks: async (item) => {
+            const origin = items.get(item.id)?.originUrl ?? "";
             const repo = item.repoId ? repos.get(item.repoId) : undefined;
-            return (await loadPlaybooks(paths.playbooksDir, repo?.path)).playbooks.map((p) => p.name);
+            const loaded = await catalog.load(repo?.path);
+            return { available: loaded.map((p) => p.name), allowed: allowedFor(origin, item.source, loaded) };
           },
         },
         id,
@@ -481,6 +496,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       } catch (e) {
         app.log.error({ err: e }, "repo scan failed");
       }
+      await refreshCatalog();
       poller.start();
     },
     async stop() {

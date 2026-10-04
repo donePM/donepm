@@ -1,5 +1,5 @@
 import type { MergeMethod } from "@donepm/core";
-import type { SourceSettings } from "../../api/types";
+import type { IngestPlaybooks, SourceSettings } from "../../api/types";
 
 /** What GitHub's issue search shows for the default source (assigned to me, open). */
 export const DEFAULT_QUERY = "is:issue state:open assignee:@me";
@@ -14,11 +14,14 @@ export interface SourceForm {
   managed?: boolean;
   /** The playbook its new issues start with; empty: chosen by labels. */
   playbook?: string;
+  /** The playbooks each ingest may run (issue #153); absent: the defaults. */
+  playbooks?: IngestPlaybooks;
 }
 
 /**
  * The sources map with one repository's form choices replaced; its `managed` flag stays unless the
- * form sets it. Defaults (no query, no assign, no auto-merge, squash, no playbook) are left out, and an entry that says nothing beyond
+ * form sets it. Defaults (no query, no assign, no auto-merge, squash, no playbook, the default
+ * playbooks per ingest) are left out, and an entry that says nothing beyond
  * them is dropped, so the config stays small.
  */
 export function withSource(
@@ -32,7 +35,8 @@ export function withSource(
   const playbook = next.playbook?.trim() || undefined;
   const autoMerge = next.autoMerge === true;
   const mergeMethod = next.mergeMethod && next.mergeMethod !== "squash" ? next.mergeMethod : undefined;
-  if (!query && !next.assignOnStart && managed === undefined && !autoMerge && !mergeMethod && !playbook) return rest;
+  const playbooks = next.playbooks?.issue || next.playbooks?.pr ? next.playbooks : undefined;
+  if (!query && !next.assignOnStart && managed === undefined && !autoMerge && !mergeMethod && !playbook && !playbooks) return rest;
   return {
     ...rest,
     [origin]: {
@@ -42,6 +46,7 @@ export function withSource(
       ...(autoMerge ? { autoMerge } : {}),
       ...(mergeMethod ? { mergeMethod } : {}),
       ...(playbook ? { playbook } : {}),
+      ...(playbooks ? { playbooks } : {}),
     },
   };
 }

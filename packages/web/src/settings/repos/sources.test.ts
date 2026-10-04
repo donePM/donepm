@@ -42,6 +42,13 @@ describe("withSource", () => {
     });
     expect(withSource({ "github.com/a/b": { assignOnStart: false, playbook: "x" } }, "github.com/a/b", { query: "", assignOnStart: false, playbook: "" })).toEqual({});
   });
+
+  it("keeps the playbooks per ingest, and drops them when they are the defaults (#153)", () => {
+    expect(withSource({}, "github.com/c/d", { query: "", assignOnStart: false, playbooks: { pr: ["audit"] } })).toEqual({
+      "github.com/c/d": { assignOnStart: false, playbooks: { pr: ["audit"] } },
+    });
+    expect(withSource({}, "github.com/c/d", { query: "", assignOnStart: false, playbooks: {} })).toEqual({});
+  });
 });
 
 describe("issueSearchUrl", () => {

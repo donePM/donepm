@@ -35,6 +35,8 @@ export interface ItemView extends WorkItem {
   merge?: MergeView;
   /** While it waits for CI: the checks of the last poll, for the card's badges (spec 12.1). */
   ci?: CiView;
+  /** The playbooks its repository offers the item's ingest, the card's choice (issue #153). */
+  allowedPlaybooks: string[];
 }
 
 /** One check as the last `gh pr checks` reported it; `bucket` is gh's: pass, fail, pending, skipping, cancel. */
@@ -69,6 +71,7 @@ export function toItemView(
   agent: AgentView = { running: false },
   attention?: Attention,
   pr?: PrView,
+  allowedPlaybooks: string[] = [],
 ): ItemView {
   const badges: ItemBadge[] = [];
   if (!repo) badges.push("no-local-clone");
@@ -77,6 +80,7 @@ export function toItemView(
     ...item,
     repo: repo ? { id: repo.id, path: repo.path, originUrl: repo.originUrl, defaultBranch: repo.defaultBranch } : null,
     badges,
+    allowedPlaybooks,
     agent,
     ...(attention ? { attention } : {}),
     ...(pr ? { pr } : {}),

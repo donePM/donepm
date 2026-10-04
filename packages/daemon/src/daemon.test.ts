@@ -765,7 +765,10 @@ describe("daemon", { timeout: 30_000 }, () => {
 
   it("changes the playbook of a Ready item until it starts, and passes the composer's note to the running agent", async () => {
     const spawn = fakeProcesses();
-    const d = await start(await homeWithHistory(), undefined, undefined, spawn);
+    const h = await homeWithHistory();
+    await mkdir(join(h, ".config/donepm/playbooks"), { recursive: true });
+    await writeFile(join(h, ".config/donepm/playbooks/fix.md"), "---\nname: fix\nmodel: opus\npermission_mode: acceptEdits\ndrafts: [pr]\n---\nFix {{ title }}.\n");
+    const d = await start(h, undefined, undefined, spawn);
     const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
     const put = (body: unknown) =>
       get(d, `/api/items/${item.id}/playbook`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -773,10 +776,15 @@ describe("daemon", { timeout: 30_000 }, () => {
       get(d, `/api/items/${item.id}/say`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
     expect(item.playbook).toBe("implement");
-    const changed = await put({ playbook: "review" });
-    expect(changed).toMatchObject({ status: 200, body: { playbook: "review", state: "ready" } });
+    // Issues are offered every playbook that is not read-only (#153).
+    expect(item.allowedPlaybooks).toEqual(["fix", "implement"]);
+    expect(await put({ playbook: "review" })).toMatchObject({
+      status: 409, body: { error: 'playbook "review" is not offered for issues of this repository' },
+    });
+    const changed = await put({ playbook: "fix" });
+    expect(changed).toMatchObject({ status: 200, body: { playbook: "fix", state: "ready", allowedPlaybooks: ["fix", "implement"] } });
     expect((await get(d, `/api/items/${item.id}`)).body.events.at(-1)).toMatchObject({
-      type: "item.playbook_changed", actor: "user", payload: { from: "implement", to: "review" },
+      type: "item.playbook_changed", actor: "user", payload: { from: "implement", to: "fix" },
     });
     expect((await put({ playbook: "nope" })).status).toBe(400);
     expect((await put({})).status).toBe(400);
@@ -788,7 +796,7 @@ describe("daemon", { timeout: 30_000 }, () => {
     await waitFor(() => expect(spawn.spawned).toHaveLength(1));
     const proc = spawn.last();
     proc.emit({ type: "system", subtype: "init", session_id: "s1" });
-    expect((await put({ playbook: "review" })).status).toBe(409);
+    expect((await put({ playbook: "fix" })).status).toBe(409);
     expect((await say({ text: "  " })).status).toBe(400);
     expect(await say({ text: "Keep the old tag as an alias." })).toEqual({ status: 200, body: { ok: true } });
     expect(proc.sent().at(-1)).toMatchObject({ type: "user", message: { role: "user", content: [{ type: "text", text: "Keep the old tag as an alias." }] } });

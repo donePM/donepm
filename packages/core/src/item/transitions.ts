@@ -2,11 +2,22 @@ import type { Ctx } from "../ids.js";
 import type { Event, EventActor, EventType } from "../event/types.js";
 import type { PrConflict } from "../pr/conflict.js";
 import type { FeedbackEntry, PrFeedback } from "../pr/feedback.js";
-import type { ItemState, WorkItem } from "./types.js";
+import type { ItemSource, ItemState, WorkItem } from "./types.js";
 
 export interface Transition {
   item: WorkItem;
   events: Event[];
+}
+
+/** A playbook the repository does not offer for the item's ingest (issue #153). */
+export class PlaybookNotAllowedError extends Error {
+  constructor(
+    readonly playbook: string,
+    readonly source: ItemSource,
+  ) {
+    super(`playbook "${playbook}" is not offered for ${source === "github-pr" ? "pull requests" : "issues"} of this repository`);
+    this.name = "PlaybookNotAllowedError";
+  }
 }
 
 export class InvalidTransitionError extends Error {
@@ -729,9 +740,10 @@ export function dismissed(item: WorkItem, ctx: Ctx): Transition {
 
 /**
  * The user picked another playbook on a Ready card (spec 12.1). Only before the first start: a
- * running or started item keeps the playbook its session began with.
+ * running or started item keeps the playbook its session began with. Only one of `allowed`, the
+ * playbooks the repository offers the item's ingest (issue #153, `allowedPlaybooks`).
  */
-export function playbookChanged(item: WorkItem, ctx: Ctx, playbook: string): Transition {
+export function playbookChanged(item: WorkItem, ctx: Ctx, playbook: string, allowed: readonly string[]): Transition {
   if (item.startedAt !== undefined) throw new InvalidTransitionError("playbookChanged", item.state);
   const t = apply(
     { name: "playbookChanged", from: ["ready"], to: "ready", actor: "user", event: "item.playbook_changed" },
@@ -740,5 +752,6 @@ export function playbookChanged(item: WorkItem, ctx: Ctx, playbook: string): Tra
     undefined,
     { from: item.playbook, to: playbook },
   );
+  if (!allowed.includes(playbook)) throw new PlaybookNotAllowedError(playbook, item.source);
   return { ...t, item: { ...t.item, playbook } };
 }
