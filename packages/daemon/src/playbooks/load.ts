@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
 import { copyFile, mkdir, readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { parsePlaybook, type Playbook } from "@donepm/core";
 
 export interface PlaybookProblem {
@@ -44,10 +44,15 @@ export async function loadPlaybooks(globalDir: string, repoPath?: string): Promi
   return { playbooks: [...byName.values()], problems: [...global.problems, ...repo.problems] };
 }
 
-/** Write the built-in `implement.md` into the global folder unless it is already there. */
-export async function ensureDefaultPlaybook(globalDir: string, source: string): Promise<void> {
+/**
+ * Write each built-in playbook (`implement.md`, `review.md`) into the global folder under its own
+ * file name, unless a file of that name is already there: the user's copy always wins.
+ */
+export async function ensureDefaultPlaybooks(globalDir: string, sources: string[]): Promise<void> {
   await mkdir(globalDir, { recursive: true });
-  await copyFile(source, join(globalDir, "implement.md"), constants.COPYFILE_EXCL).catch((e: NodeJS.ErrnoException) => {
-    if (e.code !== "EEXIST") throw e;
-  });
+  for (const source of sources) {
+    await copyFile(source, join(globalDir, basename(source)), constants.COPYFILE_EXCL).catch((e: NodeJS.ErrnoException) => {
+      if (e.code !== "EEXIST") throw e;
+    });
+  }
 }

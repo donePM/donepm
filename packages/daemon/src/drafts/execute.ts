@@ -2,10 +2,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  draftApproved, draftExecuted, draftExecutionFailed, repliesPosted,
+  draftApproved, draftExecuted, draftExecutionFailed, repliesPosted, reviewPosted,
   type CiPr, type Draft, type DraftReply, type PostedReply, type PrDraftPayload, type PrDraftResult, type WorkItem,
 } from "@donepm/core";
 import { postReply } from "../gh/pr-replies.js";
+import { postReview } from "../gh/pr-review.js";
 import type { Exec, ExecResult } from "../process/exec.js";
 import type { DraftResult } from "./store.js";
 import { setupCopies } from "../worktrees/setup.js";
@@ -16,7 +17,7 @@ export const WIP_MESSAGE = "WIP from donePM";
 
 const PUSH_TIMEOUT_MS = 120_000;
 
-export type ExecutionStep = "commit" | "push" | "pr" | "reply";
+export type ExecutionStep = "commit" | "push" | "pr" | "reply" | "review";
 
 export class ExecutionError extends Error {
   constructor(
@@ -38,8 +39,10 @@ export interface ApproveDeps extends DraftDeps {
  * The user approved a draft (spec 6.3): the daemon, never the agent, commits leftovers and pushes
  * the branch; for a PR draft it then opens the pull request with the user's edits. Either way the
  * item then waits for the PR's CI (D35). Replies to review feedback are posted after the push; a
- * comment draft only posts them, and the item is done again (D39). A failed draft can be approved again (Retry). Throws DraftError before anything ran; ExecutionError once a step failed, with
- * the draft `failed` and the item still waiting for the user.
+ * comment draft only posts them, and the item is done again (D39). A review draft posts the review of
+ * someone else's pull request, and the item is done (D43). A failed draft can be approved again
+ * (Retry). Throws DraftError before anything ran; ExecutionError once a step failed, with the draft
+ * `failed` and the item still waiting for the user.
  */
 export async function approveDraft(deps: ApproveDeps, draftId: string): Promise<Draft> {
   const draft = deps.drafts.get(draftId);
@@ -68,6 +71,11 @@ export async function approveDraft(deps: ApproveDeps, draftId: string): Promise<
       result = replies.length
         ? { ...pushed, posted: await postReplies(deps, draft.id, pr, replies, draft.result?.posted ?? [], (posted) => ({ ...pushed, posted })) }
         : pushed;
+    } else if (draft.type === "review") {
+      pr = { number: draft.payload.number, url: draft.payload.url };
+      const posted = await postReview(deps.exec, draft.payload);
+      if (!posted.ok) throw new ExecutionError("review", `posting the review failed: ${posted.error}`);
+      result = posted.result;
     } else {
       pr = { number: draft.payload.number, url: draft.payload.url };
       result = { posted: await postReplies(deps, draft.id, pr, draft.payload.replies, draft.result?.posted ?? [], (posted) => ({ posted })) };
@@ -86,7 +94,9 @@ export async function approveDraft(deps: ApproveDeps, draftId: string): Promise<
   deps.writer.commit(
     draft.type === "comment"
       ? repliesPosted(current, deps.ctx, draft.id, { ...result })
-      : draftExecuted(current, deps.ctx, draft.id, { number: pr.number, url: pr.url }, { ...result }),
+      : draft.type === "review"
+        ? reviewPosted(current, deps.ctx, draft.id, { ...result })
+        : draftExecuted(current, deps.ctx, draft.id, { number: pr.number, url: pr.url }, { ...result }),
   );
   await deps.stopAgent(item.id).catch(() => {});
   return { ...draft, state: "executed", result } as Draft;

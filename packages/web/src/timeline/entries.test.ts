@@ -165,6 +165,19 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("describes a review of someone else's pull request (D43)", () => {
+    const events = [
+      ev("draft.created", { type: "review", title: "Approve PR #7" }, { refId: "r", actor: "agent" }),
+      ev("draft.execution_failed", { step: "review", error: "HTTP 422" }, { refId: "r" }),
+      ev("draft.executed", { id: 1, url: "https://github.com/o/r/pull/7#pullrequestreview-1" }, { refId: "r" }),
+    ];
+    expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail })).reverse()).toEqual([
+      { tone: "attention", text: "Agent created review draft", detail: "Approve PR #7" },
+      { tone: "danger", text: "Posting the review failed", detail: "HTTP 422" },
+      { tone: "system", text: "Review posted, done", detail: "https://github.com/o/r/pull/7#pullrequestreview-1" },
+    ]);
+  });
+
   it("describes items closed upstream", () => {
     const events = [ev("item.closed_upstream"), ev("item.dismissed", {}, { actor: "user" })];
     expect(timelineEntries(events, []).map(({ tone, text }) => ({ tone, text }))).toEqual([

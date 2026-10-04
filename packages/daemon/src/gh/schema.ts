@@ -26,7 +26,8 @@ export const SearchIssuesSchema = z.array(SearchIssueSchema);
 export const ListIssueSchema = z.object(IssueFields);
 export const ListIssuesSchema = z.array(ListIssueSchema);
 
-export const IssueStateSchema = z.object({ state: z.enum(["OPEN", "CLOSED"]) });
+/** `gh issue view <n> --json state`; for a pull request's number gh answers MERGED, too. */
+export const IssueStateSchema = z.object({ state: z.enum(["OPEN", "CLOSED", "MERGED"]) });
 
 /** `gh pr view <n> --json state,mergedAt`. */
 export const PrStateSchema = z.object({

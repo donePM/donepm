@@ -12,6 +12,7 @@ import { TombstoneStore } from "../retention/tombstones.js";
 import type { SourcePollStatus, StatusStore } from "../status/status.js";
 import { detectGh } from "./detect.js";
 import { fetchAssignedIssues, fetchIssueState, fetchQueryIssues, type FetchResult } from "./issues.js";
+import { fetchReviewRequests } from "./review-requests.js";
 
 export interface CollectDeps {
   db: Db;
@@ -30,8 +31,9 @@ export interface CollectDeps {
 const RAW_LOG_LIMIT = 10_000;
 
 /**
- * One poll cycle (spec 6.2): the default search (assigned to me) plus one query per repository
- * that has its own (issue #32), merged by `externalId`. A failing source does not stop the others.
+ * One poll cycle (spec 6.2): the default search (assigned to me), the pull requests that ask for
+ * the user's review (issue #48, D40), and one query per repository that has its own (issue #32),
+ * merged by `externalId`. A failing source does not stop the others.
  * Ignored repositories (issue #33) are not polled, and their issues are dropped from the default search.
  * Never throws: failures are logged and recorded in the status, so Settings can show them.
  */
@@ -49,12 +51,13 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
 
     const sourceConfig = deps.sources();
     const ignored = ignoredOrigins(sourceConfig);
-    const fetched: Array<{ origin?: string; result: FetchResult }> = [
+    const fetched: Array<{ origin?: string; label?: string; result: FetchResult }> = [
       {
         result: await fetchAssignedIssues(exec, () =>
           repos.all().map((r) => r.originUrl).filter((origin) => !isIgnored(sourceConfig, origin)),
         ),
       },
+      { label: "review requests", result: await fetchReviewRequests(exec) },
     ];
     for (const [origin, source] of Object.entries(sourceConfig)) {
       if (source.query && !ignored.has(origin)) fetched.push({ origin, result: await fetchQueryIssues(exec, origin, source.query) });
@@ -63,18 +66,19 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
     const issues: SourceIssue[] = [];
     const errors: string[] = [];
     const sources: Record<string, SourcePollStatus> = {};
-    for (const { origin, result } of fetched) {
+    for (const { origin, label, result } of fetched) {
       if (result.ok) {
         issues.push(...result.issues.filter((i) => !ignored.has(issueOrigin(i))));
         if (origin) sources[origin] = { ok: true, issues: result.issues.length };
         continue;
       }
       if (result.kind === "schema") {
-        log.error({ origin, error: result.error, raw: result.raw.slice(0, RAW_LOG_LIMIT) }, "gh output failed schema validation");
+        log.error({ origin, label, error: result.error, raw: result.raw.slice(0, RAW_LOG_LIMIT) }, "gh output failed schema validation");
       } else {
-        log.warn({ origin, error: result.error }, "gh poll failed");
+        log.warn({ origin, label, error: result.error }, "gh poll failed");
       }
-      errors.push(origin ? `${origin}: ${result.error}` : result.error);
+      const where = origin ?? label;
+      errors.push(where ? `${where}: ${result.error}` : result.error);
       if (origin) sources[origin] = { ok: false, error: result.error };
     }
     // The default search failing on the command maybe means logged out; detect again next cycle.

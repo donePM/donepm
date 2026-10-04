@@ -19,6 +19,7 @@ interface ItemRow {
   state_since: string;
   worktree_path: string | null;
   branch: string | null;
+  base_branch: string | null;
   agent_session_id: string | null;
   closed_upstream: number;
   created_at: string;
@@ -53,6 +54,7 @@ function fromRow(r: ItemRow): StoredItem {
   if (r.started_at !== null) item.startedAt = r.started_at;
   if (r.worktree_path !== null) item.worktreePath = r.worktree_path;
   if (r.branch !== null) item.branch = r.branch;
+  if (r.base_branch !== null) item.baseBranch = r.base_branch;
   if (r.agent_session_id !== null) item.agentSessionId = r.agent_session_id;
   if (r.closed_upstream) item.closedUpstream = true;
   if (r.archived_at !== null) item.archivedAt = r.archived_at;
@@ -77,6 +79,7 @@ function params(item: WorkItem) {
     state_since: item.stateSince,
     worktree_path: item.worktreePath ?? null,
     branch: item.branch ?? null,
+    base_branch: item.baseBranch ?? null,
     agent_session_id: item.agentSessionId ?? null,
     closed_upstream: item.closedUpstream ? 1 : 0,
     created_at: item.createdAt,
@@ -128,10 +131,10 @@ export class ItemStore {
     this.db
       .prepare(
         `INSERT INTO items (id, source, external_id, external_url, origin_url, repo_id, title, body, labels, state,
-           playbook, priority, issue_created_at, started_at, state_since, worktree_path, branch, agent_session_id,
+           playbook, priority, issue_created_at, started_at, state_since, worktree_path, branch, base_branch, agent_session_id,
            closed_upstream, created_at, updated_at, archived_at)
          VALUES (:id, :source, :external_id, :external_url, :origin_url, :repo_id, :title, :body, :labels, :state,
-           :playbook, :priority, :issue_created_at, :started_at, :state_since, :worktree_path, :branch, :agent_session_id,
+           :playbook, :priority, :issue_created_at, :started_at, :state_since, :worktree_path, :branch, :base_branch, :agent_session_id,
            :closed_upstream, :created_at, :updated_at, :archived_at)`,
       )
       .run({ ...params(item), origin_url: originUrl });
@@ -143,7 +146,7 @@ export class ItemStore {
       .prepare(
         `UPDATE items SET source = :source, external_url = :external_url, repo_id = :repo_id, title = :title,
            body = :body, labels = :labels, state = :state, playbook = :playbook, priority = :priority,
-           issue_created_at = :issue_created_at, started_at = :started_at, state_since = :state_since, worktree_path = :worktree_path, branch = :branch, agent_session_id = :agent_session_id,
+           issue_created_at = :issue_created_at, started_at = :started_at, state_since = :state_since, worktree_path = :worktree_path, branch = :branch, base_branch = :base_branch, agent_session_id = :agent_session_id,
            closed_upstream = :closed_upstream, updated_at = :updated_at, archived_at = :archived_at
          WHERE id = :id`,
       )

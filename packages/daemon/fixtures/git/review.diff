@@ -1,0 +1,63 @@
+diff --git packages/daemon/src/daemon.ts packages/daemon/src/daemon.ts
+index 0a9872a..c99d86f 100644
+--- packages/daemon/src/daemon.ts
++++ packages/daemon/src/daemon.ts
+@@ -32,7 +32,7 @@ import { itemWriter } from "./items/commit.js";
+ import { dismissItem } from "./items/dismiss.js";
+ import { ItemStore, type StoredItem } from "./items/store.js";
+ import { relinkItems } from "./items/sync.js";
+-import { agentHistory } from "./items/agent-info.js";
++import { agentHistory, liveHistory } from "./items/agent-info.js";
+ import { attentionOf } from "./items/attention.js";
+ import { toItemView, type CurrentTool } from "./items/view.js";
+ import type { Exec } from "./process/exec.js";
+@@ -120,7 +120,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
+       item,
+       item.repoId ? repos.get(item.repoId) : undefined,
+       {
+-        ...agentHistory(itemEvents),
++        ...liveHistory(agentHistory(itemEvents), runner.isRunning(item.id)),
+         running: runner.isRunning(item.id),
+         ...withCurrentTool(runner.currentTool(item.id)),
+       },
+diff --git packages/web/src/board/ItemCard.vue packages/web/src/board/ItemCard.vue
+index e0fc37e..9b3373f 100644
+--- packages/web/src/board/ItemCard.vue
++++ packages/web/src/board/ItemCard.vue
+@@ -6,7 +6,7 @@ import { errorText, isPublishFailure } from "../api/errors";
+ import type { ItemView } from "../api/types";
+ import AskPanel from "../asks/AskPanel.vue";
+ import { diffFiles, diffStats, type DiffStats } from "../diff/files";
+-import { clock } from "../time/duration";
++import { agentElapsed, clock } from "../time/duration";
+ import { columnOf, displayId, labelTone, shortId } from "./columns";
+ import { mergeNote } from "./merge-note";
+ 
+@@ -27,9 +27,10 @@ const startable = computed(() => (props.item.state === "ready" || props.item.sta
+ /** The user removes a finished or failed item's worktree; only a merged PR's goes on its own (D33). */
+ const removable = computed(() => (props.item.state === "done" || props.item.state === "failed") && !!props.item.worktreePath && !props.item.agent.running);
+ const merge = computed(() => mergeNote(props.item, props.removeOnMerge ?? false));
+-const elapsed = computed(() =>
+-  props.item.agent.startedAt ? clock(props.now - Date.parse(props.item.agent.startedAt)) : undefined,
+-);
++const elapsed = computed(() => {
++  const ms = agentElapsed(props.item.agent, props.now);
++  return ms === undefined ? undefined : clock(ms);
++});
+ 
+ const attention = computed(() => props.item.attention);
+ const flag = computed(() => {
+diff --git packages/web/src/time/duration.ts packages/web/src/time/duration.ts
+index b4ea93e..8c73eb6 100644
+--- packages/web/src/time/duration.ts
++++ packages/web/src/time/duration.ts
+@@ -12,3 +12,9 @@ export function clock(ms: number): string {
+ export function money(usd: number): string {
+   return `$${usd.toFixed(2)}`;
+ }
++
++/** How long the agent worked: closed intervals plus the one running now (spec 12.1). */
++export function agentElapsed(agent: { elapsedMs?: number; activeSince?: string }, now: number): number | undefined {
++  if (agent.elapsedMs === undefined && !agent.activeSince) return undefined;
++  return (agent.elapsedMs ?? 0) + (agent.activeSince ? Math.max(0, now - Date.parse(agent.activeSince)) : 0);
++}

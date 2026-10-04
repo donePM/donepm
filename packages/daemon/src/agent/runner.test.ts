@@ -49,9 +49,9 @@ function setup(maxConcurrent = 1, webFetchDomains: string[] = []) {
     return writer.commit(start(item, ctx));
   };
 
-  const launch = async (item: WorkItem, resumeSessionId?: string) => {
+  const launch = async (item: WorkItem, resumeSessionId?: string, pb: Playbook = playbook) => {
     runner.reserve(item.id);
-    await runner.launch({ item, playbook, cwd: "/wt", prompt: "Do the thing", ...(resumeSessionId ? { resumeSessionId } : {}) });
+    await runner.launch({ item, playbook: pb, cwd: "/wt", prompt: "Do the thing", ...(resumeSessionId ? { resumeSessionId } : {}) });
     return spawn.last();
   };
 
@@ -517,6 +517,18 @@ describe("AgentRunner", () => {
       expect(other.sent().at(-1).response.response.behavior).toBe("allow");
       expect(t.asks.pending("item-2")).toEqual([]);
       expect(t.grants.get(grant!.id)!.useCount).toBe(2);
+    });
+
+    it("leaves every ask of a read-only run to the user, grants or not (D42)", async () => {
+      const { t } = await grantedRun();
+      const review: Playbook = { ...playbook, name: "review", permissionMode: "default", readOnly: true, drafts: ["review"] };
+      const reviewer = await t.launch(t.addItem(2), undefined, review);
+      const sent = reviewer.sent().length;
+      reviewer.emit(askFor("r2", "pnpm test", "pnpm test *"));
+      expect(reviewer.sent()).toHaveLength(sent);
+      expect(t.asks.pending("item-2")).toHaveLength(1);
+      expect(t.state("item-2").state).toBe("needs_you");
+      expect(t.grants.active()[0]!.useCount).toBe(0);
     });
 
     it("asks the user again once the grant is removed, also in the run already going", async () => {

@@ -19,6 +19,8 @@ import { mergeNote } from "./merge-note";
 const props = defineProps<{ item: ItemView; repoRoot?: string; now: number; hideRepo?: boolean; removeOnMerge?: boolean }>();
 
 const noClone = computed(() => props.item.badges.includes("no-local-clone"));
+/** Someone else's pull request that asks for the user's review (D40). */
+const reviewing = computed(() => props.item.source === "github-pr");
 const closedUpstream = computed(() => props.item.badges.includes("closed-upstream"));
 /** A started item stays when its issue closes upstream; the user moves it to Done (D32). */
 const dismissable = computed(() => closedUpstream.value && props.item.state !== "done" && props.item.state !== "running" && !props.item.agent.running);
@@ -42,6 +44,7 @@ const flag = computed(() => {
   if (!a) return undefined;
   if (a.kind === "draft" && a.draftType === "push") return a.error ? "Push failed" : a.executing ? "Pushing" : "Push draft";
   if (a.kind === "draft" && a.draftType === "comment") return a.error ? "Replies failed" : a.executing ? "Posting" : "Reply draft";
+  if (a.kind === "draft" && a.draftType === "review") return a.error ? "Review failed" : a.executing ? "Posting" : "Review draft";
   if (a.kind === "draft") return a.error ? "PR failed" : a.executing ? "Publishing" : "PR draft";
   if (a.kind === "ci_failed") return "CI failed";
   if (a.kind === "pr_conflict") return "Conflict";
@@ -114,6 +117,7 @@ async function act(fn: (id: string) => Promise<void>) {
         :title="hideRepo ? displayId(item.externalId) : undefined"
         :aria-label="hideRepo ? displayId(item.externalId) : undefined"
       >{{ hideRepo ? shortId(item.externalId) : displayId(item.externalId) }}</a>
+      <span v-if="reviewing" class="kind" title="A pull request that asks for your review">PR review</span>
       <span v-if="item.state === 'running'" class="live"><span class="dot dot-ok" aria-hidden="true"></span>running<template v-if="elapsed"> · {{ elapsed }}</template></span>
       <span v-else-if="item.state === 'checking'" class="live"><span class="dot dot-off" aria-hidden="true"></span>waiting for CI</span>
       <span v-else-if="flag" class="flag">{{ flag }}</span>
@@ -280,6 +284,15 @@ async function act(fn: (id: string) => Promise<void>) {
   border: 1px solid var(--border-soft);
   border-radius: 4px;
   color: var(--ink-2);
+}
+.kind {
+  flex: none;
+  font-family: var(--sans);
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--blue);
+  color: var(--blue);
 }
 .flag { flex: none; color: var(--amber); font-family: var(--sans); font-weight: 500; }
 h3 { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }

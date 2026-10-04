@@ -44,6 +44,12 @@ describe("collect", () => {
     ]);
   });
 
+  it("collects a pull request to review with the review playbook (D40)", () => {
+    const pr = { ...issue, number: 9, url: "https://github.com/owner/repo/pull/9", source: "github-pr" as const };
+    expect(collect(pr, makeCtx()).item).toMatchObject({ source: "github-pr", externalId: "owner/repo#9", playbook: "review" });
+    expect(collect(pr, makeCtx(), { playbook: "custom" }).item.playbook).toBe("custom");
+  });
+
   it("leaves repoId absent without a local clone", () => {
     expect(collect(issue, makeCtx()).item).not.toHaveProperty("repoId");
   });

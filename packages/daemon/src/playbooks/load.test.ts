@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ensureDefaultPlaybook, loadPlaybooks } from "./load.js";
+import { ensureDefaultPlaybooks, loadPlaybooks } from "./load.js";
 
 const pb = (name: string, model: string) =>
   `---\nname: ${name}\nmodel: ${model}\npermission_mode: acceptEdits\ndrafts: [pr]\n---\nDo {{ title }}.\n`;
@@ -37,16 +37,19 @@ describe("loadPlaybooks", () => {
   });
 });
 
-describe("ensureDefaultPlaybook", () => {
-  it("writes the default once and never overwrites the user's copy", async () => {
+describe("ensureDefaultPlaybooks", () => {
+  it("writes each default once and never overwrites the user's copy", async () => {
     const d = await dirs();
-    const source = join(d.root, "implement.md");
-    await writeFile(source, "default");
+    const implement = join(d.root, "implement.md");
+    const review = join(d.root, "review.md");
+    await writeFile(implement, "default");
+    await writeFile(review, "default review");
     const target = join(d.root, "config", "playbooks");
-    await ensureDefaultPlaybook(target, source);
+    await ensureDefaultPlaybooks(target, [implement]);
     expect(await readFile(join(target, "implement.md"), "utf8")).toBe("default");
     await writeFile(join(target, "implement.md"), "mine");
-    await ensureDefaultPlaybook(target, source);
+    await ensureDefaultPlaybooks(target, [implement, review]);
     expect(await readFile(join(target, "implement.md"), "utf8")).toBe("mine");
+    expect(await readFile(join(target, "review.md"), "utf8")).toBe("default review");
   });
 });

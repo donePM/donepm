@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import implementMd from "../../../daemon/playbooks/implement.md?raw";
+import reviewMd from "../../../daemon/playbooks/review.md?raw";
 import { PlaybookParseError, parsePlaybook } from "./parse.js";
 
 const valid = (extra = "") =>
@@ -14,6 +15,19 @@ describe("parsePlaybook", () => {
     });
     expect(p.body).toContain("{{ branch }}");
     expect(p.body).toContain("draft_pr");
+  });
+
+  it("parses the shipped review playbook: read-only, review drafts only (D42)", () => {
+    const p = parsePlaybook(reviewMd);
+    expect(p).toMatchObject({
+      name: "review", permissionMode: "default", readOnly: true, drafts: ["review"], match: { source: "github-pr" },
+    });
+    expect(p.body).toContain("draft_review");
+  });
+
+  it("leaves readOnly out unless the playbook says so", () => {
+    expect(parsePlaybook(valid())).not.toHaveProperty("readOnly");
+    expect(parsePlaybook(valid("read_only: false\n"))).not.toHaveProperty("readOnly");
   });
 
   it("parses a minimal playbook", () => {
@@ -42,6 +56,8 @@ describe("parsePlaybook", () => {
     ["frontmatter not a mapping", "---\n- a\n- b\n---\nx", /root|Expected object/i],
     ["no frontmatter", "just text", /frontmatter/],
     ["unclosed frontmatter", "---\nname: a\n", /closing/],
+    ["read_only drafting a PR", "---\nname: a\nmodel: o\npermission_mode: default\nread_only: true\ndrafts: [pr]\n---\nx", /read_only playbook cannot draft pull requests/],
+    ["read_only accepting edits", "---\nname: a\nmodel: o\npermission_mode: acceptEdits\nread_only: true\ndrafts: [review]\n---\nx", /permission_mode: default/],
     ["empty body", "---\nname: a\nmodel: o\npermission_mode: plan\ndrafts: [pr]\n---\n  \n", /body/],
   ])("fails: %s", (_n, src, re) => {
     expect(() => parsePlaybook(src)).toThrow(PlaybookParseError);

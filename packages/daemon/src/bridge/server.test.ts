@@ -15,7 +15,7 @@ afterEach(async () => {
   for (const c of cleanup.splice(0)) await c();
 });
 
-async function bridge(drafts: Array<"pr">) {
+async function bridge(drafts: Array<"pr" | "review">) {
   const t = draftStores();
   const sessions = new BridgeSessions();
   const token = sessions.mint({ itemId: "item-1", drafts });
@@ -73,6 +73,12 @@ describe("bridge server", () => {
     const b = await bridge([]);
     const noPr = await client(b.path, b.token);
     expect((await noPr.listTools()).tools.map((t) => t.name)).toEqual(["whoami"]);
+
+    const r = await bridge(["review"]);
+    const review = await client(r.path, r.token);
+    expect((await review.listTools()).tools.map((t) => t.name)).toEqual(["whoami", "draft_review"]);
+    expect((await review.callTool({ name: "draft_push", arguments: { message: "x" } })).isError).toBe(true);
+    expect(r.drafts.forItem("item-1")).toEqual([]);
     // A tool the playbook does not allow is an error result, not a JSON-RPC error.
     const res = await noPr.callTool({ name: "draft_pr", arguments: { title: "x", body: "" } });
     expect(res.isError).toBe(true);

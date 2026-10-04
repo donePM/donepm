@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PassThrough } from "node:stream";
+import { parsePlaybook } from "@donepm/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import { runShim } from "./bridge/shim.js";
@@ -35,6 +36,7 @@ function execWith(search: () => string, view = () => fixture("gh/issue-view-open
     "which gh": ok("/opt/homebrew/bin/gh\n"),
     "gh auth status": ok(fixture("gh/auth-status-ok.stdout")),
     "gh search issues": () => ok(search()),
+    "gh search prs": ok("[]"),
     "gh issue view": () => ok(view()),
     "gh issue list": ok(JSON.stringify([
       { number: 200, title: "Unassigned bug", body: "", labels: [], url: "https://github.com/acme/widgets/issues/200", createdAt: "2026-09-01T00:00:00Z" },
@@ -421,6 +423,10 @@ describe("daemon", { timeout: 30_000 }, () => {
     const spawn = fakeProcesses();
     const d = await start(h, undefined, undefined, spawn);
     expect(await readFile(join(h, ".config/donepm/playbooks/implement.md"), "utf8")).toMatch(/name: implement/);
+    // The built-in review playbook (D42) parses: read-only, review drafts only, for review requests.
+    expect(parsePlaybook(await readFile(join(h, ".config/donepm/playbooks/review.md"), "utf8"))).toMatchObject({
+      name: "review", readOnly: true, drafts: ["review"], permissionMode: "default", match: { source: "github-pr" },
+    });
     const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
 
     const started = await get(d, `/api/items/${item.id}/start`, { method: "POST" });

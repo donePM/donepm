@@ -13,7 +13,11 @@ import { testCtx } from "../test-support/ctx.js";
 import { fail, fakeExec, fixture, ok } from "../test-support/fake-exec.js";
 import { collectIssues } from "./collect-issues.js";
 
-const ready = { "which gh": ok("/opt/homebrew/bin/gh\n"), "gh auth status": ok(fixture("gh/auth-status-ok.stdout")) };
+const ready = {
+  "which gh": ok("/opt/homebrew/bin/gh\n"),
+  "gh auth status": ok(fixture("gh/auth-status-ok.stdout")),
+  "gh search prs": ok(fixture("gh/search-prs-empty.json")),
+};
 
 function setup(exec: Exec, log: Log = silentLog, sources: Config["sources"] = {}) {
   const db = openDb(":memory:");
@@ -179,6 +183,76 @@ describe("collectIssues", () => {
       issues: 0,
       error: "github.com/solo/tool: invalid search query",
       sources: { "github.com/solo/tool": { ok: false, error: "invalid search query" } },
+    });
+  });
+
+  describe("review requests (D40)", () => {
+    it("collects pull requests that ask for the user's review as github-pr items with the review playbook", async () => {
+      const exec = fakeExec({
+        ...ready,
+        "gh search issues": ok(fixture("gh/search-issues-empty.json")),
+        "gh search prs": ok(fixture("gh/search-prs.json")),
+      });
+      const { deps } = setup(exec);
+      await collectIssues(deps);
+      const rows = deps.items.all().map((s) => [s.item.externalId, s.item.source, s.item.playbook, s.originUrl].join(" "));
+      expect(rows.sort()).toEqual([
+        "vuejs/core#15757 github-pr review github.com/vuejs/core",
+        "vuejs/core#15766 github-pr review github.com/vuejs/core",
+      ]);
+      expect(exec.calls.find((c) => c.args[1] === "prs")!.args).toContain("--review-requested=@me");
+      expect(deps.status.get().lastPoll).toMatchObject({ ok: true, issues: 2 });
+    });
+
+    it("keeps the issues and skips missing checks when the review request search fails", async () => {
+      let out = fixture("gh/search-issues.json");
+      const exec = fakeExec({ ...ready, "gh search issues": () => ok(out), "gh search prs": fail("HTTP 502") });
+      const { deps } = setup(exec);
+      await collectIssues(deps);
+      expect(deps.items.all()).toHaveLength(4);
+      out = fixture("gh/search-issues-empty.json");
+      await collectIssues(deps);
+      expect(exec.calls.some((c) => c.args[1] === "view")).toBe(false);
+      expect(deps.status.get().lastPoll).toMatchObject({ ok: false, error: "review requests: HTTP 502" });
+    });
+
+    it("treats a gh without search prs as no review requests", async () => {
+      const exec = fakeExec({
+        ...ready,
+        "gh search issues": ok(fixture("gh/search-issues.json")),
+        "gh search prs": fail(fixture("gh/search-unknown-command.stderr")),
+      });
+      const { deps } = setup(exec);
+      await collectIssues(deps);
+      expect(deps.status.get().lastPoll).toMatchObject({ ok: true, issues: 4 });
+    });
+
+    it("drops review requests from an ignored repository", async () => {
+      const exec = fakeExec({
+        ...ready,
+        "gh search issues": ok(fixture("gh/search-issues-empty.json")),
+        "gh search prs": ok(fixture("gh/search-prs.json")),
+      });
+      const { deps } = setup(exec, silentLog, { "github.com/vuejs/core": { assignOnStart: false, ignored: true } });
+      await collectIssues(deps);
+      expect(deps.items.all()).toHaveLength(0);
+    });
+
+    it("finishes an untouched review item once its pull request is merged", async () => {
+      let out = fixture("gh/search-prs.json");
+      const exec = fakeExec({
+        ...ready,
+        "gh search issues": ok(fixture("gh/search-issues-empty.json")),
+        "gh search prs": () => ok(out),
+        "gh issue view 15766": ok(fixture("gh/issue-view-merged-pr.json")),
+        "gh issue view": ok(fixture("gh/issue-view-open.json")),
+      });
+      const { deps } = setup(exec);
+      await collectIssues(deps);
+      out = fixture("gh/search-prs-empty.json");
+      await collectIssues(deps);
+      expect(deps.items.byExternalId("vuejs/core#15766")!.item).toMatchObject({ state: "done", closedUpstream: true });
+      expect(deps.items.byExternalId("vuejs/core#15757")!.item).toMatchObject({ state: "ready" });
     });
   });
 

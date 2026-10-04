@@ -14,4 +14,14 @@ describe("draftTitle", () => {
       "Reply 1 time on PR #7",
     );
   });
+
+  it("names a review draft by its verdict and inline comments", () => {
+    const review = { number: 12, url: "u", commitId: "c", body: "b", comments: [] };
+    expect(draftTitle({ ...base, type: "review", payload: { ...review, verdict: "APPROVE" } } as Draft)).toBe("Approve PR #12");
+    expect(draftTitle({ ...base, type: "review", payload: { ...review, verdict: "COMMENT" } } as Draft)).toBe("Comment on PR #12");
+    const comments = [{ path: "a.ts", line: 1, body: "x" }, { path: "b.ts", line: 2, body: "y" }];
+    expect(draftTitle({ ...base, type: "review", payload: { ...review, verdict: "REQUEST_CHANGES", comments } } as Draft)).toBe(
+      "Request changes on PR #12, 2 inline comments",
+    );
+  });
 });

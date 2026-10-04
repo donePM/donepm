@@ -1,4 +1,4 @@
-export type DraftType = "pr" | "push" | "comment";
+export type DraftType = "pr" | "push" | "comment" | "review";
 export type DraftState = "pending" | "approved" | "rejected" | "executed" | "failed";
 
 export interface PrDraftPayload {
@@ -67,6 +67,35 @@ export interface CommentDraftResult {
   posted: PostedReply[];
 }
 
+/** The verdict of a review, as GitHub's API names it. */
+export type ReviewVerdict = "COMMENT" | "REQUEST_CHANGES" | "APPROVE";
+
+/** A comment on one line of the pull request's new version. */
+export interface ReviewComment {
+  path: string;
+  line: number;
+  body: string;
+}
+
+/**
+ * A review of someone else's pull request (decision D43): `draft_review`. The daemon fills in the
+ * PR and the commit the agent read; the user approves, the daemon posts it as the user.
+ */
+export interface ReviewDraftPayload {
+  number: number;
+  url: string;
+  /** The head commit the agent reviewed; the comments' lines are of this commit. */
+  commitId: string;
+  verdict: ReviewVerdict;
+  body: string;
+  comments: ReviewComment[];
+}
+
+export interface ReviewDraftResult {
+  id: number;
+  url: string;
+}
+
 interface DraftBase {
   id: string;
   itemId: string;
@@ -93,7 +122,26 @@ export interface CommentDraft extends DraftBase {
   result?: CommentDraftResult;
 }
 
-export type Draft = PrDraft | PushDraft | CommentDraft;
+export interface ReviewDraft extends DraftBase {
+  type: "review";
+  payload: ReviewDraftPayload;
+  result?: ReviewDraftResult;
+}
+
+export type Draft = PrDraft | PushDraft | CommentDraft | ReviewDraft;
+
+const VERDICT_TITLE: Record<ReviewVerdict, string> = {
+  APPROVE: "Approve",
+  REQUEST_CHANGES: "Request changes on",
+  COMMENT: "Comment on",
+};
+
+/** "Request changes on PR #12, 3 inline comments". */
+export function reviewTitle(p: Pick<ReviewDraftPayload, "number" | "verdict" | "comments">): string {
+  const n = p.comments.length;
+  const head = `${VERDICT_TITLE[p.verdict]} PR #${p.number}`;
+  return n ? `${head}, ${n} inline comment${n === 1 ? "" : "s"}` : head;
+}
 
 export function repliesTitle(p: Pick<CommentDraftPayload, "number" | "replies">): string {
   const n = p.replies.length;
@@ -111,6 +159,7 @@ export function pushTitle(p: Pick<PushDraftPayload, "commits" | "number" | "unco
 export function draftTitle(d: Draft): string {
   if (d.type === "pr") return (d.userEdits ?? d.payload).title;
   if (d.type === "comment") return repliesTitle(d.payload);
+  if (d.type === "review") return reviewTitle(d.payload);
   const replies = d.payload.replies?.length ?? 0;
   return replies ? `${pushTitle(d.payload)}, reply ${replies} time${replies === 1 ? "" : "s"}` : pushTitle(d.payload);
 }
