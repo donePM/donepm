@@ -146,7 +146,6 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
           </section>
         </div>
         <aside class="side">
-          <TimelineList :events="detail.events" :asks="detail.asks" :now="now" />
           <WorktreeBlock
             v-if="detail.worktreePath"
             :item-id="detail.id"
@@ -154,6 +153,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
             :removable="(detail.state === 'done' || detail.state === 'failed') && !detail.agent.running"
             @removed="reload"
           />
+          <TimelineList :events="detail.events" :asks="detail.asks" :now="now" />
         </aside>
       </div>
     </template>
