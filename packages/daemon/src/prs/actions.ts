@@ -36,8 +36,8 @@ function waitingConflict(deps: PrActionDeps, itemId: string): { item: WorkItem; 
 }
 
 /**
- * "Resolve with agent" (decision D36): the daemon fetches the base, since the agent has no network,
- * then resumes the session with the conflict as the message. The merge reaches the PR as a push
+ * "Resolve with agent" (decision D36): the daemon fetches the base and the PR branch, since the
+ * agent has no network, then resumes the session with the conflict as the message. The merge reaches the PR as a push
  * draft the user approves.
  */
 export async function resolveConflict<T>(
@@ -48,9 +48,10 @@ export async function resolveConflict<T>(
   const repo = item.repoId ? deps.repos.get(item.repoId) : undefined;
   if (!repo || !item.worktreePath) throw new PrActionError(409, "the item has no worktree");
   if (!item.agentSessionId) throw new PrActionError(409, "the item has no agent session to resume");
-  const fetched = await deps.exec("git", ["-C", repo.path, "fetch", "origin", conflict.base], { timeoutMs: 5 * 60_000 });
+  const refs = item.branch ? [conflict.base, item.branch] : [conflict.base];
+  const fetched = await deps.exec("git", ["-C", repo.path, "fetch", "origin", ...refs], { timeoutMs: 5 * 60_000 });
   if (fetched.code !== 0) throw new PrActionError(502, fetched.stderr.trim() || `git fetch exited with ${fetched.code}`);
-  return deps.resume(itemId, { transition: prConflictFix, prompt: conflictFixPrompt(conflict) });
+  return deps.resume(itemId, { transition: prConflictFix, prompt: conflictFixPrompt(conflict, item.branch) });
 }
 
 /** "I'll do it myself": the item goes back to where it was; the next poll that sees it mergeable clears it. */

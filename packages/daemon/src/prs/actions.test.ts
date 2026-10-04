@@ -34,15 +34,16 @@ function setup(conflicting = true, exec = fakeExec({ "git -C /src/widgets fetch"
 }
 
 describe("resolveConflict", () => {
-  it("fetches the base, then resumes the agent with the conflict as the message", async () => {
+  it("fetches the base and the PR branch, then resumes the agent with the conflict as the message", async () => {
     const t = setup();
     const resumed: Array<{ itemId: string; prompt: string; state: string }> = [];
     await resolveConflict({ ...t.deps, resume: async (itemId, how) => {
       const { item } = how.transition(t.item(), t.deps.ctx);
       resumed.push({ itemId, prompt: how.prompt, state: item.state });
     } }, "item-1");
-    expect(t.exec.calls.map((c) => [c.cmd, ...c.args].join(" "))).toEqual(["git -C /src/widgets fetch origin main"]);
+    expect(t.exec.calls.map((c) => [c.cmd, ...c.args].join(" "))).toEqual(["git -C /src/widgets fetch origin main dp/45-fix"]);
     expect(resumed).toEqual([{ itemId: "item-1", prompt: expect.stringContaining("- src/index.ts"), state: "running" }]);
+    expect(resumed[0]!.prompt).toContain("git merge origin/dp/45-fix");
     expect(resumed[0]!.prompt).toContain("git merge origin/main");
   });
 
