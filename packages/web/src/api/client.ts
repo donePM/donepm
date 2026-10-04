@@ -1,4 +1,4 @@
-import type { MergeMethod, PermissionGrant } from "@donepm/core";
+import type { AgentKind, MergeMethod, PermissionGrant } from "@donepm/core";
 import type {
   AskAnswer, CloneResult, ConnectionTest, DaemonInfo, Draft, ItemDetail, ItemDiff, ItemView, MoveOutcome, OpenTarget, OrphanWorktree, PlaybookList, PrDraftPayload, RepoView, Settings, SourceTest, Status,
   TranscriptMessage,
@@ -59,6 +59,7 @@ export const api = {
   mergePr: (id: string, method: MergeMethod) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/pr/merge`, { method }),
   setAutoMerge: (id: string, on: boolean) => call<ItemView>("PUT", `/api/items/${encodeURIComponent(id)}/auto-merge`, { on }),
   setPlaybook: (id: string, playbook: string) => call<ItemView>("PUT", `/api/items/${encodeURIComponent(id)}/playbook`, { playbook }),
+  setAgent: (id: string, agent: AgentKind) => call<ItemView>("PUT", `/api/items/${encodeURIComponent(id)}/agent`, { agent }),
   /** A note to the running agent; it joins the running turn. */
   say: (id: string, text: string) => call<{ ok: true }>("POST", `/api/items/${encodeURIComponent(id)}/say`, { text }),
   dismiss: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/dismiss`),

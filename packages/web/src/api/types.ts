@@ -1,5 +1,5 @@
 import type {
-  AskSubject, CheckLog, CiPr, CommentDraft, Draft, DraftReply, DraftType, Event, FailedCheck, FeedbackEntry, MergeMethod, PermissionAsk, PermissionRule, Playbook, PrDraft,
+  AgentKind, AskSubject, CheckLog, CiPr, CommentDraft, Draft, DraftReply, DraftType, Event, FailedCheck, FeedbackEntry, MergeMethod, PermissionAsk, PermissionRule, Playbook, PrDraft,
   PrDraftPayload, PushDraft, PrDraftResult, PrMerge, Repo, ReviewDraft, TranscriptMessage, UpdateBranchDraft, WorkItem,
 } from "@donepm/core";
 
@@ -82,6 +82,8 @@ export interface ItemView extends WorkItem {
   merge?: MergeView;
   /** The playbooks its repository offers the item's ingest; the card's choice (issue #153). */
   allowedPlaybooks?: string[];
+  /** The agent the next start uses: the item's, else its playbook's, else the repository's (D49). */
+  runsWith?: AgentKind;
   /** While it waits for CI: the checks of the last poll (spec 12.1). */
   ci?: { checks: CiCheckView[] };
 }
@@ -260,6 +262,8 @@ export interface Status {
   /** Each connection the daemon runs with (D50). */
   connections?: ConnectionStatus[];
   claude?: ClaudeStatus;
+  /** Codex, the second coding agent (issue #137); absent until the daemon checked. */
+  codex?: ClaudeStatus;
   /** Optional helper CLIs by id, e.g. `playwright-cli`. */
   helpers?: Record<string, HelperStatus>;
   lastPoll?: PollStatus;

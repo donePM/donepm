@@ -207,7 +207,7 @@ config under `sources`, keyed by `originUrl`, not in `.donepm/` (see 14). Per re
 | autoMerge | boolean? | default `false`: default of the card's "Merge automatically" for others' PRs (6.2, D47) |
 | mergeMethod | `squash` \| `merge` \| `rebase`? | default `squash`: how others' PRs are merged here (6.2, D47) |
 | playbook | string? | default playbook of issues newly collected here (8.3); absent: chosen by `match`. Must be one of `playbooks.issue` when that is set. Pull requests keep `review` (D40) |
-| agent | `claude-code`? | the coding agent items here run with, unless the playbook names one (D49). Absent: `claude-code` |
+| agent | `claude-code` \| `codex`? | the coding agent items here run with, unless the playbook names one (D49). Absent: `claude-code` |
 | playbooks | `{ issue?: string[], pr?: string[] }`? | the playbooks each ingest may run here (8.3, D48). Absent `issue`: every playbook that is not read-only. Absent `pr`: `["review"]`. `pr` only ever takes read-only playbooks (D47) |
 | ci | `{ source: "azure-pipelines", definitions: number[], organization?, project? }`? | pipelines that run in Azure Pipelines without reporting to the host: CI is read from their builds by branch instead of the PR's checks (6.6, D53). `organization` and `project` default to an Azure Repos origin's own; any other origin names them, and a connection must serve the organization. Only the config file sets it; the settings form keeps it |
 
@@ -792,7 +792,7 @@ Frontmatter fields:
 | field | required | values |
 |---|---|---|
 | name | yes | unique |
-| agent | no | the coding agent that runs it: `claude-code` (D49). Absent: the repo's `agent`, else `claude-code`. The other fields are checked against that agent's capabilities |
+| agent | no | the coding agent that runs it: `claude-code` or `codex` (D49, D54). Absent: the repo's `agent`, else `claude-code`. The other fields are checked against that agent's capabilities |
 | model | yes | passed to `--model` |
 | effort | no | passed to `--effort` |
 | permission_mode | yes | `default` \| `acceptEdits` \| `plan` \| `bypassPermissions` |
@@ -832,7 +832,12 @@ Asks are stored with the agent that asked and a neutral subject (command, file c
 question, tool) that the ask panel draws from; transcript lines carry the agent whose protocol they
 are in. "Allow for this run" rules, "Always allow" grants and the WebFetch auto-allow apply only to
 an agent that reports rules or a fetch host and has the capability; any other agent asks every time.
-Claude Code is the first adapter (`agent/claude/`); the rest of this section describes it.
+Claude Code is the first adapter (`agent/claude/`); the rest of this section describes it. Codex
+(`agent/codex/`, issue #137) is the second: `codex app-server --listen stdio://` over JSON-RPC, its
+sandbox a permission profile on the command line, `plan` and `bypassPermissions` refused, "Allow for
+this run" its own `acceptForSession`, no "Always allow", and donePM's MCP server registered as
+`donepm-draft-gate` with the token in a 0600 file (D54, D50). Its transcript lines get their own
+presenter in the web (`transcript/codex-rows.ts`).
 
 ### 9.1 Start
 
@@ -1190,7 +1195,8 @@ for the whole view on a phone). Every scroll container is positioned, so visuall
   asked for (PR draft, push draft, replies draft, review draft, permission, CI failed, conflict,
   review, interrupted, failed), else merged / closed upstream / done, else "PR · <author>" on a
   `github-pr` item, else the first label (bug red, feature indigo). Then the title and the other
-  labels. Cost (`$0.41`) shows on cards; tokens only on the item page and in the Agents view.
+  labels. Cost (`$0.41`) shows on cards; tokens only on the item page and in the Agents view. An
+  agent that reports no price (Codex) shows its tokens on the card instead, never `$0.00` (D54).
 - Card variants: running (indigo border, "running · 6:12" with a dot, branch and current tool in
   mono, Transcript / Stop, cost); waiting for CI (pulsing dot, one badge per check, green with a
   tick when passed, "name · 1:20" while pending, PR link); PR draft (amber card, "waiting 14 min",
@@ -1202,7 +1208,9 @@ for the whole view on a phone). Every scroll container is positioned, so visuall
   overriding a global one of the same name, limited to the item's `allowedPlaybooks`, D48; a plain
   label when there is only one) and "Start" with a play icon. The select is enabled
   only on a ready item that never started; a change is saved at once (`PUT
-  /api/items/:id/playbook`). Cards without local repo: greyed out, with
+  /api/items/:id/playbook`). Once Codex is installed, a second select picks the agent ("Claude
+  Code" or "Codex", showing the one the next start uses) on a ready or failed item; a change is
+  saved at once (`PUT /api/items/:id/agent`) and drops the item's session (D49). Cards without local repo: greyed out, with
   "No local clone under <repoRoot>" and a Clone button (5) whose tooltip names the target. While
   it clones the button reads "Cloning…" and is disabled; a refused or failed clone shows its
   message under it. Once cloned the card links the clone and Start appears, no rescan needed.
@@ -1356,7 +1364,8 @@ page with a title, one lead line and panels; each panel saves on its own.
   "Clone and manage". "Worktrees without an item" (hidden when empty) lists orphaned worktrees,
   former roots included, with size, branch, last commit and Remove.
 - **Agents & access.** "Coding agents": `claude` with path, version, login and hints, and "Check
-  again"; a muted row for Codex (#137). Its dot is amber while a coding agent is not ready.
+  again"; `codex` the same way, muted while not installed because it is optional (#137). Its dot
+  is amber while a coding agent is not ready.
   "Running agents": max agents, poll interval, `removeWorktreeOnMerge` (6.5:
   removes the worktree on the next poll after the merge, never with uncommitted changes), and the
   notifications switch (below). "Permissions" (D38): the active grants with the rule, its repo

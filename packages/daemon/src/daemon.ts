@@ -1,4 +1,4 @@
-import { allowedPlaybooks, autoMergeOn, executedPr, finishedAt, mergeBlockers, prConflictOf, prMergeOf, type CiCheck, type Ctx, type ItemSource, type Playbook, type PrConflict, type WorkItem } from "@donepm/core";
+import { allowedPlaybooks, autoMergeOn, chooseAgent, executedPr, finishedAt, mergeBlockers, prConflictOf, prMergeOf, type CiCheck, type Ctx, type ItemSource, type Playbook, type PrConflict, type WorkItem } from "@donepm/core";
 import type { FastifyInstance } from "fastify";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -41,6 +41,7 @@ import { makeGuard } from "./http/guard.js";
 import { itemWriter } from "./items/commit.js";
 import { dismissItem } from "./items/dismiss.js";
 import { changePlaybook } from "./items/playbook.js";
+import { changeAgent } from "./items/agent-choice.js";
 import { sayToAgent } from "./agent/say.js";
 import { ItemStore, type StoredItem } from "./items/store.js";
 import { relinkItems } from "./items/sync.js";
@@ -199,8 +200,11 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     );
     const merge = item.source === "github-pr" ? mergeView(item, items.get(item.id)?.originUrl) : undefined;
     const checks = item.state === "checking" ? ciChecks.get(item.id) : undefined;
+    const playbook = catalog.get(repo?.path).find((p) => p.name === item.playbook);
+    const repoAgent = config.sources[items.get(item.id)?.originUrl ?? ""];
+    const runsWith = chooseAgent({ item, ...(playbook ? { playbook } : {}), ...(repoAgent ? { repo: repoAgent } : {}) });
     return {
-      ...v, ...(finished ? { finishedAt: finished } : {}), ...(clone ? { clone } : {}), ...(merge ? { merge } : {}), ...(checks ? { ci: { checks } } : {}),
+      ...v, runsWith, ...(finished ? { finishedAt: finished } : {}), ...(clone ? { clone } : {}), ...(merge ? { merge } : {}), ...(checks ? { ci: { checks } } : {}),
     };
   };
   /** Whether the card's Merge button may be used, and the repository's merge defaults (D47). */
@@ -453,6 +457,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
         id,
         playbook,
       ),
+    changeAgent: (id, agent) => changeAgent({ items, writer, ctx: opts.ctx, isRunning: (itemId) => runner.isRunning(itemId) }, id, agent),
     sayToAgent: (id, text) =>
       sayToAgent({ item: (i) => items.get(i)?.item, hasProcess: (i) => runner.hasProcess(i), say: (i, t) => runner.say(i, t) }, id, text),
     view,

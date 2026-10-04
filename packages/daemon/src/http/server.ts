@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { MERGE_METHODS, type Draft, type MergeMethod, type PermissionGrant, type PrDraftPayload, type WorkItem } from "@donepm/core";
+import { AGENT_KINDS, MERGE_METHODS, type AgentKind, type Draft, type MergeMethod, type PermissionGrant, type PrDraftPayload, type WorkItem } from "@donepm/core";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { z } from "zod";
@@ -14,6 +14,7 @@ import type { MoveOutcome, WorktreeAtOldRoot } from "../worktrees/move.js";
 import { RemoveError } from "../worktrees/remove.js";
 import { DismissError } from "../items/dismiss.js";
 import { PlaybookChangeError } from "../items/playbook.js";
+import { AgentChangeError } from "../items/agent-choice.js";
 import { SayError } from "../agent/say.js";
 import { CiActionError } from "../ci/actions.js";
 import { PrActionError } from "../prs/actions.js";
@@ -101,6 +102,8 @@ export interface ServerDeps extends ConnectionRouteDeps {
   setAutoMerge: (id: string, on: boolean) => WorkItem;
   /** Throws PlaybookChangeError. The playbook dropdown on a Ready card. */
   changePlaybook: (id: string, playbook: string) => Promise<WorkItem>;
+  /** Throws AgentChangeError. The agent dropdown on a Ready or Failed card (issue #137). */
+  changeAgent: (id: string, agent: AgentKind) => Promise<WorkItem>;
   /** Throws SayError. A note from the composer that joins the running turn. */
   sayToAgent: (id: string, text: string) => void;
   /** Throws StopError when no agent process is alive. Resolves once it exited. */
@@ -196,6 +199,7 @@ const PrMergeSchema = z.object({ method: z.enum(MERGE_METHODS) }).strict();
 const AutoMergeSchema = z.object({ on: z.boolean() }).strict();
 
 const PlaybookSchema = z.object({ playbook: z.string().trim().min(1) }).strict();
+const AgentSchema = z.object({ agent: z.enum(AGENT_KINDS) }).strict();
 
 const SaySchema = z.object({ text: z.string() }).strict();
 
@@ -360,6 +364,17 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       return deps.view(await deps.changePlaybook(req.params.id, parsed.data.playbook));
     } catch (e) {
       if (e instanceof PlaybookChangeError) return reply.code(e.status).send({ error: e.message });
+      throw e;
+    }
+  });
+
+  app.put<{ Params: { id: string } }>("/api/items/:id/agent", async (req, reply) => {
+    const parsed = AgentSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: `body must be {agent: ${AGENT_KINDS.map((k) => `"${k}"`).join(" | ")}}` });
+    try {
+      return deps.view(await deps.changeAgent(req.params.id, parsed.data.agent));
+    } catch (e) {
+      if (e instanceof AgentChangeError) return reply.code(e.status).send({ error: e.message });
       throw e;
     }
   });

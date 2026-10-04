@@ -1,8 +1,11 @@
 import type { CodexBaseProfile } from "@donepm/core";
 import { keychainDirs } from "../claude/argv.js";
 
-/** donePM's MCP server for Codex, under the same name as for Claude Code. */
-export const MCP_SERVER_NAME = "donepm";
+/**
+ * donePM's MCP server for Codex: a name nobody types. `-c` merges into a user's server of the same
+ * name leaf by leaf, and Codex reports such a mix as healthy (Bloom BRIDGE.md), so not `donepm`.
+ */
+export const MCP_SERVER_NAME = "donepm-draft-gate";
 
 /** donePM's Codex permission profile. */
 export const PERMISSION_PROFILE = "donepm";

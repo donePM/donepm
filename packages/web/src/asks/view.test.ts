@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { askCopyText, askReason, askView, tildePath } from "./view";
+import { allowScopes, askCopyText, askReason, askView, tildePath } from "./view";
 
 describe("askView", () => {
   const long = `${"x".repeat(300)}\nsecond line\n  third`;
@@ -56,5 +56,18 @@ describe("askReason", () => {
     expect(askReason("\u001b[1mThis command requires approval\u001b[22m ")).toBe("This command requires approval");
     expect(askReason(" ")).toBeUndefined();
     expect(askReason(undefined)).toBeUndefined();
+  });
+});
+
+describe("allowScopes", () => {
+  it("keeps Claude Code's buttons: for this run and always only with rules to grant", () => {
+    expect(allowScopes({})).toEqual({ run: false, always: false });
+    expect(allowScopes({ grant: "Bash(npm test)" })).toEqual({ run: true, always: false });
+    expect(allowScopes({ grant: "Bash(npm test)", repoName: "acme/widgets", agentKind: "claude-code" })).toEqual({ run: true, always: true });
+  });
+
+  it("offers Codex for this run without rules, and never always (#137)", () => {
+    expect(allowScopes({ agentKind: "codex" })).toEqual({ run: true, always: false });
+    expect(allowScopes({ grant: "x", repoName: "acme/widgets", agentKind: "codex" })).toEqual({ run: true, always: false });
   });
 });

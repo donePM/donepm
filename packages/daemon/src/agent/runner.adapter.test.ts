@@ -20,7 +20,7 @@ import { AgentRunner } from "./runner.js";
 const fakeAgent: AgentAdapter = {
   kind: "claude-code",
   command: "fake-agent",
-  capabilities: { permissionModes: ["default"], sessionRules: false, alwaysAllow: false, reportsCost: false, resumeInSameProcess: false },
+  capabilities: { permissionModes: ["default"], sessionRules: false, runAccept: false, alwaysAllow: false, reportsCost: false, resumeInSameProcess: false },
   launch: (input) => ({ args: ["run", ...(input.resumeSessionId ? ["--continue", input.resumeSessionId] : [])] }),
   connect: () => ({
     decode(line): AgentStep[] {
