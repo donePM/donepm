@@ -530,6 +530,21 @@ any other line; grouping is the transcript view's job (`core/transcript/subagent
 or `"behavior":"deny","message":"<text>"`. `request_id` must match. After answering: item back
 to `running`.
 
+"Deny and stop". A deny normally lets the agent try another way to the same goal. The ask panel
+offers "Deny and say why…": a text field ("The agent reads this.") with **Deny** and **Deny and
+stop**. The latter answers
+
+```json
+{"behavior":"deny","message":"<text>","interrupt":true}
+```
+
+so Claude Code ends the turn right away (Bloom's `interrupt: true`; not measured against the
+installed CLI yet, no fixture). The HTTP answer takes `interrupt?: boolean` on a deny; the message
+stays optional and defaults to "The user denied this.". The `permission.answered` payload is
+`{ behavior, rules, interrupt }`, `interrupt` false unless the user stopped the turn. The turn ends
+like any other: `result` gives `agent.turn_ended` and the item goes to `needs_you`, so the user
+can write the next message. A decline of an `AskUserQuestion` has no stop button.
+
 "Allow for this run" (D30). The request's `permission_suggestions` holds `addRules` entries, for
 example `{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"curl *"}],"behavior":"allow","destination":"localSettings"}`.
 The daemon keeps the allow rules, drops any that would cover a blocked command or all of Bash, and

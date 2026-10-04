@@ -92,4 +92,11 @@ describe("stdin lines", () => {
       behavior: "deny", message: "no",
     });
   });
+
+  it("adds interrupt to a deny only when asked", () => {
+    expect(JSON.parse(askAnswerLine("r1", { behavior: "deny", message: "no", interrupt: true })).response.response).toEqual({
+      behavior: "deny", message: "no", interrupt: true,
+    });
+    expect(JSON.parse(askAnswerLine("r1", { behavior: "deny", message: "no", interrupt: false })).response.response).not.toHaveProperty("interrupt");
+  });
 });

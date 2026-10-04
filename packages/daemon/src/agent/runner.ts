@@ -175,7 +175,7 @@ export class AgentRunner {
   /** Answer a pending permission question (spec 9.4). */
   answer(
     askId: string,
-    answer: { behavior: "allow"; scope?: "run"; answers?: Answers } | { behavior: "deny"; message?: string },
+    answer: { behavior: "allow"; scope?: "run"; answers?: Answers } | { behavior: "deny"; message?: string; interrupt?: boolean },
   ): void {
     const ask = this.deps.asks.get(askId);
     if (!ask) throw new AskError(404, "ask not found");
@@ -208,7 +208,7 @@ export class AgentRunner {
     const line =
       answer.behavior === "allow"
         ? askAnswerLine(ask.requestId, { behavior: "allow", input, rules: granted })
-        : askAnswerLine(ask.requestId, { behavior: "deny", message: answer.message || "The user denied this." });
+        : askAnswerLine(ask.requestId, { behavior: "deny", message: answer.message || "The user denied this.", interrupt: answer.interrupt });
     session.proc.write(line);
     const at = this.deps.ctx.now();
     this.deps.asks.setState(ask.id, answer.behavior === "allow" ? "allowed" : "denied", at);
@@ -217,7 +217,7 @@ export class AgentRunner {
     const item = this.item(ask.itemId);
     if (item.state === "needs_you") {
       const others = this.deps.asks.pending(ask.itemId).length > 0;
-      this.deps.writer.commit(answered(item, this.deps.ctx, ask.id, { behavior: answer.behavior, rules: granted, ...(answers ? { answers } : {}) }, others));
+      this.deps.writer.commit(answered(item, this.deps.ctx, ask.id, { behavior: answer.behavior, rules: granted, interrupt: answer.behavior === "deny" && answer.interrupt === true, ...(answers ? { answers } : {}) }, others));
     }
   }
 

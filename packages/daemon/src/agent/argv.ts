@@ -73,7 +73,7 @@ export function askAnswerLine(
   requestId: string,
   answer:
     | { behavior: "allow"; input: unknown; rules?: readonly PermissionRule[] }
-    | { behavior: "deny"; message: string },
+    | { behavior: "deny"; message: string; interrupt?: boolean },
 ): string {
   let response: Record<string, unknown>;
   if (answer.behavior === "allow") {
@@ -84,7 +84,7 @@ export function askAnswerLine(
       response.updatedPermissions = [{ type: "addRules", rules: answer.rules, behavior: "allow", destination: "session" }];
     }
   } else {
-    response = { behavior: "deny", message: answer.message };
+    response = { behavior: "deny", message: answer.message, ...(answer.interrupt ? { interrupt: true } : {}) };
   }
   return JSON.stringify({ type: "control_response", response: { request_id: requestId, subtype: "success", response } });
 }

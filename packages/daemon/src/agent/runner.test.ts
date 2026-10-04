@@ -138,7 +138,7 @@ describe("AgentRunner", () => {
       { type: "addRules", rules: [{ toolName: "Bash", ruleContent: "curl *" }], behavior: "allow", destination: "session" },
     ]);
     expect(t.events.forItem("item-1").find((e) => e.type === "permission.answered")!.payload).toEqual({
-      behavior: "allow", rules: [{ toolName: "Bash", ruleContent: "curl *" }],
+      behavior: "allow", rules: [{ toolName: "Bash", ruleContent: "curl *" }], interrupt: false,
     });
   });
 
@@ -187,7 +187,7 @@ describe("AgentRunner", () => {
     const answers = { "Which color?": "Green", "Which sizes?": "S, L" };
     t.runner.answer(ask!.id, { behavior: "allow", answers });
     expect(proc.sent().at(-1).response.response).toEqual({ behavior: "allow", updatedInput: { ...input, answers } });
-    expect(t.events.forItem("item-1").find((e) => e.type === "permission.answered")!.payload).toEqual({ behavior: "allow", rules: [], answers });
+    expect(t.events.forItem("item-1").find((e) => e.type === "permission.answered")!.payload).toEqual({ behavior: "allow", rules: [], interrupt: false, answers });
   });
 
   it("refuses answers for an ask that is not a question", async () => {
@@ -232,6 +232,34 @@ describe("AgentRunner", () => {
     expect(proc.sent().at(-1).response.response).toEqual({ behavior: "deny", message: "No network." });
     expect(() => t.runner.answer(ask!.id, { behavior: "allow" })).toThrow(AskError);
     expect(() => t.runner.answer("nope", { behavior: "allow" })).toThrow(/not found/);
+  });
+
+  it("denies and stops the turn: interrupt goes to the CLI, is recorded, and the item waits for the user after the turn ends", async () => {
+    const t = setup();
+    const proc = await t.launch(t.addItem(1));
+    proc.emit({ type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "curl x" } } });
+    const [ask] = t.asks.forItem("item-1");
+    t.runner.answer(ask!.id, { behavior: "deny", message: "Stop here.", interrupt: true });
+    expect(proc.sent().at(-1).response.response).toEqual({ behavior: "deny", message: "Stop here.", interrupt: true });
+    expect(t.asks.get(ask!.id)!.state).toBe("denied");
+    expect(t.events.forItem("item-1").find((e) => e.type === "permission.answered")!.payload).toEqual({
+      behavior: "deny", rules: [], interrupt: true,
+    });
+    proc.emit({ type: "result", subtype: "error_during_execution", is_error: true, result: "", num_turns: 1 });
+    expect(t.types("item-1").at(-1)).toBe("agent.turn_ended");
+    expect(t.state("item-1").state).toBe("needs_you");
+    // No further tool call was answered or started after the interrupt.
+    expect(proc.sent().filter((m) => m.type === "control_response")).toHaveLength(1);
+  });
+
+  it("records interrupt false for a plain deny", async () => {
+    const t = setup();
+    const proc = await t.launch(t.addItem(1));
+    proc.emit({ type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "curl x" } } });
+    const [ask] = t.asks.forItem("item-1");
+    t.runner.answer(ask!.id, { behavior: "deny" });
+    expect(proc.sent().at(-1).response.response).toEqual({ behavior: "deny", message: "The user denied this." });
+    expect(t.events.forItem("item-1").find((e) => e.type === "permission.answered")!.payload).toMatchObject({ interrupt: false });
   });
 
   it("keeps waiting until every parallel ask is answered", async () => {
