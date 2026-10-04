@@ -36,8 +36,15 @@ SSO, unreachable from a SaaS. Ingest and agents must run where the developer sit
 module keeps an append-only event log so a later server is a sync, not a rewrite.
 
 **D8. Sources are accessed through logged-in CLIs (`gh`, later `glab`, `jira`).** They already
-work behind the developer's VPN and SSO. donePM stores no tokens. Token login is a fallback behind
-the same adapter interface.
+work behind the developer's VPN and SSO. Token login is a fallback behind the same adapter interface.
+
+Amended for API backends (#138, #139): a source reached over its REST API (Jira, Azure DevOps) needs
+a token that no CLI holds. That token lives in the macOS Keychain, one item per connection, written
+by the user through the settings or the CLI. Only the daemon reads it, at call time; it is never
+written to the config, the database, events or logs, and never passed to an agent (D9). The UI shows
+only whether a token is set. CLI backends keep their own login, as before. Why the Keychain: it is
+encrypted, bound to the user's login and reachable with the built-in `security` tool, while an
+environment variable would sit in the launchd plist and a config entry in plain text.
 
 **D9. Agents must not reach `gh`, `glab`, `jira` or `git push`.** Filtered `PATH` plus deny rules
 in the session, both. Otherwise Claude Code will use `gh` the moment it sees the binary and bypass
