@@ -35,7 +35,7 @@ async function setup(opts: { removeOnMerge: boolean; prView?: () => string; ghFa
   const item: WorkItem = {
     id: "item-1", source: "github-issue", externalId: "acme/widgets#45", externalUrl: "https://github.com/acme/widgets/issues/45",
     repoId: "repo-1", title: "Fix", body: "", labels: [], state: "ready", playbook: "implement", priority: 1,
-    createdAt: ctx.now(), updatedAt: ctx.now(), branch: "dp/45-fix", worktreePath: worktree,
+    stateSince: ctx.now(), createdAt: ctx.now(), updatedAt: ctx.now(), branch: "dp/45-fix", worktreePath: worktree,
   };
   items.insert(item, "github.com/acme/widgets");
   let current = writer.commit(start(item, ctx));

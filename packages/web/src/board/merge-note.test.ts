@@ -16,6 +16,7 @@ function item(over: Partial<ItemView>): ItemView {
     state: "done",
     playbook: "implement",
     priority: 1,
+    stateSince: "2026-10-01T00:00:00Z",
     createdAt: "2026-10-01T00:00:00Z",
     updatedAt: "2026-10-01T00:00:00Z",
     repo: { id: "r1", path: "/x", originUrl: "github.com/acme/widgets", defaultBranch: "main" },
