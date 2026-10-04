@@ -1,4 +1,4 @@
-import type { AskAnswer, Draft, ItemDetail, ItemDiff, ItemView, OpenTarget, OrphanWorktree, PrDraftPayload, Repo, Settings, SourceTest, Status, TranscriptMessage } from "./types";
+import type { AskAnswer, Draft, ItemDetail, ItemDiff, ItemView, OpenTarget, OrphanWorktree, PrDraftPayload, RepoView, Settings, SourceTest, Status, TranscriptMessage } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -52,8 +52,10 @@ export const api = {
       `/api/items/${encodeURIComponent(id)}/transcript${after ? `?after=${encodeURIComponent(after)}` : ""}`,
     ),
   answer: (askId: string, answer: AskAnswer) => call<{ ok: true }>("POST", `/api/asks/${encodeURIComponent(askId)}/answer`, answer),
-  repos: () => call<Repo[]>("GET", "/api/repos"),
-  rescan: () => call<Repo[]>("POST", "/api/repos/rescan"),
+  repos: () => call<RepoView[]>("GET", "/api/repos"),
+  rescan: () => call<RepoView[]>("POST", "/api/repos/rescan"),
+  setIgnored: (id: string, ignored: boolean) =>
+    call<{ repos: RepoView[]; settings: Settings }>("PUT", `/api/repos/${encodeURIComponent(id)}`, { ignored }),
   status: () => call<Status>("GET", "/api/status"),
   recheck: () => call<Status>("POST", "/api/status/recheck"),
   settings: () => call<Settings>("GET", "/api/settings"),

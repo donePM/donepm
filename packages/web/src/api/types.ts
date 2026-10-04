@@ -125,6 +125,13 @@ export interface SourceSettings {
   /** GitHub issue search, as pasted. Absent: issues assigned to me. */
   query?: string;
   assignOnStart: boolean;
+  /** Not polled, and its items stay off the board unless they need attention. */
+  ignored?: boolean;
+}
+
+/** `GET /api/repos`: a clone, and whether its origin is ignored. */
+export interface RepoView extends Repo {
+  ignored: boolean;
 }
 
 /** `POST /api/sources/test`. */
