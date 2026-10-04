@@ -1,4 +1,4 @@
-import type { Draft, Event, PermissionAsk, PermissionRule, PrDraftPayload, PrDraftResult, Repo, TranscriptMessage, WorkItem } from "@donepm/core";
+import type { Draft, Event, PermissionAsk, PermissionRule, PrDraftPayload, PrDraftResult, PrMerge, Repo, TranscriptMessage, WorkItem } from "@donepm/core";
 
 // Mirrors of what the daemon's HTTP API returns (packages/daemon/src/http/server.ts).
 
@@ -36,8 +36,8 @@ export interface ItemView extends WorkItem {
   badges: ItemBadge[];
   agent: AgentView;
   attention?: Attention;
-  /** The pull request an approved draft opened. */
-  pr?: PrDraftResult;
+  /** The pull request an approved draft opened, and whether it was merged since (D33). */
+  pr?: PrDraftResult & PrMerge;
 }
 
 /** `GET /api/items/:id`. */
@@ -108,6 +108,8 @@ export interface Settings {
   branchPrefix: string;
   pollIntervalSeconds: number;
   maxConcurrentAgents: number;
+  /** Remove a clean worktree once its PR is merged (D33). */
+  removeWorktreeOnMerge: boolean;
   /** Per repository, keyed by normalised origin (`github.com/owner/repo`). */
   sources: Record<string, SourceSettings>;
   /** WebFetch to these hosts is allowed by the daemon without asking (D31). */
