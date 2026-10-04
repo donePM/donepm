@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>donePM Board</title>
+
+<link rel="stylesheet" href="./ui.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div class="app light" style="min-height: 900px">
+
+  <header class="top">
+    <a class="brand" href="board.html"><span class="disc"></span>donePM</a>
+    <nav class="nav" aria-label="Main">
+      <a class="on" href="board.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M9 3v18M15 3v18"></path></svg>Board</a>
+      <a href="agents.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"></path><rect x="4" y="8" width="16" height="12" rx="2"></rect><path d="M2 14h2M20 14h2M15 13v2M9 13v2"></path></svg>Agents <span class="badge primary">2</span></a>
+      <a href="settings-repos.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path><circle cx="8" cy="6" r="2" fill="currentColor"></circle><circle cx="16" cy="12" r="2" fill="currentColor"></circle><circle cx="10" cy="18" r="2" fill="currentColor"></circle></svg>Settings</a>
+    </nav>
+    <div class="right">
+      <a href="board.html" class="pill pill-attn" style="text-decoration: none"><svg class="ic-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4M12 16h.01"></path></svg>3 need you</a>
+      <span class="row" style="gap: 6px"><span class="dot ok"></span>polled 12 s ago</span>
+      <button class="iconbtn" aria-label="Switch to dark theme"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg></button>
+    </div>
+  </header>
+
+  <main class="board">
+    <div class="cols">
+      <div class="col-h">Ready <span class="n">3</span></div>
+      <div class="col-h">In Progress <span class="n">2 · 1 agent</span></div>
+      <div class="col-h attn">Needs You <span class="n">3</span></div>
+      <div class="col-h">Done <span class="n">2 this week</span></div>
+    </div>
+
+    <!-- lane: laravel-pergament -->
+    <div class="lane"><svg class="ic-sm chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg><span class="mono" style="font-size: 13px">rokde/laravel-pergament</span><span class="n">6 items</span></div>
+    <div class="lane-cols">
+      <div class="stack">
+        <article class="card item">
+          <div class="meta"><span>#42</span><span class="badge danger">bug</span></div>
+          <h3>Soft deletes are not respected by the search index</h3>
+          <div class="tags"><span class="badge">search</span><span class="badge muted">P1</span></div>
+          <div class="acts">
+            <label class="sr" for="pb42">Playbook</label>
+            <select id="pb42" class="select" style="flex: 1"><option>implement · opus</option></select>
+            <button class="btn primary"><svg class="ic-sm" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Start</button>
+          </div>
+        </article>
+        <article class="card item">
+          <div class="meta"><span>#39</span><span class="badge primary">feature</span></div>
+          <h3>Add <span class="inline-code">--dry-run</span> flag to the reindex command</h3>
+          <div class="acts">
+            <label class="sr" for="pb39">Playbook</label>
+            <select id="pb39" class="select" style="flex: 1"><option>implement · opus</option></select>
+            <button class="btn primary"><svg class="ic-sm" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Start</button>
+          </div>
+        </article>
+      </div>
+
+      <div class="stack">
+        <article class="card item running">
+          <div class="meta"><span>#45</span><span class="row" style="gap: 6px; color: var(--primary)"><span class="dot primary"></span>running · 6:12</span></div>
+          <h3>Migrate config publishing to Laravel 13 conventions</h3>
+          <div class="mono" style="color: var(--fg-3); display: flex; flex-direction: column; gap: 3px"><span>dp/45-migrate-config-publishing</span><span>Bash · php artisan test --filter=Config</span></div>
+          <div class="acts">
+            <a class="btn sm" href="agents.html">Transcript</a>
+            <button class="btn sm danger"><svg class="ic-sm" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg>Stop</button>
+            <span class="mono" style="margin-left: auto; color: var(--fg-3)">$0.41</span>
+          </div>
+        </article>
+        <article class="card item">
+          <div class="meta"><span>#44</span><span class="row" style="gap: 6px; color: var(--attn)"><span class="dot attn pulse"></span>waiting for CI</span></div>
+          <h3>Rename <span class="inline-code">pergament:prune</span> options for consistency</h3>
+          <div class="row" style="gap: 6px; font-size: 12px; color: var(--fg-3)"><span class="badge ok"><svg class="ic-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>tests</span><span class="badge ok">lint</span><span class="badge muted">types · 1:20</span><span class="badge muted">build</span></div>
+          <div class="acts"><a class="mono" href="https://github.com" style="text-decoration: none">PR #47 ↗</a></div>
+        </article>
+      </div>
+
+      <div class="stack">
+        <article class="card item attn">
+          <div class="meta"><span>#41</span><span class="badge attn"><svg class="ic-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M13 6h3a2 2 0 0 1 2 2v7M6 9v12"></path></svg>PR draft</span></div>
+          <h3>Throw a typed exception when the storage disk is missing</h3>
+          <div class="mono" style="color: var(--fg-3)">+84 −12 · 5 files · 2 commits · waiting 14 min</div>
+          <div class="acts"><a class="btn attn" href="item.html">Review draft</a><button class="btn ghost sm">Dismiss</button></div>
+        </article>
+        <article class="card item attn">
+          <div class="meta"><span>#43</span><span class="badge attn"><svg class="ic-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M6 21V9a9 9 0 0 0 9 9"></path></svg>conflict</span></div>
+          <h3>Support PostgreSQL full-text search</h3>
+          <div style="font-size: 13px; color: var(--fg-2)">PR #43 conflicts with <span class="inline-code">main</span> in 2 files. Who resolves it?</div>
+          <div class="acts"><button class="btn sm primary">Agent</button><button class="btn sm">I'll do it</button><a class="mono" href="https://github.com" style="margin-left: auto; text-decoration: none">PR ↗</a></div>
+        </article>
+      </div>
+
+      <div class="stack">
+        <article class="card item done">
+          <div class="meta"><span>#40</span><span class="badge ok"><svg class="ic-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M6 21V9a9 9 0 0 0 9 9"></path></svg>merged</span></div>
+          <h3>Document the <span class="inline-code">pergament:prune</span> command</h3>
+          <div class="row" style="justify-content: space-between; font-size: 12px"><a class="mono" href="https://github.com" style="text-decoration: none">PR #46 ↗</a><span style="color: var(--fg-3)">worktree removed · $0.65</span></div>
+        </article>
+      </div>
+    </div>
+
+    <!-- lane: beacon -->
+    <div class="lane"><svg class="ic-sm chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg><span class="mono" style="font-size: 13px">rokde/beacon</span><span class="n">3 items</span></div>
+    <div class="lane-cols">
+      <div class="stack">
+        <article class="card item">
+          <div class="meta"><span>#7</span><span class="badge primary">feature</span></div>
+          <h3>KPI widgets should cache for 60 s by default</h3>
+          <div class="acts">
+            <label class="sr" for="pb7">Playbook</label>
+            <select id="pb7" class="select" style="flex: 1"><option>implement · opus</option></select>
+            <button class="btn primary"><svg class="ic-sm" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Start</button>
+          </div>
+        </article>
+      </div>
+      <div class="stack"></div>
+      <div class="stack">
+        <article class="card item attn">
+          <div class="meta"><span>#5</span><span class="badge attn"><svg class="ic-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>permission</span></div>
+          <h3>Replace deprecated carbon calls</h3>
+          <div class="code"><span class="k">Bash · network</span><br>composer update nesbot/carbon --with-all-dependencies</div>
+          <div class="acts"><button class="btn sm primary">Allow</button><button class="btn sm">Allow for this run</button><button class="btn sm ghost">Deny…</button></div>
+        </article>
+      </div>
+      <div class="stack">
+        <article class="card item done">
+          <div class="meta"><span>#3</span><span class="badge ok">merged</span></div>
+          <h3>Fix failing test on PHP 8.4</h3>
+          <div class="row" style="justify-content: space-between; font-size: 12px"><a class="mono" href="https://github.com" style="text-decoration: none">PR #4 ↗</a><span style="color: var(--fg-3)">$0.22</span></div>
+        </article>
+      </div>
+    </div>
+
+    <!-- lane: donepm, collapsed -->
+    <div class="lane" style="border-top: 1px solid var(--border); margin-top: 6px; padding-top: 12px"><svg class="ic-sm chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg><span class="mono" style="font-size: 13px">donePM/donepm</span><span class="n">4 ready</span><span class="badge muted"><svg class="ic-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7.5 4.3 9 5.2M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4a2 2 0 0 0 1-1.7zM3.3 7l8.7 5 8.7-5M12 22V12"></path></svg>4 Dependabot PRs · all major</span></div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1360,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return { theme: this.props.theme ?? 'light' }; }
+}
+</script>
+</body>
+</html>

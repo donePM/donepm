@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>donePM Settings Agents</title>
+
+<link rel="stylesheet" href="./ui.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div class="app light" style="min-height: 940px">
+
+  <header class="top">
+    <a class="brand" href="board.html"><span class="disc"></span>donePM</a>
+    <nav class="nav" aria-label="Main">
+      <a href="board.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M9 3v18M15 3v18"></path></svg>Board</a>
+      <a href="agents.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"></path><rect x="4" y="8" width="16" height="12" rx="2"></rect><path d="M2 14h2M20 14h2M15 13v2M9 13v2"></path></svg>Agents <span class="badge primary">2</span></a>
+      <a class="on" href="settings-repos.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path><circle cx="8" cy="6" r="2" fill="currentColor"></circle><circle cx="16" cy="12" r="2" fill="currentColor"></circle><circle cx="10" cy="18" r="2" fill="currentColor"></circle></svg>Settings</a>
+    </nav>
+    <div class="right">
+      <a href="board.html" class="pill pill-attn" style="text-decoration: none"><svg class="ic-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4M12 16h.01"></path></svg>3 need you</a>
+      <span class="row" style="gap: 6px"><span class="dot attn"></span>claude not logged in</span>
+      <button class="iconbtn" aria-label="Switch to dark theme"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg></button>
+    </div>
+  </header>
+
+  <main class="settings">
+    <nav class="snav" aria-label="Settings">
+      <div class="grp">Workspace</div>
+      <a href="settings-repos.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>General</a>
+      <a href="settings-repos.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v12"></path><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>Repositories <span class="badge muted" style="margin-left: auto">4</span></a>
+      <div class="grp">Agents</div>
+      <a class="on" href="Settingsagents.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>Agents &amp; access</a>
+      <a href="Settingsagents.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5z"></path></svg>Playbooks</a>
+      <div class="grp">System</div>
+      <a href="Settingsagents.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 17 6-6-6-6M12 19h8"></path></svg>Tools <span class="dot attn" style="margin-left: auto"></span></a>
+      <a href="Settingsagents.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="20" height="8" rx="2"></rect><rect x="2" y="14" width="20" height="8" rx="2"></rect><path d="M6 6h.01M6 18h.01"></path></svg>Daemon</a>
+    </nav>
+
+    <div class="content">
+      <div>
+        <h1>Agents &amp; access</h1>
+        <p class="lead">How many agents run, what they may do without asking, and what leaves the machine. Drafts always need your approval; nothing here changes that.</p>
+      </div>
+
+      <section class="panel">
+        <h2><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"></path><rect x="4" y="8" width="16" height="12" rx="2"></rect><path d="M2 14h2M20 14h2M15 13v2M9 13v2"></path></svg>Running agents</h2>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+          <div class="field"><label for="max">Agents at once</label><input id="max" class="input" value="1" style="max-width: 120px"><span class="help">More than one shares your Claude rate limit. Each needs a worktree and a slot.</span></div>
+          <div class="field"><label for="poll">Poll interval</label><div class="row" style="flex-wrap: nowrap"><input id="poll" class="input" value="60" style="max-width: 120px"><span class="sub">seconds</span></div><span class="help">GitHub issues, PR state, CI checks and conflicts are read on this schedule.</span></div>
+        </div>
+        <div class="sep"></div>
+        <label class="switch"><input type="checkbox" checked><span>Remove a worktree on its own once the PR is merged and nothing uncommitted is left</span></label>
+        <label class="switch"><input type="checkbox" checked><span>Browser notification and tab badge when an agent needs you</span></label>
+        <div class="row"><button class="btn primary">Save</button><span class="sub">Saved 3 min ago</span></div>
+      </section>
+
+      <section class="panel">
+        <div class="row" style="justify-content: space-between">
+          <h2><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>Permissions</h2>
+          <span class="sub">Always-allow rules you granted from a card. Revoke any time.</span>
+        </div>
+        <div style="overflow-x: auto">
+          <table class="tbl" style="min-width: 640px">
+            <thead><tr><th>Rule</th><th>Scope</th><th>Granted</th><th>Used</th><th></th></tr></thead>
+            <tbody>
+              <tr><td class="mono">Bash(composer test*)</td><td>rokde/laravel-pergament</td><td>Oct 3</td><td>12×</td><td><button class="btn sm ghost danger">Revoke</button></td></tr>
+              <tr><td class="mono">Bash(php artisan test*)</td><td>rokde/laravel-pergament</td><td>Oct 3</td><td>31×</td><td><button class="btn sm ghost danger">Revoke</button></td></tr>
+              <tr><td class="mono">Bash(pnpm test*)</td><td>all repositories</td><td>Oct 2</td><td>8×</td><td><button class="btn sm ghost danger">Revoke</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="sep"></div>
+        <div class="row" style="justify-content: space-between">
+          <div><div style="font-weight: 500">Always denied</div><div class="sub">Fixed. The daemon runs these after your approval of a draft; an agent never does.</div></div>
+          <div class="row" style="gap: 4px"><span class="badge danger mono">gh</span><span class="badge danger mono">glab</span><span class="badge danger mono">jira</span><span class="badge danger mono">git push</span></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="row" style="justify-content: space-between">
+          <h2><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M2 12h20M12 2a15 15 0 0 1 0 20a15 15 0 0 1 0-20"></path></svg>Web access</h2>
+          <span class="sub">Fetches to these hosts run without a question. Everything else asks.</span>
+        </div>
+        <div class="row" style="gap: 6px">
+          <span class="badge">laravel.com <button class="btn ghost sm" style="height: 18px; padding: 0 2px" aria-label="Remove laravel.com">×</button></span>
+          <span class="badge">packagist.org <button class="btn ghost sm" style="height: 18px; padding: 0 2px" aria-label="Remove packagist.org">×</button></span>
+          <span class="badge">docs.github.com <button class="btn ghost sm" style="height: 18px; padding: 0 2px" aria-label="Remove docs.github.com">×</button></span>
+          <span class="badge">*.npmjs.com <button class="btn ghost sm" style="height: 18px; padding: 0 2px" aria-label="Remove npmjs.com">×</button></span>
+        </div>
+        <div class="row" style="flex-wrap: nowrap; max-width: 420px"><label class="sr" for="host">Add host</label><input id="host" class="input mono" placeholder="docs.example.com or *.example.com"><button class="btn sm">Add</button></div>
+      </section>
+
+      <section class="panel">
+        <div class="row" style="justify-content: space-between">
+          <h2><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 17 6-6-6-6M12 19h8"></path></svg>Tools</h2>
+          <button class="btn sm"><svg class="ic-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"></path></svg>Check again</button>
+        </div>
+        <div class="status-row">
+          <span class="dot ok" style="margin-top: 6px"></span>
+          <div class="w"><div class="h">GitHub CLI <span class="badge muted mono">gh 2.76</span><span class="badge ok">logged in as rokde</span></div><div class="d mono">/opt/homebrew/bin/gh · used for polling, PR creation, merges and comments</div></div>
+        </div>
+        <div class="status-row warn">
+          <span class="dot attn" style="margin-top: 6px"></span>
+          <div class="w"><div class="h">Claude Code <span class="badge muted mono">claude 2.1.270</span><span class="badge attn">not logged in</span></div><div class="d">Agents cannot start. Run this in a terminal, then check again:</div><div class="code" style="margin-top: 4px">claude login</div></div>
+        </div>
+        <div class="status-row" style="border-style: dashed; color: var(--fg-3)">
+          <span class="dot off" style="margin-top: 6px"></span>
+          <div class="w"><div class="h" style="color: var(--fg-2)">Jira CLI <span class="badge muted">after MVP</span></div><div class="d">Will use <span class="mono">acli</span> or <span class="mono">jira-cli</span>, or a token in the keychain.</div></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1360,"height":940}}'>
+class Component extends DCLogic {
+  renderVals() { return { theme: this.props.theme ?? 'light' }; }
+}
+</script>
+</body>
+</html>
