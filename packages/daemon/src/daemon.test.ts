@@ -264,6 +264,44 @@ describe("daemon", { timeout: 30_000 }, () => {
     expect(body.lastScan).toEqual(expect.any(String));
   });
 
+  it("describes itself, its playbooks and worktrees per repository for Settings (#127)", async () => {
+    const h = await home();
+    const d = await start(h);
+    const info = (await get(d, "/api/daemon")).body;
+    expect(info).toMatchObject({
+      version: "0.0.0-test",
+      service: "manual",
+      dbFile: join(h, ".local/share/donepm/donepm.db"),
+      playbooksDir: join(h, ".config/donepm/playbooks"),
+    });
+    expect(info.dbBytes).toBeGreaterThan(0);
+    expect(info.logFile).toBeUndefined();
+    expect((await get(d, "/api/status")).body.startedAt).toBe(info.startedAt);
+    const post = (path: string, body?: object) =>
+      get(d, path, { method: "POST", ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}) });
+    expect((await post("/api/daemon/restart")).status).toBe(409);
+    expect((await post("/api/daemon/open", { what: "logs" })).status).toBe(409);
+
+    const { body } = await get(d, "/api/playbooks");
+    expect(body.globalDir).toBe(join(h, ".config/donepm/playbooks"));
+    expect(body.playbooks.map((p: any) => [p.name, p.scope.kind])).toEqual([["implement", "global"], ["review", "global"]]);
+    expect((await get(d, "/api/repos")).body.map((r: any) => r.worktrees)).toEqual([0]);
+  });
+
+  it("restarts through launchd when it runs as a service (#127)", async () => {
+    const h = await home();
+    manageFixtureRepos(h);
+    const restart = vi.fn();
+    daemon = await createDaemon({
+      home: h, exec: execWith(() => fixture("gh/search-issues.json")), ctx: testCtx(), version: "0.0.0-test", port: 0,
+      publicDir: join(h, "no-ui"), service: { logFile: join(h, "daemon.log"), restart },
+    });
+    await daemon.start();
+    expect((await get(daemon, "/api/daemon")).body).toMatchObject({ service: "launchd", logFile: join(h, "daemon.log") });
+    expect((await get(daemon, "/api/daemon/restart", { method: "POST" })).status).toBe(202);
+    await waitFor(() => expect(restart).toHaveBeenCalledOnce());
+  });
+
   it("detects the CLIs again on recheck", async () => {
     const d = await start(await home());
     const { status, body } = await get(d, "/api/status/recheck", { method: "POST" });
@@ -472,6 +510,7 @@ describe("daemon", { timeout: 30_000 }, () => {
     git(clone, "worktree", "add", "-q", "-b", "mine", join(h, "elsewhere"));
     const listed = (await get(d, "/api/worktrees/orphaned")).body;
     expect(listed.map((o: any) => [o.path.endsWith("/leftover"), o.branch])).toEqual([[true, "leftover"]]);
+    expect(listed[0].lastCommitAt).toEqual(expect.any(String));
 
     const removed = await get(d, `/api/items/${item.id}/worktree/remove`, { method: "POST" });
     expect(removed.status).toBe(200);

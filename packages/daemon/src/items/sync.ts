@@ -14,6 +14,8 @@ export interface SyncDeps {
   events: EventStore;
   repos: RepoStore;
   ctx: Ctx;
+  /** The repository's default playbook for new issues (issue #127); pull requests keep theirs (D40). */
+  playbookFor?: (origin: string) => string | undefined;
 }
 
 /** `github.com/owner/repo` for an issue, matching a clone's normalised origin. */
@@ -68,7 +70,8 @@ export function syncIssues(issues: readonly SourceIssue[], deps: SyncDeps, asked
 
       if (!known) {
         if (finishedBefore(externalId)) continue;
-        const c = collect(issue, ctx, repoId === undefined ? {} : { repoId });
+        const playbook = (issue.source ?? "github-issue") === "github-issue" ? deps.playbookFor?.(origin) : undefined;
+        const c = collect(issue, ctx, { ...(repoId === undefined ? {} : { repoId }), ...(playbook ? { playbook } : {}) });
         items.insert(c.item, origin);
         events.append(c.events);
         collected.push(c.item);

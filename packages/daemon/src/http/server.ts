@@ -7,7 +7,9 @@ import { z } from "zod";
 import { AskError, StopError } from "../agent/runner.js";
 import { StartError } from "../agent/start.js";
 import { WorktreeError } from "../worktrees/create.js";
-import type { OrphanWorktree } from "../worktrees/reconcile.js";
+import type { OrphanDetails } from "../worktrees/orphan-details.js";
+import type { PlaybookList } from "../playbooks/list.js";
+import type { DaemonInfo } from "../system/info.js";
 import type { MoveOutcome, WorktreeAtOldRoot } from "../worktrees/move.js";
 import { RemoveError } from "../worktrees/remove.js";
 import { DismissError } from "../items/dismiss.js";
@@ -67,8 +69,8 @@ export interface ServerDeps {
   resumeItem: (id: string) => Promise<unknown>;
   /** Throws RemoveError or WorktreeError. Resolves with the item once git is done. */
   removeWorktree: (id: string) => Promise<WorkItem>;
-  /** Worktrees under donePM's root that no item uses. */
-  orphans: () => Promise<OrphanWorktree[]>;
+  /** Worktrees under donePM's root that no item uses, with size and last commit. */
+  orphans: () => Promise<OrphanDetails[]>;
   /** Throws RemoveError (404 for paths that are not orphans) or WorktreeError. */
   removeOrphan: (path: string) => Promise<void>;
   /** Throws DismissError. Moves an item whose issue was closed upstream to Done (D32). */
@@ -114,6 +116,12 @@ export interface ServerDeps {
   revokeGrant: (id: string) => PermissionGrant;
   /** Runs a repository query once, for the Test button in Settings (issue #32). */
   testSource: (origin: string, query: string) => Promise<FetchResult>;
+  /** Global and repository playbooks for Settings (issue #127). */
+  playbooks: () => Promise<PlaybookList>;
+  /** Version, port, files and how the daemon was started (Settings > Daemon). */
+  daemonInfo: () => DaemonInfo;
+  /** Exits so launchd starts the daemon again; absent when it was started by hand. */
+  restart?: () => void;
   /** Built web UI (`packages/web` builds into it). Served at `/` when it exists. */
   publicDir?: string;
   extraOrigins?: readonly string[];
@@ -143,6 +151,8 @@ const DraftEditSchema = z
 
 const OpenSchema = z.object({ target: z.enum(["finder", "terminal"]) }).strict();
 export type OpenTarget = z.infer<typeof OpenSchema>["target"];
+
+const DaemonOpenSchema = z.object({ what: z.enum(["logs", "playbooks"]) }).strict();
 
 const RepoPatchSchema = z.object({ managed: z.boolean() }).strict();
 
@@ -406,7 +416,11 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   const repoViews = () => {
     const { sources } = deps.getConfig();
-    return deps.repos.all().map((r) => ({ ...r, managed: isManaged(sources, r.originUrl) }));
+    const worktrees = new Map<string, number>();
+    for (const { item } of deps.items.all()) {
+      if (item.repoId && item.worktreePath) worktrees.set(item.repoId, (worktrees.get(item.repoId) ?? 0) + 1);
+    }
+    return deps.repos.all().map((r) => ({ ...r, managed: isManaged(sources, r.originUrl), worktrees: worktrees.get(r.id) ?? 0 }));
   };
 
   app.get("/api/repos", async () => repoViews());
@@ -461,6 +475,28 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
 
   app.get("/api/settings", async () => deps.getConfig());
+
+  app.get("/api/playbooks", async () => deps.playbooks());
+
+  app.get("/api/daemon", async () => deps.daemonInfo());
+
+  app.post("/api/daemon/restart", async (_req, reply) => {
+    const restart = deps.restart;
+    if (!restart) return reply.code(409).send({ error: "donePM was started by hand: stop it and run `donepm start` again" });
+    // After the answer is out: the restart closes the server.
+    reply.raw.once("finish", () => setImmediate(restart));
+    return reply.code(202).send({ ok: true });
+  });
+
+  app.post("/api/daemon/open", async (req, reply) => {
+    const body = DaemonOpenSchema.safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "body must be {what: logs|playbooks}" });
+    const info = deps.daemonInfo();
+    const path = body.data.what === "logs" ? info.logFile : info.playbooksDir;
+    if (!path || !existsSync(path)) return reply.code(409).send({ error: body.data.what === "logs" ? "no log file: donePM logs to the terminal it was started in" : `${path} does not exist` });
+    await deps.openPath(path, "finder");
+    return { ok: true };
+  });
 
   app.put("/api/settings", async (req, reply) => {
     const patch = SettingsPatch.safeParse(req.body ?? {});

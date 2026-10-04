@@ -22,6 +22,8 @@ export const SourceSchema = z
   .object({
     query: z.string().trim().min(1).optional(),
     assignOnStart: z.boolean().default(false),
+    /** Playbook new issues of this repository start with, instead of `implement` (issue #127). */
+    playbook: z.string().trim().min(1).optional(),
     /** donePM collects, shows and starts work for this repository only when true (issue #94, D46). */
     managed: z.boolean().optional(),
     /** Default of the per-item "Merge automatically" choice for others' pull requests (D47). Off. */

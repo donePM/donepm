@@ -33,7 +33,7 @@ const poll = computed(() => {
       </svg>
       <span class="count">{{ waiting }}</span>
     </RouterLink>
-    <RouterLink v-if="state === 'problem'" to="/settings" class="problem" :aria-label="label" :title="label">
+    <RouterLink v-if="state === 'problem'" to="/settings/tools" class="problem" :aria-label="label" :title="label">
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <circle cx="8" cy="8" r="8" fill="currentColor" />
         <path class="bang-line" d="M8 3.5v5.5" stroke-width="2" stroke-linecap="round" />

@@ -24,16 +24,29 @@ export interface PollStatus {
   discovered?: Record<string, number>;
 }
 
+/** A failed poll, kept for Settings > Tools. */
+export interface PollError {
+  at: string;
+  error: string;
+}
+
+/** How many failed polls the status keeps. */
+export const POLL_ERRORS_KEPT = 5;
+
 export interface Status {
   version: string;
   /** The daemon's process id; `donepm stop` signals it. */
   pid: number;
+  /** When this daemon process started; Settings shows the uptime. */
+  startedAt: string;
   gh: GhStatus | undefined;
   claude: ClaudeStatus | undefined;
   lastPoll: PollStatus | undefined;
   /** When the repo root was last scanned. */
   lastScan: string | undefined;
   runningAgents: number;
+  /** The last failed polls, newest first (at most POLL_ERRORS_KEPT). */
+  pollErrors: PollError[];
 }
 
 type Listener = (status: Status) => void;
@@ -43,16 +56,21 @@ export class StatusStore {
   private status: Status;
   private readonly listeners = new Set<Listener>();
 
-  constructor(version: string, pid = process.pid) {
-    this.status = { version, pid, gh: undefined, claude: undefined, lastPoll: undefined, lastScan: undefined, runningAgents: 0 };
+  constructor(version: string, startedAt: string, pid = process.pid) {
+    this.status = {
+      version, pid, startedAt, gh: undefined, claude: undefined, lastPoll: undefined, lastScan: undefined, runningAgents: 0, pollErrors: [],
+    };
   }
 
   get(): Status {
     return this.status;
   }
 
-  update(patch: Partial<Status>): void {
-    this.status = { ...this.status, ...patch };
+  /** A `lastPoll` with an error is also added to `pollErrors`. */
+  update(patch: Partial<Omit<Status, "pollErrors">>): void {
+    const failed = patch.lastPoll?.error ? { at: patch.lastPoll.at, error: patch.lastPoll.error } : undefined;
+    const pollErrors = failed ? [failed, ...this.status.pollErrors].slice(0, POLL_ERRORS_KEPT) : this.status.pollErrors;
+    this.status = { ...this.status, ...patch, pollErrors };
     for (const l of this.listeners) l(this.status);
   }
 

@@ -36,7 +36,7 @@ function setup(exec: Exec, log: Log = silentLog, sources: Config["sources"] = {}
   const all = managedSources(sources);
   const deps = {
     db, exec, log, ctx: testCtx(), sources: () => all,
-    items: new ItemStore(db), events: new EventStore(db), repos: new RepoStore(db), status: new StatusStore("0.0.0"),
+    items: new ItemStore(db), events: new EventStore(db), repos: new RepoStore(db), status: new StatusStore("0.0.0", "2026-09-01T00:00:00.000Z"),
     onItemUpdated: (i: WorkItem) => pushed.push(i),
   };
   return { deps, pushed };
@@ -394,7 +394,7 @@ describe("collectIssues", () => {
       repos.upsert({ id: "r1", path: "/c/widgets", originUrl: "github.com/acme/widgets", defaultBranch: "main" }, "t");
       const deps = {
         db, exec, log: silentLog, ctx: testCtx(), sources: () => ({}),
-        items: new ItemStore(db), events: new EventStore(db), repos, status: new StatusStore("0.0.0"),
+        items: new ItemStore(db), events: new EventStore(db), repos, status: new StatusStore("0.0.0", "2026-09-01T00:00:00.000Z"),
         onItemUpdated: () => {},
       };
       await collectIssues(deps);

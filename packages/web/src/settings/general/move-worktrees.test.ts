@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ApiError } from "../api/client";
+import { ApiError } from "../../api/client";
 import { moveQuestion, moveResult, worktreesAtOldRoot } from "./move-worktrees";
 
 const wt = (running = false) => ({ itemId: "i", title: "Fix it", path: "/old/r/dp-1", running });

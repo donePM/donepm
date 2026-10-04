@@ -37,6 +37,18 @@ describe("syncIssues", () => {
     expect(d.events.forItem(stored.item.id).map((e) => e.type)).toEqual(["item.collected"]);
   });
 
+  it("starts a repository's new issues with its default playbook, pull requests with theirs (issue #127)", () => {
+    const d = setup();
+    const pr: SourceIssue = { ...a, number: 3, url: "https://github.com/Acme/Widgets/pull/3", source: "github-pr" };
+    const playbookFor = (origin: string) => (origin === "github.com/acme/widgets" ? "dependency-update" : undefined);
+    const r = syncIssues([a, b, pr], { ...d, playbookFor });
+    expect(r.collected.map((i) => [i.externalId, i.playbook])).toEqual([
+      ["Acme/Widgets#1", "dependency-update"],
+      ["solo/tool#2", "implement"],
+      ["Acme/Widgets#3", "review"],
+    ]);
+  });
+
   it("is idempotent: polling the same issues again changes nothing and adds no events", () => {
     const d = setup();
     syncIssues([a], d);

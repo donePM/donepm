@@ -1,4 +1,4 @@
-import type { Settings } from "../api/types";
+import type { Settings } from "../../api/types";
 
 export type RetentionFields = Pick<Settings, "archiveAfterHours" | "deleteAfterDays">;
 

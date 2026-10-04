@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { systemCtx } from "./ctx.js";
 import { createDaemon } from "./daemon.js";
 import { exec } from "./process/exec.js";
+import { serviceKind } from "./system/info.js";
 
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -14,17 +16,21 @@ const daemon = await createDaemon({
   ctx: systemCtx,
   version,
   logger: true,
+  // Under launchd a restart is an exit with an error code: `KeepAlive: {SuccessfulExit: false}` starts it again.
+  ...(serviceKind(process.env) === "launchd"
+    ? { service: { logFile: join(homedir(), "Library", "Logs", "donepm", "daemon.log"), restart: () => void shutdown("restart", 75) } }
+    : {}),
   // The Vite dev server (pnpm dev) proxies to us from another origin.
   ...(process.env.DONEPM_DEV_ORIGIN ? { extraOrigins: [process.env.DONEPM_DEV_ORIGIN] } : {}),
 });
 
 let stopping = false;
-async function shutdown(signal: string): Promise<void> {
+async function shutdown(signal: string, code = 0): Promise<void> {
   if (stopping) return;
   stopping = true;
   daemon.app.log.info({ signal }, "shutting down");
   await daemon.stop();
-  process.exit(0);
+  process.exit(code);
 }
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));

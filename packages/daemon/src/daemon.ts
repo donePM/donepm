@@ -39,6 +39,9 @@ import { attentionOf } from "./items/attention.js";
 import { toItemView, type CurrentTool, type MergeView } from "./items/view.js";
 import type { Exec } from "./process/exec.js";
 import { ensureDefaultPlaybooks } from "./playbooks/load.js";
+import { listPlaybooks } from "./playbooks/list.js";
+import { databaseBytes } from "./system/info.js";
+import { withOrphanDetails } from "./worktrees/orphan-details.js";
 import { RepoCloner } from "./repos/clone.js";
 import { discoverRepos } from "./repos/discover.js";
 import { hiddenUnmanaged, isManaged, managedChanges, migrateManaged, withManaged } from "./repos/managed.js";
@@ -74,6 +77,8 @@ export interface DaemonOptions {
   spawn?: ProcessFactory;
   /** Environment the agent inherits (minus tokens); defaults to `process.env`. */
   env?: NodeJS.ProcessEnv;
+  /** Set when launchd runs the daemon: its log file and how to restart (exit, launchd starts it again). */
+  service?: { logFile: string; restart: () => void };
 }
 
 /** The stdio shim the agent's CLI starts for donePM's MCP server. */
@@ -119,7 +124,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const bridgeSocket = join(bridgeDir, "mcp.sock");
   const bridgeSessions = new BridgeSessions();
   let bridge: { close: () => Promise<void> } | undefined;
-  const status = new StatusStore(opts.version);
+  const status = new StatusStore(opts.version, opts.ctx.now());
   const boundPort = () => {
     const a = app.server.address();
     return typeof a === "object" && a ? a.port : port;
@@ -342,7 +347,21 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     resumeItem: async (id) => track(await resumeItem(startDeps(), id)),
     removeWorktree: (id) =>
       removeItemWorktree({ items, repos, writer, exec: opts.exec, ctx: opts.ctx, agentActive: (i) => runner.isRunning(i) }, id),
-    orphans,
+    orphans: async () => withOrphanDetails(opts.exec, await orphans()),
+    playbooks: () => listPlaybooks(paths.playbooksDir, repos.all()),
+    daemonInfo: () => ({
+      version: opts.version,
+      pid: status.get().pid,
+      port: boundPort(),
+      startedAt: status.get().startedAt,
+      service: opts.service ? "launchd" : "manual",
+      configFile: paths.configFile,
+      dbFile: paths.dbFile,
+      dbBytes: databaseBytes(paths.dbFile),
+      ...(opts.service ? { logFile: opts.service.logFile } : {}),
+      playbooksDir: paths.playbooksDir,
+    }),
+    ...(opts.service ? { restart: opts.service.restart } : {}),
     removeOrphan: (path) => removeOrphan({ exec: opts.exec, orphans }, path),
     stopItem: (id) => runner.stop(id),
     dismissItem: (id) => dismissItem({ items, writer, ctx: opts.ctx, agentActive: (i) => runner.isRunning(i) }, id),
