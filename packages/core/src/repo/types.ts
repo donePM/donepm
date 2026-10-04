@@ -1,4 +1,6 @@
 export interface RepoSetup {
+  /** `off` skips the dependencies step (spec 7.3, D34). Default `auto`. */
+  dependencies?: "auto" | "off";
   copy?: string[];
   run?: string[];
 }

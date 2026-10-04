@@ -61,10 +61,17 @@ describe("toRows", () => {
     const rows = toRows([
       msg("system", { type: "donepm_setup", step: "copy", file: ".env", ok: true }),
       msg("system", { type: "donepm_setup", step: "run", command: "composer install", ok: false, code: 1, stdout: "", stderr: "no php" }),
+      msg("system", { type: "donepm_setup", step: "dependencies", manager: "pnpm", method: "clone", dirs: ["node_modules", "packages/web/node_modules"], ok: true }),
+      msg("system", {
+        type: "donepm_setup", step: "dependencies", manager: "composer", method: "install", command: "composer install --no-interaction",
+        reason: "the main clone has no vendor", ok: true, code: 0, stdout: "Installing", stderr: "",
+      }),
     ]);
     expect(rows).toEqual([
       { type: "setup", id: expect.any(String), label: "copy .env", ok: true, output: "" },
       { type: "setup", id: expect.any(String), label: "run composer install", ok: false, output: "no php" },
+      { type: "setup", id: expect.any(String), label: "copy node_modules, packages/web/node_modules from the main clone (pnpm)", ok: true, output: "" },
+      { type: "setup", id: expect.any(String), label: "run composer install --no-interaction", ok: true, output: "(the main clone has no vendor)\nInstalling" },
     ]);
   });
 
