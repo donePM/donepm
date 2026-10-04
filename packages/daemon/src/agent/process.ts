@@ -19,9 +19,15 @@ export interface SpawnOptions {
 
 export type ProcessFactory = (cmd: string, args: string[], opts: SpawnOptions) => AgentProcess;
 
-/** Real child process: stdin kept open for the whole session (spec 9.2). */
+/**
+ * Real child process: stdin kept open for the whole session (spec 9.2).
+ *
+ * The agent leads its own process group, and `kill` signals the whole group (#115). Test runs,
+ * dev servers and workers the agent started then end with it instead of living on as orphans of
+ * launchd. Bloom does the same with `killpg`.
+ */
 export const spawnProcess: ProcessFactory = (cmd, args, opts) => {
-  const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env, stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env, stdio: ["pipe", "pipe", "pipe"], detached: true });
   const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
   let exitCbs: Array<(code: number | null, signal: NodeJS.Signals | null) => void> = [];
   const stderrCbs: Array<(chunk: string) => void> = [];
@@ -53,7 +59,13 @@ export const spawnProcess: ProcessFactory = (cmd, args, opts) => {
     onStderr: (cb) => stderrCbs.push(cb),
     onExit: (cb) => exitCbs.push(cb),
     kill: (signal) => {
-      child.kill(signal);
+      if (child.pid === undefined) return;
+      try {
+        process.kill(-child.pid, signal);
+      } catch {
+        // The group is gone already (ESRCH); the agent itself may still be reaped.
+        child.kill(signal);
+      }
     },
   };
 };
