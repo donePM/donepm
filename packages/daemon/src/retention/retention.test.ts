@@ -117,8 +117,8 @@ describe("applyRetention: purge", () => {
     t.add("a", { closedUpstream: true });
     t.withPr("a");
     t.writer.commit(prMerged(t.item("a")!, t.ctx, PR));
-    t.asks.insert({ id: "a-k", itemId: "a", requestId: "r1", toolName: "Bash", input: {}, state: "answered", rules: [] }, T0);
-    t.transcript.append({ id: "a-t", itemId: "a", sessionId: "s", at: T0, kind: "assistant", raw: { type: "assistant" } });
+    t.asks.insert({ id: "a-k", itemId: "a", requestId: "r1", toolName: "Bash", input: {}, state: "allowed", rules: [] }, T0);
+    t.transcript.append({ id: "a-t", itemId: "a", sessionId: "s", at: T0, kind: "assistant_text", raw: { type: "assistant" } });
     expect(t.run().archived).toEqual(["a"]);
 
     t.at(hours(7 * 24 - 1));

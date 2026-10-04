@@ -66,7 +66,7 @@ describe("setAutoMerge (D47)", () => {
 describe("mergeDefaults", () => {
   it("is off and squash unless the repository says otherwise", () => {
     expect(mergeDefaults({}, ORIGIN)).toEqual({ auto: false, method: "squash" });
-    expect(mergeDefaults({ [ORIGIN]: { autoMerge: true, mergeMethod: "merge" } }, ORIGIN)).toEqual({ auto: true, method: "merge" });
+    expect(mergeDefaults({ [ORIGIN]: { assignOnStart: false, autoMerge: true, mergeMethod: "merge" } }, ORIGIN)).toEqual({ auto: true, method: "merge" });
   });
 });
 
@@ -75,14 +75,14 @@ describe("autoMergeReady (D47)", () => {
 
   it("merges a ready pull request whose repository turned auto-merge on, with its method", async () => {
     const t = setup();
-    await autoMergeReady(t.deps, { [ORIGIN]: { autoMerge: true, mergeMethod: "merge" } }, managed);
+    await autoMergeReady(t.deps, { [ORIGIN]: { assignOnStart: false, autoMerge: true, mergeMethod: "merge" } }, managed);
     expect(t.commands()).toEqual(["gh pr merge 88 --repo github.com/acme/widgets --merge"]);
     expect(t.last()).toMatchObject({ type: "pr.merged", actor: "system", payload: { method: "merge", auto: true } });
   });
 
   it("follows the item's own choice over the repository's", async () => {
     const off = setup({ autoMerge: false });
-    await autoMergeReady(off.deps, { [ORIGIN]: { autoMerge: true } }, managed);
+    await autoMergeReady(off.deps, { [ORIGIN]: { assignOnStart: false, autoMerge: true } }, managed);
     expect(off.exec.calls).toEqual([]);
     const on = setup({ autoMerge: true });
     await autoMergeReady(on.deps, {}, managed);
