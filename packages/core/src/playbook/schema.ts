@@ -17,7 +17,8 @@ export const PlaybookFrontmatterSchema = z
      * and `git show` without a question. For reviewing code the user did not write.
      */
     read_only: z.boolean().optional(),
-    drafts: z.array(z.enum(["pr", "review"])),
+    /** `ticket`: comments on and status changes of the item's ticket (issue #139). */
+    drafts: z.array(z.enum(["pr", "review", "ticket"])),
     match: z
       .object({
         source: nonEmpty.optional(),

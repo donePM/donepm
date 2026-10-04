@@ -25,6 +25,7 @@ import DraftPanel from "./DraftPanel.vue";
 import FeedbackPanel from "./FeedbackPanel.vue";
 import PushDraftPanel from "./PushDraftPanel.vue";
 import ReviewDraftPanel from "./ReviewDraftPanel.vue";
+import TicketDraftPanel from "./TicketDraftPanel.vue";
 import UpdateBranchDraftPanel from "./UpdateBranchDraftPanel.vue";
 import SourceLink from "../sourcelink/SourceLink.vue";
 import WorktreeBlock from "./WorktreeBlock.vue";
@@ -84,7 +85,9 @@ const STATE_LABEL: Record<string, string> = {
   failed: "Failed",
   done: "Done",
 };
-const DRAFT_LABEL: Record<string, string> = { pr: "PR draft", push: "push draft", comment: "reply draft", review: "review draft", update_branch: "update-branch draft" };
+const DRAFT_LABEL: Record<string, string> = { pr: "PR draft", push: "push draft", comment: "reply draft", review: "review draft", update_branch: "update-branch draft",
+  ticket_comment: "ticket comment draft", ticket_transition: "ticket move draft",
+};
 const BADGE_TONE: Record<string, string> = { needs_you: "attn", failed: "attn", running: "primary", checking: "primary", done: "ok", ready: "" };
 const badge = computed(() => {
   const d = detail.value;
@@ -178,6 +181,14 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
               v-else-if="draft?.type === 'review' && detail.state === 'needs_you'"
               :draft="draft"
               :repo="repo"
+              :created-at="draftCreatedAt"
+              :can-reject="detail.agent.running || !!detail.agentSessionId"
+              :publish-error="publishError"
+              @changed="reload"
+            />
+            <TicketDraftPanel
+              v-else-if="(draft?.type === 'ticket_comment' || draft?.type === 'ticket_transition') && detail.state === 'needs_you'"
+              :draft="draft"
               :created-at="draftCreatedAt"
               :can-reject="detail.agent.running || !!detail.agentSessionId"
               :publish-error="publishError"

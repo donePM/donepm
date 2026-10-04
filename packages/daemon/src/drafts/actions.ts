@@ -193,6 +193,16 @@ const REJECTED: Record<DraftType, { what: string; tool: string; tail?: string }>
     tool: "draft_update_branch",
     tail: "Leave the branch as it is. Go on with your review and call draft_review once, at the end.",
   },
+  ticket_comment: {
+    what: "ticket comment",
+    tool: "draft_ticket_comment",
+    tail: "Nothing was posted. Go on with your work; call draft_ticket_comment again only if their reason asks for a changed comment.",
+  },
+  ticket_transition: {
+    what: "ticket transition",
+    tool: "draft_ticket_transition",
+    tail: "The ticket stays where it is. Go on with your work; call draft_ticket_transition again only if their reason asks for another move.",
+  },
 };
 
 export function rejectionMessage(reason: string | undefined, type: DraftType = "pr"): string {

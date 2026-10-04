@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
-import type { DraftType } from "@donepm/core";
+import type { Playbook } from "@donepm/core";
 
 /** What a token stands for: one item, and the drafts its playbook allows. */
 export interface BridgeSession {
   itemId: string;
-  drafts: readonly DraftType[];
+  drafts: Playbook["drafts"];
 }
 
 /**

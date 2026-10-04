@@ -25,6 +25,20 @@ export interface TicketRef {
   origin: string;
 }
 
+/** A move the ticket's workflow offers now (issue #139). */
+export interface TicketTransition {
+  id: string;
+  /** The transition's own name ("Start review"). */
+  name: string;
+  /** The status it leads to ("In Review"). */
+  toStatus: string;
+  /** Fields the transition's screen requires and fills in no default for; donePM cannot fill them. */
+  requiredFields: string[];
+}
+
+export type TransitionsAnswer = { ok: true; transitions: TicketTransition[] } | { ok: false; error: string };
+export type CommentAnswer = { ok: true; id: string; url: string } | { ok: false; error: string };
+
 /**
  * Where tickets come from (issue #138): the default searches, a repository's own query, the
  * fields read in one batch after the searches, whether a ticket is closed, and assigning it on
@@ -47,4 +61,10 @@ export interface TicketSource {
   states?(tickets: readonly TicketRef[]): Promise<Map<string, TicketState>>;
   /** Assign the ticket to the logged-in user (D28). */
   assignToMe(ticket: TicketRef): Promise<Done>;
+  /** Post a comment, Markdown, after the user approved it (issue #139). */
+  comment?(ticket: TicketRef, markdown: string): Promise<CommentAnswer>;
+  /** The transitions the ticket's workflow offers now. Reads only. */
+  transitions?(ticket: TicketRef): Promise<TransitionsAnswer>;
+  /** Move the ticket, with an optional comment in Markdown, after the user approved it. */
+  transition?(ticket: TicketRef, transitionId: string, comment?: string): Promise<Done>;
 }

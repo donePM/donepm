@@ -220,6 +220,23 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("describes ticket drafts (issue #139)", () => {
+    const events = [
+      ev("draft.created", { type: "ticket_comment", title: "Comment on APP-123" }, { refId: "c", actor: "agent" }),
+      ev("draft.executed", { id: "10500", url: "https://acme.atlassian.net/browse/APP-123?focusedCommentId=10500" }, { refId: "c" }),
+      ev("draft.created", { type: "ticket_transition", title: "Move APP-123 to In Review" }, { refId: "t", actor: "agent" }),
+      ev("draft.execution_failed", { step: "ticket", error: "moving APP-123 failed: HTTP 400" }, { refId: "t" }),
+      ev("draft.executed", { status: "In Review" }, { refId: "t" }),
+    ];
+    expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail })).reverse()).toEqual([
+      { tone: "attention", text: "Agent created ticket comment draft", detail: "Comment on APP-123" },
+      { tone: "system", text: "Comment posted on the ticket, the agent goes on", detail: "https://acme.atlassian.net/browse/APP-123?focusedCommentId=10500" },
+      { tone: "attention", text: "Agent created ticket move draft", detail: "Move APP-123 to In Review" },
+      { tone: "danger", text: "Moving the ticket failed", detail: "moving APP-123 failed: HTTP 400" },
+      { tone: "system", text: "Ticket moved to In Review, the agent goes on", detail: undefined },
+    ]);
+  });
+
   it("describes items closed upstream", () => {
     const events = [ev("item.closed_upstream"), ev("item.dismissed", {}, { actor: "user" })];
     expect(timelineEntries(events, []).map(({ tone, text }) => ({ tone, text }))).toEqual([

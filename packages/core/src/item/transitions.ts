@@ -645,6 +645,25 @@ export function branchUpdatePosted(item: WorkItem, ctx: Ctx, draftId: string, pa
 }
 
 /**
+ * The daemon posted an approved ticket draft (issue #139): a comment on the ticket or its move to
+ * another status. That does not end the work, so the agent runs again.
+ */
+export function ticketDraftPosted(item: WorkItem, ctx: Ctx, draftId: string, payload: Record<string, unknown> = {}): Transition {
+  return apply(
+    { name: "ticketDraftPosted", from: ["needs_you"], to: "running", actor: "system", event: "draft.executed" },
+    item,
+    ctx,
+    draftId,
+    payload,
+  );
+}
+
+/** What the agent hears after its ticket draft was posted. */
+export function ticketDraftPostedMessage(title: string): string {
+  return `The user approved your ticket draft and donePM did it: ${title}. Go on with your work.`;
+}
+
+/**
  * donePM merged someone else's pull request (D47): the user's Merge click, or the daemon on the
  * user's auto-merge choice. The item is done, and so is its pull request.
  */

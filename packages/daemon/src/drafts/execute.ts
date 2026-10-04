@@ -1,6 +1,6 @@
 import {
-  branchUpdatedMessage, branchUpdatePosted, draftApproved, draftExecuted, draftExecutionFailed, repliesPosted, reviewPosted,
-  type CiPr, type Draft, type DraftReply, type PostedReply, type PrDraftPayload, type PrDraftResult, type WorkItem,
+  branchUpdatedMessage, branchUpdatePosted, draftApproved, draftExecuted, draftExecutionFailed, draftTitle, repliesPosted, reviewPosted,
+  ticketDraftPosted, ticketDraftPostedMessage, type CiPr, type Draft, type DraftReply, type PostedReply, type PrDraftPayload, type PrDraftResult, type WorkItem,
 } from "@donepm/core";
 import type { ResumeHow } from "../agent/start.js";
 import { requestBranchUpdate } from "../prs/update-branch.js";
@@ -10,13 +10,14 @@ import { noConnection, type Providers } from "../providers/registry.js";
 import type { DraftResult } from "./store.js";
 import { setupCopies } from "../worktrees/setup.js";
 import { DraftError, type DraftDeps } from "./actions.js";
+import { ticketOf } from "./ticket.js";
 
 /** Commit message for changes the agent left uncommitted (D25). */
 export const WIP_MESSAGE = "WIP from donePM";
 
 const PUSH_TIMEOUT_MS = 120_000;
 
-export type ExecutionStep = "commit" | "push" | "pr" | "reply" | "review" | "update_branch";
+export type ExecutionStep = "commit" | "push" | "pr" | "reply" | "review" | "update_branch" | "ticket";
 
 export class ExecutionError extends Error {
   constructor(
@@ -58,6 +59,7 @@ export async function approveDraft(deps: ApproveDeps, draftId: string): Promise<
   if (!item) throw new DraftError(404, "item not found");
   if (item.state !== "needs_you") throw new DraftError(409, `the item is ${item.state}, not waiting for the user`);
   if (draft.type === "update_branch") return updateBranch(deps, draft, item);
+  if (draft.type === "ticket_comment" || draft.type === "ticket_transition") return changeTicket(deps, draft, item);
   const repo = item.repoId ? deps.repos.get(item.repoId) : undefined;
   if (!repo || !item.worktreePath || !item.branch) throw new DraftError(409, "the item has no worktree");
 
@@ -134,6 +136,41 @@ async function updateBranch(deps: ApproveDeps, draft: Extract<Draft, { type: "up
   return { ...draft, state: "executed", result };
 }
 
+type TicketDraft = Extract<Draft, { type: "ticket_comment" | "ticket_transition" }>;
+
+/**
+ * An approved ticket draft (issue #139): the comment is posted, or the ticket moved, as the user.
+ * The work is not done by that, so the agent runs again with word of it. Needs no worktree.
+ */
+async function changeTicket(deps: ApproveDeps, draft: TicketDraft, item: WorkItem): Promise<Draft> {
+  const { ref, source } = ticketOf(deps.providers, item);
+  deps.drafts.setState(draft.id, "approved", deps.ctx.now());
+  let current = deps.writer.commit(draftApproved(item, deps.ctx, draft.id));
+  const p = draft.payload;
+  const done =
+    draft.type === "ticket_comment"
+      ? await source.comment!(ref, draft.payload.body).catch((e: Error) => ({ ok: false as const, error: e.message }))
+      : await source
+          .transition!(ref, draft.payload.transitionId, draft.payload.comment)
+          .then((r) => (r.ok ? { ...r, status: draft.payload.toStatus } : r))
+          .catch((e: Error) => ({ ok: false as const, error: e.message }));
+  if (!done.ok) {
+    const what = draft.type === "ticket_comment" ? `commenting on ${p.key}` : `moving ${p.key}`;
+    const err = new ExecutionError("ticket", `${what} failed: ${done.error}`);
+    deps.drafts.setState(draft.id, "failed", deps.ctx.now());
+    current = itemNow(deps, current);
+    deps.writer.commit(draftExecutionFailed(current, deps.ctx, draft.id, { step: err.step, error: err.message }));
+    throw err;
+  }
+  const { ok: _ok, ...result } = done;
+  deps.drafts.setResult(draft.id, result as DraftResult, deps.ctx.now());
+  await deps.continueAgent(item.id, {
+    transition: (latest, ctx) => ticketDraftPosted(latest, ctx, draft.id, { ...result }),
+    prompt: ticketDraftPostedMessage(draftTitle(draft)),
+  });
+  return { ...draft, state: "executed", result } as Draft;
+}
+
 /**
  * Post the replies in order, skipping those an earlier attempt posted. Each one is stored as
  * posted at once, so a failure halfway and a retry never post a reply twice.
@@ -167,8 +204,16 @@ export function failInterrupted(deps: DraftDeps): void {
     deps.drafts.setState(draft.id, "failed", deps.ctx.now());
     const item = deps.items.get(draft.itemId)?.item;
     if (item?.state !== "needs_you") continue;
+    const ticket = draft.type === "ticket_comment" || draft.type === "ticket_transition";
     deps.writer.commit(
-      draftExecutionFailed(item, deps.ctx, draft.id, { step: "pr", error: "donePM stopped while publishing; check GitHub, then retry" }),
+      draftExecutionFailed(
+        item,
+        deps.ctx,
+        draft.id,
+        ticket
+          ? { step: "ticket", error: "donePM stopped while changing the ticket; check it, then retry" }
+          : { step: "pr", error: "donePM stopped while publishing; check GitHub, then retry" },
+      ),
     );
   }
 }

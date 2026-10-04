@@ -11,10 +11,11 @@ describe("parsePlaybook", () => {
     const p = parsePlaybook(implementMd);
     expect(p).toMatchObject({
       name: "implement", model: "opus", effort: "high", permissionMode: "acceptEdits",
-      drafts: ["pr"], match: { source: "github-issue" },
+      drafts: ["pr", "ticket"], match: { source: "github-issue" },
     });
     expect(p.body).toContain("{{ branch }}");
     expect(p.body).toContain("draft_pr");
+    expect(p.body).toContain("draft_ticket_transition");
   });
 
   it("parses the shipped review playbook: read-only, review drafts only (D42)", () => {

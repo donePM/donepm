@@ -159,11 +159,11 @@ resolves a merge conflict, `reason: "pr_feedback"` when it addresses review feed
 |---|---|---|
 | id | uuid | |
 | itemId | uuid | |
-| type | `pr` \| `push` \| `comment` \| `review` \| `update_branch` | |
-| payload | JSON | for `pr`: `{ title, body, base }`; for `push`: `{ summary, number, url, branch, commits, uncommitted, replies? }`; for `comment`: `{ number, url, replies }`. A reply is `{ body, inReplyTo? }` (6.9); for `review`: `{ number, url, commitId, verdict, body, comments }`, a comment `{ path, line, body }` (D43); for `update_branch`: `{ number, url, base, via, reason }`, `via` `dependabot` \| `update-branch` (6.2, D47) |
+| type | `pr` \| `push` \| `comment` \| `review` \| `update_branch` \| `ticket_comment` \| `ticket_transition` | |
+| payload | JSON | for `pr`: `{ title, body, base }`; for `push`: `{ summary, number, url, branch, commits, uncommitted, replies? }`; for `comment`: `{ number, url, replies }`. A reply is `{ body, inReplyTo? }` (6.9); for `review`: `{ number, url, commitId, verdict, body, comments }`, a comment `{ path, line, body }` (D43); for `update_branch`: `{ number, url, base, via, reason }`, `via` `dependabot` \| `update-branch` (6.2, D47); for `ticket_comment`: `{ key, url, body }`; for `ticket_transition`: `{ key, url, transitionId, toStatus, comment? }` (6.12) |
 | state | `pending` \| `approved` \| `rejected` \| `executed` \| `failed` | |
 | userEdits | JSON? | the payload after user edits |
-| result | JSON? | for `pr`: `{ url, number }`; for `push`: `{ sha, posted? }`; for `comment`: `{ posted }`; for `review`: `{ id, url }`; for `update_branch`: `{ via, url? }` (`url` of the Dependabot comment). `posted` lists `{ index, url }` per reply out, written after each one so a retry skips them |
+| result | JSON? | for `pr`: `{ url, number }`; for `push`: `{ sha, posted? }`; for `comment`: `{ posted }`; for `review`: `{ id, url }`; for `update_branch`: `{ via, url? }` (`url` of the Dependabot comment); for `ticket_comment`: `{ id, url? }`; for `ticket_transition`: `{ status }`. `posted` lists `{ index, url }` per reply out, written after each one so a retry skips them |
 
 ### 4.5 PermissionAsk
 
@@ -704,6 +704,16 @@ the repository's code host.
   /issue/<KEY>/assignee` with the `accountId` (Cloud) or `name` (Data Center) of `/myself`.
 - **Errors.** A 429 ends that connection's searches for the poll, with the `Retry-After` in the
   error; its items are left as they are. Other failures are a source error as in 6.2.
+- **Ticket drafts** (D56). A playbook with `ticket` in `drafts` gives the agent
+  `draft_ticket_comment` and `draft_ticket_transition` (10), always for the item's own ticket.
+  A transition is named by id, name or target status and checked when the draft is created against
+  `GET /issue/<KEY>/transitions?expand=transitions.fields`; one Jira does not offer is refused with
+  the list it does, and so is one with required fields that have no default (other than a comment).
+  Nothing goes to Jira before approval. Approved, the daemon posts `POST /issue/<KEY>/comment`, or
+  `POST /issue/<KEY>/transitions` with the comment in the same call; the body is Markdown turned
+  into ADF for Cloud (v3) and wiki markup for Data Center (v2). Like `update_branch` (6.3), the
+  draft needs no worktree, `draft.executed` moves the item `needs_you` → `running` and the agent
+  goes on. A failure stops the draft with step `ticket`.
 - The agent never reaches Jira: the daemon holds the token (D51); outward effects are drafts.
 
 ## 7. Worktrees
@@ -833,7 +843,7 @@ Frontmatter fields:
 | effort | no | passed to `--effort` |
 | permission_mode | yes | `default` \| `acceptEdits` \| `plan` \| `bypassPermissions` |
 | read_only | no | `true`: no edit or web tools, project settings not loaded (9.1, D42); needs `permission_mode: default` and no `pr` draft |
-| drafts | yes | list of allowed draft types: `[pr]`, `[review]`; `pr` also allows `draft_push` and `draft_comment` |
+| drafts | yes | list of allowed draft types: `[pr]`, `[review]`, `[pr, ticket]`; `pr` also allows `draft_push` and `draft_comment`, `ticket` allows `draft_ticket_comment`, `draft_ticket_transition` and `ticket_transitions` (6.12). The default `implement` has `[pr, ticket]` |
 | match.source | no | source filter |
 | match.labels | no | any of these labels |
 
@@ -1115,6 +1125,9 @@ Tools in MVP:
 | `draft_comment` | `{ replies }` | replies to review feedback without a push; only after the item's PR exists; creates Draft `comment`, item → `needs_you`. Refused without a PR, without replies, or with an `inReplyTo` that is no known thread (6.9) |
 | `draft_review` | `{ verdict, body, comments? }` | only for a `github-pr` item; `verdict` `APPROVE` \| `REQUEST_CHANGES` \| `COMMENT`, a comment `{ path, line, body }`. The daemon adds the PR and the reviewed commit; creates Draft `review`, item → `needs_you`. Refused without a body (except `APPROVE`) or with a line that is not on the new side of `git diff origin/<base>...HEAD` (D43) |
 | `draft_update_branch` | `{ reason }` | only for a `github-pr` item the last poll read as `BEHIND` its base; creates Draft `update_branch`, item → `needs_you`. Approved, the daemon updates the branch (6.2, 6.3) and the agent goes on with its review. Allowed where the playbook allows `review` drafts |
+| `draft_ticket_comment` | `{ body }` | only for a ticket item (6.12); creates Draft `ticket_comment` on the item's own ticket, item → `needs_you`. Approved, the daemon posts it and the agent goes on. Allowed where the playbook allows `ticket` drafts |
+| `draft_ticket_transition` | `{ to, comment? }` | only for a ticket item; `to` is a transition's id or name, or the status it leads to, checked against Jira now; creates Draft `ticket_transition`, item → `needs_you`. Approved, the daemon moves the ticket and the agent goes on |
+| `ticket_transitions` | – | lists the transitions the item's ticket offers now, read-only. Allowed with `ticket` drafts |
 | `whoami` | – | returns item id, branch, worktree path, repo, and `baseBranch` for a review |
 
 A tool call not allowed by the playbook returns an error result (`isError: true`) with text, not a

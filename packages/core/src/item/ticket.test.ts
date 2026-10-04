@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Ctx } from "../ids.js";
 import { collect, externalIdOf, refresh, type SourceIssue } from "./collect.js";
-import { NotARepoCandidateError, InvalidTransitionError, repoChosen, RepoNotChosenError, start } from "./transitions.js";
+import { NotARepoCandidateError, InvalidTransitionError, repoChosen, RepoNotChosenError, start, ticketDraftPosted, ticketDraftPostedMessage } from "./transitions.js";
 import type { WorkItem } from "./types.js";
 
 function makeCtx(): Ctx {
@@ -92,5 +92,16 @@ describe("start of a ticket", () => {
   it("waits for a repository to be chosen", () => {
     expect(() => start(ticketItem(), makeCtx())).toThrow(RepoNotChosenError);
     expect(start(ticketItem({}, { repoOrigin: API }), makeCtx()).item.state).toBe("running");
+  });
+});
+
+describe("ticketDraftPosted (issue #139)", () => {
+  it("runs the agent again once its ticket draft was posted", () => {
+    const item = { ...collect(ticket, makeCtx()).item, state: "needs_you" as const };
+    const t = ticketDraftPosted(item, makeCtx(), "d", { status: "In Review" });
+    expect(t.item.state).toBe("running");
+    expect(t.events[0]).toMatchObject({ type: "draft.executed", actor: "system", refId: "d", payload: { status: "In Review" } });
+    expect(() => ticketDraftPosted({ ...item, state: "running" }, makeCtx(), "d")).toThrow(InvalidTransitionError);
+    expect(ticketDraftPostedMessage("Comment on APP-123")).toContain("Comment on APP-123. Go on with your work.");
   });
 });
