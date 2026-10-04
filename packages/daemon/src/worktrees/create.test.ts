@@ -12,7 +12,7 @@ import { ensureWorktree, issueNumber, worktreePath, WorktreeError } from "./crea
 const item = (over: Partial<WorkItem> = {}): WorkItem => ({
   id: "i1", source: "github-issue", externalId: "acme/widgets#42", externalUrl: "", title: "Fix the Übel",
   body: "", labels: [], state: "running", playbook: "implement", priority: 1,
-  createdAt: "", updatedAt: "", ...over,
+  stateSince: "", createdAt: "", updatedAt: "", ...over,
 });
 
 async function setup() {

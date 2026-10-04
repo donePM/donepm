@@ -47,7 +47,7 @@ export function syncIssues(issues: readonly SourceIssue[], deps: SyncDeps): Sync
       const known = items.byExternalId(externalId);
 
       if (!known) {
-        const c = collect(issue, ctx, repoId === undefined ? { priority: items.nextPriority() } : { priority: items.nextPriority(), repoId });
+        const c = collect(issue, ctx, repoId === undefined ? {} : { repoId });
         items.insert(c.item, origin);
         events.append(c.events);
         collected.push(c.item);

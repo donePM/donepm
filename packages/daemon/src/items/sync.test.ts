@@ -13,8 +13,8 @@ function setup() {
   return deps;
 }
 
-const a: SourceIssue = { repository: "Acme/Widgets", number: 1, url: "https://github.com/Acme/Widgets/issues/1", title: "A", body: "a", labels: ["bug"] };
-const b: SourceIssue = { repository: "solo/tool", number: 2, url: "https://github.com/solo/tool/issues/2", title: "B", body: "b", labels: [] };
+const a: SourceIssue = { repository: "Acme/Widgets", number: 1, url: "https://github.com/Acme/Widgets/issues/1", title: "A", body: "a", labels: ["bug"], createdAt: "2026-09-01T08:00:00Z" };
+const b: SourceIssue = { repository: "solo/tool", number: 2, url: "https://github.com/solo/tool/issues/2", title: "B", body: "b", labels: [], createdAt: "2026-09-02T08:00:00Z" };
 
 describe("issueOrigin", () => {
   it("is the lower-cased host/owner/repo", () => {
@@ -28,8 +28,8 @@ describe("syncIssues", () => {
     d.repos.upsert({ id: "r1", path: "/code/widgets", originUrl: "github.com/acme/widgets", defaultBranch: "main" }, "t");
     const r = syncIssues([a, b], d);
     expect(r.collected.map((i) => [i.externalId, i.state, i.repoId, i.priority])).toEqual([
-      ["Acme/Widgets#1", "ready", "r1", 0],
-      ["solo/tool#2", "ready", undefined, 1],
+      ["Acme/Widgets#1", "ready", "r1", 2],
+      ["solo/tool#2", "ready", undefined, 2],
     ]);
     const stored = d.items.byExternalId("Acme/Widgets#1")!;
     expect(stored.originUrl).toBe("github.com/acme/widgets");
@@ -43,6 +43,16 @@ describe("syncIssues", () => {
     expect(r).toEqual({ collected: [], updated: [], missing: [] });
     const id = d.items.byExternalId("Acme/Widgets#1")!.item.id;
     expect(d.events.forItem(id)).toHaveLength(1);
+  });
+
+  it("stores the sort keys and recomputes the priority when the labels change", () => {
+    const d = setup();
+    syncIssues([{ ...a, labels: ["P1"] }], d);
+    const stored = d.items.byExternalId("Acme/Widgets#1")!.item;
+    expect(stored).toMatchObject({ priority: 1, issueCreatedAt: "2026-09-01T08:00:00Z", stateSince: stored.createdAt });
+    expect(stored).not.toHaveProperty("startedAt");
+    syncIssues([{ ...a, labels: ["priority: low"] }], d);
+    expect(d.items.get(stored.id)!.item.priority).toBe(3);
   });
 
   it("updates content of known items without touching state", () => {

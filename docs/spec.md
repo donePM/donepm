@@ -196,7 +196,7 @@ On start and on Settings open:
 - Every 60 seconds (configurable).
 - Command:
   ```
-  gh search issues --assignee=@me --state=open --json number,title,body,labels,repository,url
+  gh search issues --assignee=@me --state=open --json number,title,body,createdAt,labels,repository,url
   ```
   If `gh search` is not available, fall back to `gh issue list --assignee @me --json ...` per
   known repo.
@@ -214,7 +214,7 @@ On start and on Settings open:
 - Never delete items automatically.
 - Repos with a `query` (4.6) are polled in addition, one call each:
   ```
-  gh issue list --repo <origin> --search "<query>" --state open --json number,title,body,labels,url
+  gh issue list --repo <origin> --search "<query>" --state open --json number,title,body,createdAt,labels,url
   ```
   `--repo` pins the repository, so a pasted query cannot reach into others, and pull requests are
   excluded. GitHub's search syntax including `OR` and parentheses passes through unchanged.

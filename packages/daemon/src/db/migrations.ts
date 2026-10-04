@@ -89,4 +89,35 @@ export const MIGRATIONS: readonly string[] = [
   `,
   // Rules the CLI suggested for an ask that we may grant "for this run" (already filtered).
   `ALTER TABLE asks ADD COLUMN rules TEXT NOT NULL DEFAULT '[]';`,
+  // Sort keys of the board columns (issue #64). `priority` becomes the label tier; the next poll
+  // recomputes it and fills in issue_created_at. started_at and state_since come from the events.
+  `
+  ALTER TABLE items ADD COLUMN issue_created_at TEXT;
+  ALTER TABLE items ADD COLUMN started_at TEXT;
+  ALTER TABLE items ADD COLUMN state_since TEXT NOT NULL DEFAULT '';
+  UPDATE items SET priority = 2;
+  UPDATE items SET started_at = (
+    SELECT min(at) FROM events e WHERE e.item_id = items.id AND e.type IN ('agent.started', 'agent.resumed')
+  );
+  UPDATE items SET state_since = created_at WHERE state = 'ready';
+  UPDATE items SET state_since = coalesce((
+    SELECT min(at) FROM events e WHERE e.item_id = items.id
+      AND e.type IN ('agent.started', 'agent.resumed', 'agent.turn_started', 'permission.answered', 'draft.rejected')
+      AND e.seq > coalesce((SELECT max(seq) FROM events x WHERE x.item_id = items.id
+        AND x.type IN ('permission.asked', 'agent.interrupted', 'agent.turn_ended', 'draft.created', 'agent.failed')), 0)
+  ), updated_at) WHERE state = 'running';
+  UPDATE items SET state_since = coalesce((
+    SELECT min(at) FROM events e WHERE e.item_id = items.id
+      AND e.type IN ('permission.asked', 'agent.interrupted', 'agent.turn_ended', 'draft.created')
+      AND e.seq > coalesce((SELECT max(seq) FROM events x WHERE x.item_id = items.id
+        AND x.type IN ('agent.started', 'agent.resumed', 'agent.turn_started', 'permission.answered', 'draft.rejected')), 0)
+  ), updated_at) WHERE state = 'needs_you';
+  UPDATE items SET state_since = coalesce((
+    SELECT max(at) FROM events e WHERE e.item_id = items.id AND e.type = 'agent.failed'
+  ), updated_at) WHERE state = 'failed';
+  UPDATE items SET state_since = coalesce((
+    SELECT min(at) FROM events e WHERE e.item_id = items.id
+      AND e.type IN ('draft.executed', 'item.closed_upstream', 'item.dismissed')
+  ), updated_at) WHERE state = 'done';
+  `,
 ];

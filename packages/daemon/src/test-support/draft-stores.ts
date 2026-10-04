@@ -21,7 +21,7 @@ export function draftStores() {
   const item: WorkItem = {
     id: "item-1", source: "github-issue", externalId: "o/r#1", externalUrl: "https://github.com/o/r/issues/1",
     repoId: "repo-1", title: "Fix it", body: "", labels: [], state: "ready", playbook: "implement", priority: 1,
-    createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z",
+    stateSince: "2026-10-01T00:00:00.000Z", createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z",
     branch: "dp/1-fix-it", worktreePath: "/wt/1",
   };
   items.insert(item, "github.com/o/r");

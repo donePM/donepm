@@ -39,12 +39,13 @@ describe("fetchAssignedIssues", () => {
       title: "[Feature] Support nested relations",
       body: "## Problem to solve\n\nNested relations are not mapped.\n\n## Proposed solution\n\nAdd a mapping key.",
       labels: ["enhancement"],
+      createdAt: "2026-09-28T14:02:11Z",
     });
     expect(r.issues[1]!.body).toBe("");
     expect(r.issues[2]!.title).toBe("Prüfung der Eingabe vor dem Speichern");
     expect(exec.calls[0]!.args).toEqual([
       "search", "issues", "--assignee=@me", "--state=open",
-      "--json", "number,title,body,labels,repository,url", "--limit", "1000",
+      "--json", "number,title,body,createdAt,labels,repository,url", "--limit", "1000",
     ]);
   });
 
@@ -65,6 +66,13 @@ describe("fetchAssignedIssues", () => {
     const r = await fetchAssignedIssues(fakeExec({ "gh search issues": ok(raw) }), () => []);
     expect(r).toMatchObject({ ok: false, kind: "schema", raw });
     expect(!r.ok && r.error).toMatch(/number/);
+  });
+
+  it("rejects an issue without createdAt", async () => {
+    const raw = JSON.parse(fixture("gh/search-issues.json")) as Array<Record<string, unknown>>;
+    delete raw[0]!.createdAt;
+    const r = await fetchAssignedIssues(fakeExec({ "gh search issues": ok(JSON.stringify(raw)) }), () => []);
+    expect(!r.ok && r.kind === "schema" && r.error).toMatch(/createdAt/);
   });
 
   it("reports non-JSON output as a schema failure", async () => {
@@ -93,6 +101,7 @@ describe("fetchAssignedIssues", () => {
           title: "Use AI to retrieve data from a stored note",
           body: "Extract tasks from a stored note.",
           labels: [],
+          createdAt: "2026-09-20T07:13:29Z",
         },
       ],
     });
@@ -120,12 +129,12 @@ describe("fetchQueryIssues", () => {
     expect(exec.calls[0]!.args).toEqual([
       "issue", "list", "--repo", "github.com/acme/widgets",
       "--search", "is:issue (label:bug OR label:docs) no:assignee", "--state", "open",
-      "--json", "number,title,body,labels,url", "--limit", "1000",
+      "--json", "number,title,body,createdAt,labels,url", "--limit", "1000",
     ]);
   });
 
   it("keeps GitHub's spelling of the repository from the issue URL", async () => {
-    const raw = JSON.stringify([{ number: 7, title: "T", body: "", labels: [], url: "https://github.com/Acme/API/issues/7" }]);
+    const raw = JSON.stringify([{ number: 7, title: "T", body: "", labels: [], url: "https://github.com/Acme/API/issues/7", createdAt: "2026-09-01T00:00:00Z" }]);
     const r = await fetchQueryIssues(fakeExec({ "gh issue list": ok(raw) }), "github.com/acme/api", "x");
     expect(r.ok && r.issues[0]!.repository).toBe("Acme/API");
   });

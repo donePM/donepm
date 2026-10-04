@@ -37,7 +37,7 @@ export function isUnknownCommand(stderr: string): boolean {
 export async function fetchAssignedIssues(exec: Exec, knownRepos: () => string[]): Promise<FetchResult> {
   const r = await exec("gh", [
     "search", "issues", "--assignee=@me", "--state=open",
-    "--json", "number,title,body,labels,repository,url", "--limit", ISSUE_LIMIT,
+    "--json", "number,title,body,createdAt,labels,repository,url", "--limit", ISSUE_LIMIT,
   ]);
   if (r.code !== 0) {
     if (isUnknownCommand(r.stderr)) return listPerRepo(exec, knownRepos());
@@ -55,7 +55,7 @@ export async function fetchAssignedIssues(exec: Exec, knownRepos: () => string[]
 export async function fetchQueryIssues(exec: Exec, origin: string, query: string): Promise<FetchResult> {
   const r = await exec("gh", [
     "issue", "list", "--repo", origin, "--search", query, "--state", "open",
-    "--json", "number,title,body,labels,url", "--limit", ISSUE_LIMIT,
+    "--json", "number,title,body,createdAt,labels,url", "--limit", ISSUE_LIMIT,
   ]);
   if (r.code !== 0) return { ok: false, kind: "command", error: r.stderr.trim() || `gh exited with ${r.code}` };
   const parsed = parseJson(ListIssuesSchema, r.stdout);
@@ -83,7 +83,7 @@ async function listPerRepo(exec: Exec, origins: string[]): Promise<FetchResult> 
     const repository = repositoryOf(origin);
     const r = await exec("gh", [
       "issue", "list", "--assignee", "@me", "--state", "open", "--repo", origin,
-      "--json", "number,title,body,labels,url", "--limit", ISSUE_LIMIT,
+      "--json", "number,title,body,createdAt,labels,url", "--limit", ISSUE_LIMIT,
     ]);
     if (r.code !== 0) return { ok: false, kind: "command", error: `${origin}: ${r.stderr.trim()}` };
     const parsed = parseJson(ListIssuesSchema, r.stdout);
