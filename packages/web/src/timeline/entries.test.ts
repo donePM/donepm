@@ -67,7 +67,7 @@ describe("timelineEntries", () => {
   it("keeps a multi-line command whole in the tooltip", () => {
     const long: PermissionAsk = { ...ask, input: { command: "pnpm build \\\n  && pnpm test" } };
     const [asked] = timelineEntries([ev("permission.asked", { toolName: "Bash" }, { refId: "a1", actor: "agent" })], [long]);
-    expect(asked).toMatchObject({ code: "Bash: pnpm build \\", full: "pnpm build \\\n  && pnpm test" });
+    expect(asked).toMatchObject({ code: "Bash: pnpm build && pnpm test", full: "pnpm build \\\n  && pnpm test" });
     const [short] = timelineEntries([ev("permission.asked", { toolName: "Bash" }, { refId: "a1", actor: "agent" })], [ask]);
     expect(short!.full).toBeUndefined();
   });

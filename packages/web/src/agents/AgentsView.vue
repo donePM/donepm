@@ -36,7 +36,7 @@ watch(
 
 const { messages, live, error } = useTranscript(selectedId);
 const asks = useAsks(selectedId);
-const rows = computed(() => toRows(messages.value, asks.value));
+const rows = computed(() => toRows(messages.value, asks.value, { cwd: selected.value?.worktreePath }));
 
 /** The agent waits on a permission question (spec 9.4). */
 const asking = (item: ItemView) => item.attention?.kind === "ask";
