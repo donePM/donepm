@@ -17,6 +17,11 @@ export interface PollStatus {
   issues?: number;
   /** Per repository with its own query, keyed by normalised origin. */
   sources?: Record<string, SourcePollStatus>;
+  /**
+   * Unmanaged origins without a local clone that the searches found work in, with the number of
+   * issues and pull requests, keyed by normalised origin. Settings offers to clone and manage them (D46).
+   */
+  discovered?: Record<string, number>;
 }
 
 export interface Status {

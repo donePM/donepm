@@ -166,7 +166,7 @@ describe("syncIssues: archived and purged issues (D37)", () => {
     tombstones.put({ externalId: "Acme/Widgets#1", source: "github-issue", originUrl: "github.com/acme/widgets", closed: false, deletedAt: "t" });
     expect(syncIssues([a], d).collected).toEqual([]);
     expect(syncIssues([], d).openTombstones.map((t) => t.externalId)).toEqual(["Acme/Widgets#1"]);
-    expect(syncIssues([], d, new Set(["github.com/acme/widgets"])).openTombstones).toEqual([]);
+    expect(syncIssues([], d, (origin) => origin !== "github.com/acme/widgets").openTombstones).toEqual([]);
 
     tombstones.markClosed("Acme/Widgets#1");
     expect(syncIssues([], d).openTombstones).toEqual([]);

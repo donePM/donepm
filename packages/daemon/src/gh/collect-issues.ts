@@ -6,7 +6,7 @@ import { applyClosedUpstream, issueOrigin, syncIssues } from "../items/sync.js";
 import type { ItemStore } from "../items/store.js";
 import type { Log } from "../log.js";
 import type { Exec } from "../process/exec.js";
-import { ignoredOrigins, isIgnored } from "../repos/ignore.js";
+import { managedOrigins } from "../repos/managed.js";
 import type { RepoStore } from "../repos/store.js";
 import { TombstoneStore } from "../retention/tombstones.js";
 import type { SourcePollStatus, StatusStore } from "../status/status.js";
@@ -25,7 +25,7 @@ export interface CollectDeps {
   status: StatusStore;
   ctx: Ctx;
   log: Log;
-  /** Per-repository queries (issue #32); repos without one only get the default search. */
+  /** Managed flags (D46) and per-repository queries (issue #32); repos without a query only get the default search. */
   sources: () => Config["sources"];
   onItemUpdated: (item: WorkItem) => void;
 }
@@ -36,7 +36,8 @@ const RAW_LOG_LIMIT = 10_000;
  * One poll cycle (spec 6.2): the default search (assigned to me), the pull requests that ask for
  * the user's review (issue #48, D40), and one query per repository that has its own (issue #32),
  * merged by `externalId`. A failing source does not stop the others.
- * Ignored repositories (issue #33) are not polled, and their issues are dropped from the default search.
+ * Only managed repositories (D46) are polled with their own query, and only their issues are kept
+ * from the searches; the others found there are counted for Settings' discovered list.
  * Never throws: failures are logged and recorded in the status, so Settings can show them.
  */
 export async function collectIssues(deps: CollectDeps): Promise<void> {
@@ -52,25 +53,28 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
     }
 
     const sourceConfig = deps.sources();
-    const ignored = ignoredOrigins(sourceConfig);
+    const managed = managedOrigins(sourceConfig);
+    // The two searches are one call each however many repositories there are, and they find the
+    // repositories to offer; an unmanaged repository costs no call of its own.
     const fetched: Array<{ origin?: string; label?: string; result: FetchResult }> = [
-      {
-        result: await fetchAssignedIssues(exec, () =>
-          repos.all().map((r) => r.originUrl).filter((origin) => !isIgnored(sourceConfig, origin)),
-        ),
-      },
+      { result: await fetchAssignedIssues(exec, () => repos.all().map((r) => r.originUrl).filter((origin) => managed.has(origin))) },
       { label: "review requests", result: await fetchReviewRequests(exec) },
     ];
     for (const [origin, source] of Object.entries(sourceConfig)) {
-      if (source.query && !ignored.has(origin)) fetched.push({ origin, result: await fetchQueryIssues(exec, origin, source.query) });
+      if (source.query && managed.has(origin)) fetched.push({ origin, result: await fetchQueryIssues(exec, origin, source.query) });
     }
 
     const issues: FetchedIssue[] = [];
     const errors: string[] = [];
     const sources: Record<string, SourcePollStatus> = {};
+    const discovered: Record<string, number> = {};
     for (const { origin, label, result } of fetched) {
       if (result.ok) {
-        issues.push(...result.issues.filter((i) => !ignored.has(issueOrigin(i))));
+        for (const issue of result.issues) {
+          const from = issueOrigin(issue);
+          if (managed.has(from)) issues.push(issue);
+          else if (!repos.byOrigin(from)) discovered[from] = (discovered[from] ?? 0) + 1;
+        }
         if (origin) sources[origin] = { ok: true, issues: result.issues.length };
         continue;
       }
@@ -88,7 +92,7 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
     if (!main.ok && main.kind === "command") status.update({ gh: await detectGh(exec) });
 
     // GitHub's "Priority" issue field, one batched call for all issues of the poll (D45).
-    const synced = syncIssues(await withPriorityFields(exec, issues), deps, ignored);
+    const synced = syncIssues(await withPriorityFields(exec, issues), deps, (origin) => managed.has(origin));
     for (const item of [...synced.collected, ...synced.updated]) deps.onItemUpdated(item);
 
     // An item is only "missing" if every source answered; otherwise it may just not have been asked.
@@ -117,6 +121,7 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
         ...(errors.length < fetched.length ? { issues: count } : {}),
         ...(errors.length ? { error: errors.join("; ") } : {}),
         ...(Object.keys(sources).length ? { sources } : {}),
+        ...(Object.keys(discovered).length ? { discovered } : {}),
       },
     });
   } catch (e) {

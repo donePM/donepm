@@ -67,8 +67,8 @@ export const api = {
   rescan: () => call<RepoView[]>("POST", "/api/repos/rescan"),
   /** Throws ApiError 409 when the target is occupied or a clone of the origin runs already. */
   cloneRepo: (origin: string) => call<CloneResult>("POST", "/api/repos/clone", { origin }),
-  setIgnored: (id: string, ignored: boolean) =>
-    call<{ repos: RepoView[]; settings: Settings }>("PUT", `/api/repos/${encodeURIComponent(id)}`, { ignored }),
+  setManaged: (id: string, managed: boolean) =>
+    call<{ repos: RepoView[]; settings: Settings }>("PUT", `/api/repos/${encodeURIComponent(id)}`, { managed }),
   status: () => call<Status>("GET", "/api/status"),
   recheck: () => call<Status>("POST", "/api/status/recheck"),
   settings: () => call<Settings>("GET", "/api/settings"),

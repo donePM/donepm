@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { api } from "../api/client";
+import { onPush } from "../live/socket";
 import type { RepoView, Settings, SourceTest } from "../api/types";
 import { status } from "../status/status";
 import { useNow } from "../time/now";
@@ -11,7 +12,7 @@ const props = defineProps<{ repoRoot?: string; sources?: Settings["sources"] }>(
 const emit = defineEmits<{ saved: [settings: Settings] }>();
 
 const repos = ref<RepoView[]>([]);
-const ignoredCount = computed(() => repos.value.filter((r) => r.ignored).length);
+const managedCount = computed(() => repos.value.filter((r) => r.managed).length);
 const loaded = ref(false);
 const busy = ref(false);
 const error = ref<string>();
@@ -32,21 +33,81 @@ async function run(fn: () => Promise<RepoView[]>) {
 
 onMounted(() => run(api.repos));
 
+/** Origins whose "Clone and manage" was clicked here: where the clone goes, or why it failed. */
+const cloning = ref<Record<string, { path?: string; error?: string }>>({});
+
+// A clone that finishes shows up in the table; one that fails says why in its row.
+const stopPushes = onPush((msg) => {
+  if (msg.type !== "repo.cloned" && msg.type !== "repo.clone_failed") return;
+  const { origin, error: failed } = msg.payload as { origin: string; error?: string };
+  if (!(origin in cloning.value)) return;
+  if (failed) cloning.value[origin] = { error: failed };
+  else {
+    delete cloning.value[origin];
+    void run(api.repos);
+  }
+});
+onUnmounted(stopPushes);
+
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** `owner/repo` of a `host/owner/repo` origin. */
 const slug = (origin: string) => origin.split("/").slice(1).join("/");
 
-/** Ignoring only hides: the daemon stops polling the repository and keeps what it has. */
-async function toggleIgnored(r: RepoView, box: HTMLInputElement) {
+/** Unmanaging only hides: the daemon stops polling the repository and keeps what it has (D46). */
+async function toggleManaged(r: RepoView, box: HTMLInputElement) {
   error.value = undefined;
   try {
-    const out = await api.setIgnored(r.id, box.checked);
+    const out = await api.setManaged(r.id, box.checked);
     repos.value = out.repos;
     emit("saved", out.settings);
   } catch (e) {
-    box.checked = r.ignored;
+    box.checked = r.managed;
     error.value = message(e);
+  }
+}
+
+/**
+ * Repositories without a clone here: managed ones, those the searches found work in, and the ones
+ * being cloned from here until they arrive in the table.
+ */
+const uncloned = computed(() => {
+  const found = status.value?.lastPoll?.discovered ?? {};
+  const cloned = new Set(repos.value.map((r) => r.originUrl));
+  const managed = Object.keys(props.sources ?? {}).filter((o) => props.sources![o]!.managed && !cloned.has(o));
+  const origins = new Set([...managed, ...Object.keys(found), ...Object.keys(cloning.value)]);
+  return [...origins].sort().map((origin) => ({
+    origin,
+    count: found[origin],
+    managed: props.sources?.[origin]?.managed === true,
+    ...cloning.value[origin],
+  }));
+});
+
+async function stopManaging(origin: string) {
+  error.value = undefined;
+  try {
+    const sources = props.sources ?? {};
+    const { settings } = await api.saveSettings({
+      sources: { ...sources, [origin]: { assignOnStart: false, ...sources[origin], managed: false } },
+    });
+    emit("saved", settings);
+  } catch (e) {
+    error.value = message(e);
+  }
+}
+
+async function cloneAndManage(origin: string) {
+  cloning.value[origin] = {};
+  try {
+    const out = await api.cloneRepo(origin);
+    if (out.result === "cloned") {
+      delete cloning.value[origin];
+      await run(api.repos);
+    } else cloning.value[origin] = { path: out.path };
+    emit("saved", await api.settings());
+  } catch (e) {
+    cloning.value[origin] = { error: message(e) };
   }
 }
 
@@ -107,7 +168,7 @@ const pollOf = (origin: string) => status.value?.lastPoll?.sources?.[origin];
         <p class="sub">
           Found under <span class="mono">{{ repoRoot ?? "…" }}</span>, depth 4
           <template v-if="status?.lastScan"> · scanned {{ ago(status.lastScan, now) }}</template>
-          <template v-if="ignoredCount"> · <span class="ignored-count">{{ ignoredCount }} ignored</span></template>
+          <template v-if="repos.length"> · <span class="managed-count">{{ managedCount }} of {{ repos.length }} managed</span></template>
         </p>
       </div>
       <button class="btn" :disabled="busy" @click="run(api.rescan)">{{ busy ? "Scanning…" : "Rescan" }}</button>
@@ -116,15 +177,21 @@ const pollOf = (origin: string) => status.value?.lastPoll?.sources?.[origin];
     <div class="scroll">
       <table v-if="repos.length">
         <thead>
-          <tr><th>Origin</th><th>Path</th><th>Base</th><th>Setup</th><th>Collects</th><th>Ignore</th></tr>
+          <tr><th>Manage</th><th>Origin</th><th>Path</th><th>Base</th><th>Setup</th><th>Collects</th></tr>
         </thead>
         <tbody>
           <template v-for="r in repos" :key="r.id">
-            <tr :class="{ ignored: r.ignored }">
-              <td class="mono">
-                {{ r.originUrl }}
-                <span v-if="r.ignored" class="tag">Ignored</span>
+            <tr :class="{ unmanaged: !r.managed }">
+              <td class="toggle">
+                <input
+                  type="checkbox"
+                  :checked="r.managed"
+                  :aria-label="`Manage ${slug(r.originUrl)}`"
+                  :title="r.managed ? 'Stop collecting its work and keep its items off the board' : 'Collect its work and show it on the board'"
+                  @change="toggleManaged(r, $event.target as HTMLInputElement)"
+                />
               </td>
+              <td class="mono">{{ r.originUrl }}</td>
               <td class="mono">{{ r.path }}</td>
               <td class="mono nowrap">{{ r.defaultBranch }}</td>
               <td :class="r.setup ? 'mono' : 'none'">{{ r.setup ? ".donepm/setup.yml" : "none" }}</td>
@@ -137,15 +204,6 @@ const pollOf = (origin: string) => status.value?.lastPoll?.sources?.[origin];
                   <span v-if="pollOf(r.originUrl)?.ok === false" class="failed" :title="pollOf(r.originUrl)!.error">query failed</span>
                   <button v-if="editing?.origin !== r.originUrl" class="link" @click="edit(r.originUrl)">Edit</button>
                 </div>
-              </td>
-              <td class="toggle">
-                <input
-                  type="checkbox"
-                  :checked="r.ignored"
-                  :aria-label="`Ignore ${slug(r.originUrl)}`"
-                  :title="r.ignored ? 'Show its items on the board again' : 'Keep its items off the board'"
-                  @change="toggleIgnored(r, $event.target as HTMLInputElement)"
-                />
               </td>
             </tr>
             <tr v-if="editing?.origin === r.originUrl" class="editor">
@@ -195,6 +253,25 @@ const pollOf = (origin: string) => status.value?.lastPoll?.sources?.[origin];
       </table>
       <p v-else-if="loaded" class="sub">No git repositories with a GitHub origin found.</p>
     </div>
+    <div v-if="uncloned.length" class="uncloned">
+      <h3>Without a clone</h3>
+      <p class="sub">Managed repositories without a clone here, and others where work is assigned to you or waits for your review.</p>
+      <ul>
+        <li v-for="u in uncloned" :key="u.origin">
+          <span class="mono">{{ u.origin }}</span>
+          <span v-if="u.managed" class="tag">managed</span>
+          <span v-else-if="u.count" class="none">{{ u.count }} {{ u.count === 1 ? "item" : "items" }} found</span>
+          <span v-if="u.error" class="failed" :title="u.error">clone failed</span>
+          <span v-if="u.path" class="none">cloning into <span class="mono">{{ u.path }}</span>…</span>
+          <span v-else class="actions">
+            <button v-if="u.managed" class="link" @click="stopManaging(u.origin)">Stop managing</button>
+            <button class="btn" :disabled="u.origin in cloning && !u.error" @click="cloneAndManage(u.origin)">
+              {{ u.managed ? "Clone" : "Clone and manage" }}
+            </button>
+          </span>
+        </li>
+      </ul>
+    </div>
   </section>
 </template>
 
@@ -211,9 +288,16 @@ tbody tr:last-child td { border-bottom: 0; }
 .collects { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 .collects .mono { font-size: 12px; }
 .tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--border-soft); color: var(--ink-2); white-space: nowrap; }
-tr.ignored td:not(.toggle) { color: var(--ink-3); }
-tr.ignored .collects .mono { color: inherit; }
-.ignored-count { font-weight: 500; }
+tr.unmanaged td:not(.toggle) { color: var(--ink-3); }
+tr.unmanaged .collects .mono { color: inherit; }
+.managed-count { font-weight: 500; }
+.uncloned { margin-top: 24px; }
+.uncloned h3 { margin: 0; font-size: 13px; font-weight: 500; color: var(--ink-2); }
+.uncloned .sub { margin: 4px 0 0; }
+.uncloned ul { list-style: none; margin: 12px 0 0; padding: 0; }
+.uncloned li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 0; border-top: 1px solid var(--border-soft); font-size: 13px; }
+.uncloned li .mono { font-size: 12px; overflow-wrap: anywhere; }
+.uncloned li .actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
 .toggle { text-align: center; }
 .failed { color: var(--danger); white-space: nowrap; }
 .link { border: 0; background: none; padding: 0; color: var(--ink-2); text-decoration: underline; cursor: pointer; font: inherit; }

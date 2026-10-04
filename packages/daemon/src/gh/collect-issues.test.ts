@@ -20,11 +20,22 @@ const ready = {
   "gh api graphql": ok(fixture("gh/issue-fields.json")),
 };
 
+/** The repositories of the recorded searches, all managed (D46). */
+const FIXTURE_ORIGINS = ["github.com/acme/widgets", "github.com/acme/api", "github.com/solo/tool", "github.com/vuejs/core"];
+
+/** `sources` on top of the fixture repositories; an entry is managed unless it says otherwise. */
+function managedSources(sources: Config["sources"] = {}): Config["sources"] {
+  const all: Config["sources"] = Object.fromEntries(FIXTURE_ORIGINS.map((o) => [o, { assignOnStart: false, managed: true }]));
+  for (const [origin, source] of Object.entries(sources)) all[origin] = { managed: true, ...source };
+  return all;
+}
+
 function setup(exec: Exec, log: Log = silentLog, sources: Config["sources"] = {}) {
   const db = openDb(":memory:");
   const pushed: WorkItem[] = [];
+  const all = managedSources(sources);
   const deps = {
-    db, exec, log, ctx: testCtx(), sources: () => sources,
+    db, exec, log, ctx: testCtx(), sources: () => all,
     items: new ItemStore(db), events: new EventStore(db), repos: new RepoStore(db), status: new StatusStore("0.0.0"),
     onItemUpdated: (i: WorkItem) => pushed.push(i),
   };
@@ -255,13 +266,13 @@ describe("collectIssues", () => {
       expect(deps.status.get().lastPoll).toMatchObject({ ok: true, issues: 4 });
     });
 
-    it("drops review requests from an ignored repository", async () => {
+    it("drops review requests from an unmanaged repository", async () => {
       const exec = fakeExec({
         ...ready,
         "gh search issues": ok(fixture("gh/search-issues-empty.json")),
         "gh search prs": ok(fixture("gh/search-prs.json")),
       });
-      const { deps } = setup(exec, silentLog, { "github.com/vuejs/core": { assignOnStart: false, ignored: true } });
+      const { deps } = setup(exec, silentLog, { "github.com/vuejs/core": { assignOnStart: false, managed: false } });
       await collectIssues(deps);
       expect(deps.items.all()).toHaveLength(0);
     });
@@ -284,26 +295,50 @@ describe("collectIssues", () => {
     });
   });
 
-  describe("ignored repositories", () => {
-    const ignored = { "github.com/acme/widgets": { assignOnStart: false, ignored: true } };
+  describe("unmanaged repositories (D46)", () => {
+    const unmanaged = { "github.com/acme/widgets": { assignOnStart: false, managed: false } };
 
-    it("drops the default search results of an ignored repository, whatever the spelling of its owner", async () => {
+    it("drops the search results of an unmanaged repository, whatever the spelling of its owner", async () => {
       const exec = fakeExec({ ...ready, "gh search issues": ok(fixture("gh/search-issues.json")) });
-      const { deps, pushed } = setup(exec, silentLog, { "github.com/acme/api": { assignOnStart: false, ignored: true } });
+      const { deps, pushed } = setup(exec, silentLog, { "github.com/acme/api": { assignOnStart: false, managed: false } });
       await collectIssues(deps);
       expect(deps.items.all().map((s) => s.item.externalId).sort()).toEqual(["acme/widgets#157", "acme/widgets#161", "solo/tool#61"]);
       expect(pushed).toHaveLength(3);
       expect(deps.status.get().lastPoll).toMatchObject({ ok: true, issues: 3 });
     });
 
-    it("does not run the query of an ignored repository", async () => {
+    it("counts the work found in repositories without a clone, not in those with one", async () => {
+      const exec = fakeExec({
+        ...ready,
+        "gh search issues": ok(fixture("gh/search-issues.json")),
+        "gh search prs": ok(fixture("gh/search-prs.json")),
+      });
+      const db = openDb(":memory:");
+      const repos = new RepoStore(db);
+      repos.upsert({ id: "r1", path: "/c/widgets", originUrl: "github.com/acme/widgets", defaultBranch: "main" }, "t");
+      const deps = {
+        db, exec, log: silentLog, ctx: testCtx(), sources: () => ({}),
+        items: new ItemStore(db), events: new EventStore(db), repos, status: new StatusStore("0.0.0"),
+        onItemUpdated: () => {},
+      };
+      await collectIssues(deps);
+      expect(deps.items.all()).toEqual([]);
+      expect(deps.status.get().lastPoll).toMatchObject({
+        ok: true,
+        issues: 0,
+        discovered: { "github.com/acme/api": 1, "github.com/solo/tool": 1, "github.com/vuejs/core": 2 },
+      });
+      expect(exec.calls.some((c) => c.args[0] === "issue" || c.args[0] === "api")).toBe(false);
+    });
+
+    it("does not run the query of an unmanaged repository", async () => {
       const exec = fakeExec({
         ...ready,
         "gh search issues": ok(fixture("gh/search-issues-empty.json")),
         "gh issue list": ok(fixture("gh/issue-list.json")),
       });
       const { deps } = setup(exec, silentLog, {
-        "github.com/acme/widgets": { query: "no:assignee", assignOnStart: false, ignored: true },
+        "github.com/acme/widgets": { query: "no:assignee", assignOnStart: false, managed: false },
         "github.com/solo/tool": { query: "no:assignee", assignOnStart: false },
       });
       await collectIssues(deps);
@@ -312,33 +347,34 @@ describe("collectIssues", () => {
       expect(deps.status.get().lastPoll?.sources).not.toHaveProperty(["github.com/acme/widgets"]);
     });
 
-    it("skips an ignored repository in the per-repository fallback", async () => {
+    it("skips an unmanaged repository in the per-repository fallback", async () => {
       const exec = fakeExec({
         ...ready,
         "gh search issues": fail("unknown command \"search\" for \"gh\""),
         "gh issue list": ok(fixture("gh/issue-list.json")),
       });
-      const { deps } = setup(exec, silentLog, ignored);
+      const { deps } = setup(exec, silentLog, unmanaged);
       deps.repos.upsert({ id: "r1", path: "/c/widgets", originUrl: "github.com/acme/widgets", defaultBranch: "main" }, "t");
       deps.repos.upsert({ id: "r2", path: "/c/tool", originUrl: "github.com/solo/tool", defaultBranch: "main" }, "t");
+      deps.repos.upsert({ id: "r3", path: "/c/other", originUrl: "github.com/someone/else", defaultBranch: "main" }, "t");
       await collectIssues(deps);
       expect(exec.calls.filter((c) => c.args[1] === "list").map((c) => c.args[c.args.indexOf("--repo") + 1])).toEqual(["github.com/solo/tool"]);
     });
 
-    it("keeps what it has: nothing is deleted, flagged closed upstream or asked about, and un-ignoring brings the same items back", async () => {
-      const sources: Config["sources"] = {};
+    it("keeps what it has: nothing is deleted, flagged closed upstream or asked about, and managing again brings the same items back", async () => {
       const exec = fakeExec({
         ...ready,
         "gh search issues": ok(fixture("gh/search-issues.json")),
         "gh issue view": ok(fixture("gh/issue-view-closed.json")),
       });
       const { deps, pushed } = setup(exec, silentLog);
+      const sources = managedSources();
       deps.sources = () => sources;
       await collectIssues(deps);
       const ids = Object.fromEntries(deps.items.all().map((s) => [s.item.externalId, s.item.id]));
       const eventsBefore = deps.items.all().map((s) => deps.events.forItem(s.item.id).length);
 
-      sources["github.com/acme/widgets"] = { assignOnStart: false, ignored: true };
+      sources["github.com/acme/widgets"] = { assignOnStart: false, managed: false };
       pushed.length = 0;
       exec.calls.length = 0;
       await collectIssues(deps);
@@ -348,7 +384,7 @@ describe("collectIssues", () => {
       expect(exec.calls.some((c) => c.args[1] === "view")).toBe(false);
       expect(pushed).toEqual([]);
 
-      delete sources["github.com/acme/widgets"];
+      sources["github.com/acme/widgets"] = { assignOnStart: false, managed: true };
       await collectIssues(deps);
       expect(Object.fromEntries(deps.items.all().map((s) => [s.item.externalId, s.item.id]))).toEqual(ids);
       expect(deps.items.all().map((s) => deps.events.forItem(s.item.id).length)).toEqual(eventsBefore);

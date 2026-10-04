@@ -36,14 +36,14 @@ export interface SyncResult {
 /**
  * Upsert the polled issues by `externalId` (spec 6.2). New issues become `ready` items with an
  * `item.collected` event. Known items get the latest content, and a changed priority, title or
- * labels an `item.refreshed` event (D45). Nothing is deleted. Items of `ignored` origins were not
- * asked for, so they are never reported missing. Items not in the result are not refreshed (D45).
+ * labels an `item.refreshed` event (D45). Nothing is deleted. Items of origins not `asked` for
+ * (unmanaged ones, D46) are never reported missing. Items not in the result are not refreshed (D45).
  *
  * An issue whose item was archived or purged (D37) is skipped while it stays open: its work is
  * finished. Once it was seen closed, its showing up again means it was reopened, and it is
  * collected as a new item; the archived one keeps its own history.
  */
-export function syncIssues(issues: readonly SourceIssue[], deps: SyncDeps, ignored: ReadonlySet<string> = new Set()): SyncResult {
+export function syncIssues(issues: readonly SourceIssue[], deps: SyncDeps, asked: (origin: string) => boolean = () => true): SyncResult {
   const { db, items, events, repos, ctx } = deps;
   const tombstones = new TombstoneStore(db);
   const finishedBefore = (externalId: string): boolean => {
@@ -86,10 +86,10 @@ export function syncIssues(issues: readonly SourceIssue[], deps: SyncDeps, ignor
 
     const missing = items
       .all()
-      .filter((s) => !ignored.has(s.originUrl))
+      .filter((s) => asked(s.originUrl))
       .map((s) => s.item)
       .filter((i) => !seen.has(i.externalId) && !i.closedUpstream && (i.state !== "done" || i.archivedAt !== undefined));
-    const openTombstones = tombstones.open().filter((t) => !ignored.has(t.originUrl) && !seen.has(t.externalId));
+    const openTombstones = tombstones.open().filter((t) => asked(t.originUrl) && !seen.has(t.externalId));
     return { collected, updated, missing, openTombstones };
   });
 }

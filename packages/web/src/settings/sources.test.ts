@@ -18,11 +18,13 @@ describe("withSource", () => {
     expect(withSource(base, "github.com/a/b", { query: "  ", assignOnStart: false })).toEqual({});
   });
 
-  it("keeps the ignored flag, and the entry that holds only it", () => {
-    const ignored = { "github.com/a/b": { query: "label:x", assignOnStart: false, ignored: true } };
-    expect(withSource(ignored, "github.com/a/b", { query: "", assignOnStart: false })).toEqual({
-      "github.com/a/b": { assignOnStart: false, ignored: true },
-    });
+  it("keeps the managed choice, either way, and the entry that holds only it", () => {
+    for (const managed of [true, false]) {
+      const chosen = { "github.com/a/b": { query: "label:x", assignOnStart: false, managed } };
+      expect(withSource(chosen, "github.com/a/b", { query: "", assignOnStart: false })).toEqual({
+        "github.com/a/b": { assignOnStart: false, managed },
+      });
+    }
   });
 });
 

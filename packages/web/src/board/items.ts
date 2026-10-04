@@ -45,7 +45,7 @@ export function upsert(item: ItemView): void {
   else items.value = items.value.map((x, j) => (j === i ? item : x));
 }
 
-/** The daemon took the item off the board (its repository is ignored); it is not deleted. */
+/** The daemon took the item off the board (its repository is not managed); it is not deleted. */
 export function remove(id: string): void {
   if (items.value.some((x) => x.id === id)) items.value = items.value.filter((x) => x.id !== id);
 }

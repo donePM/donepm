@@ -15,13 +15,16 @@ export function providerOf(origin: string): SourceProvider | undefined {
 
 /**
  * Per repository: which issues donePM collects (spec 4.6). `query` is the provider's search
- * string as pasted from its UI; without one the repo gets the default (assigned to me). `ignored`
- * keeps the repo off the board: it is not polled and its items are hidden, nothing is deleted.
+ * string as pasted from its UI; without one the repo gets the default (assigned to me). Only a
+ * `managed` repo is polled and shown; an unmanaged one's items are hidden, nothing is deleted (D46).
  */
 export const SourceSchema = z
   .object({
     query: z.string().trim().min(1).optional(),
     assignOnStart: z.boolean().default(false),
+    /** donePM collects, shows and starts work for this repository only when true (issue #94, D46). */
+    managed: z.boolean().optional(),
+    /** Issue #33's flag, replaced by `managed`; only read once to migrate (D46). */
     ignored: z.boolean().optional(),
   })
   .strict();
