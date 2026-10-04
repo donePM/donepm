@@ -76,27 +76,27 @@ async function answer(behavior: "allow" | "deny", scope?: "run" | "always", answ
       </li>
     </ul>
     <template v-else>
-      <p class="head"><span class="tool mono">{{ label }}</span><span v-if="reasonText" class="reason">{{ reasonText }}</span></p>
+      <p class="head"><span class="tool-name mono">{{ label }}</span><span v-if="reasonText" class="reason">{{ reasonText }}</span></p>
       <AskInput :tool-name="toolName" :input="input" :worktree="worktree" />
     </template>
     <p v-if="network" class="hint">
       A command wants to connect to this host. Publishing goes through drafts; allow only what the work needs.
     </p>
     <form v-if="denying" class="deny" @submit.prevent="answer('deny')">
-      <label class="sr-only" :for="`deny-${askId}`">Message to the agent</label>
+      <label class="sr" :for="`deny-${askId}`">Message to the agent</label>
       <textarea :id="`deny-${askId}`" v-model="message" class="textarea" rows="2" placeholder="The agent reads this."></textarea>
       <div class="buttons">
-        <button class="btn btn-danger" type="submit" :disabled="busy">{{ questions.length ? "Decline" : "Deny" }}</button>
-        <button v-if="!questions.length" class="btn btn-danger" type="button" :disabled="busy" title="Ends the agent's turn; you write the next message" @click="answer('deny', undefined, undefined, true)">Deny and stop</button>
+        <button class="btn danger" type="submit" :disabled="busy">{{ questions.length ? "Decline" : "Deny" }}</button>
+        <button v-if="!questions.length" class="btn danger" type="button" :disabled="busy" title="Ends the agent's turn; you write the next message" @click="answer('deny', undefined, undefined, true)">Deny and stop</button>
         <button class="btn" type="button" :disabled="busy" @click="denying = false">Cancel</button>
       </div>
     </form>
     <div v-else-if="questions.length" class="buttons">
-      <button class="btn btn-primary" type="button" :disabled="busy" @click="asking = true">Answer…</button>
+      <button class="btn primary" type="button" :disabled="busy" @click="asking = true">Answer…</button>
       <button class="btn" type="button" :disabled="busy" @click="denying = true">Decline…</button>
     </div>
     <div v-else class="buttons">
-      <button class="btn btn-primary" type="button" :disabled="busy" @click="answer('allow')">Allow</button>
+      <button class="btn primary" type="button" :disabled="busy" @click="answer('allow')">Allow</button>
       <button v-if="grant" class="btn" type="button" :disabled="busy" :title="`Also allows ${grant} until this run ends`" @click="answer('allow', 'run')">
         Allow for this run
       </button>
@@ -135,12 +135,12 @@ async function answer(behavior: "allow" | "deny", scope?: "run" | "always", answ
 <style scoped>
 .ask { display: flex; flex-direction: column; gap: 10px; }
 .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0; }
-.tool { font-size: 12px; font-weight: 600; color: var(--ink-2); }
-.reason { font-size: 12px; color: var(--muted, #6b6b63); }
+.tool-name { font-size: 12px; font-weight: 600; color: var(--fg-2); }
+.reason { font-size: 12px; color: var(--fg-3); }
 .questions { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; line-height: 1.4; }
-.chip { margin-right: 6px; padding: 1px 7px; border-radius: 999px; background: var(--blue-tint); color: var(--blue); font-size: 12px; font-weight: 500; }
+.chip { margin-right: 6px; padding: 1px 7px; border-radius: 999px; background: var(--primary-tint); color: var(--primary); font-size: 12px; font-weight: 500; }
 .deny { display: flex; flex-direction: column; gap: 8px; }
 .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
-.hint { margin: 0; font-size: 12px; color: var(--muted, #6b6b63); }
-.grant code { padding: 0 4px; border-radius: 4px; background: var(--card-muted); border: 1px solid var(--border-soft); color: var(--ink-2); overflow-wrap: anywhere; }
+.hint { margin: 0; font-size: 12px; color: var(--fg-3); }
+.grant code { padding: 0 4px; border-radius: 4px; background: var(--muted); border: 1px solid var(--border); color: var(--fg-2); overflow-wrap: anywhere; }
 </style>

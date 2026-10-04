@@ -50,7 +50,7 @@ async function open(target: OpenTarget) {
 </template>
 
 <style scoped>
-.path { margin: 12px 0; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; user-select: all; }
+.path { margin: 12px 0; font-size: 12px; color: var(--fg-2); overflow-wrap: anywhere; user-select: all; }
 .buttons { display: flex; gap: 8px; flex-wrap: wrap; }
 .link { display: inline-flex; align-items: center; text-decoration: none; }
 .alert { margin-top: 10px; }

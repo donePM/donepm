@@ -7,6 +7,16 @@
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <script>
+      // Applies the theme before first paint, so a dark page never flashes light. Mirrors
+      // src/theme/theme.ts (same key, same rule); src/theme/apply.ts takes over once Vue runs.
+      (function () {
+        var choice;
+        try { choice = localStorage.getItem("donepm.theme"); } catch (e) {}
+        var dark = choice === "dark" || (choice !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.classList.add("dark");
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

@@ -30,7 +30,7 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
 <template>
   <div class="step" :class="{ running, failed: row.result?.isError }">
     <button class="head" type="button" :title="stepTime(row)" :aria-expanded="open" @click="emit('toggle')">
-      <span v-if="running" class="dot dot-ok" aria-hidden="true"></span>
+      <span v-if="running" class="dot primary" aria-hidden="true"></span>
       <span v-else class="caret" aria-hidden="true">{{ open ? "▾" : "▸" }}</span>
       <span class="name">{{ row.name }}</span>
       <span class="summary">{{ row.summary }}</span>
@@ -44,7 +44,7 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
     <ul v-if="row.todos?.length" class="todos">
       <li v-for="(t, i) in row.todos" :key="i" :class="t.status">
         <span class="box" aria-hidden="true">{{ t.status === "completed" ? "✓" : t.status === "in_progress" ? "▸" : "" }}</span>
-        <span class="sr-only">{{ t.status === "completed" ? "done:" : t.status === "in_progress" ? "doing:" : "to do:" }}</span>
+        <span class="sr">{{ t.status === "completed" ? "done:" : t.status === "in_progress" ? "doing:" : "to do:" }}</span>
         {{ t.content }}
       </li>
     </ul>
@@ -80,7 +80,7 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
   font-family: var(--mono);
   font-size: 12px;
 }
-.step.running { border-left-color: var(--blue); }
+.step.running { border-left-color: var(--primary); }
 .step.failed { border-left-color: var(--danger); }
 .head {
   display: flex;
@@ -91,37 +91,37 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
   border: 0;
   background: none;
   font: inherit;
-  color: var(--ink-2);
+  color: var(--fg-2);
   text-align: left;
   cursor: pointer;
 }
-.head:hover { background: var(--card-muted); }
-.caret { flex: none; width: 10px; color: var(--ink-3); }
-.name { flex: none; color: var(--ink-3); }
+.head:hover { background: var(--muted); }
+.caret { flex: none; width: 10px; color: var(--fg-3); }
+.name { flex: none; color: var(--fg-3); }
 .summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.note { margin-left: auto; flex: none; padding-left: 8px; color: var(--ink-3); }
+.note { margin-left: auto; flex: none; padding-left: 8px; color: var(--fg-3); }
 .failed .note { color: var(--danger); }
-.plus { color: var(--green); }
+.plus { color: var(--ok); }
 .minus { color: var(--danger); }
 .block {
   margin: 0;
   padding: 6px 12px;
-  border-top: 1px solid var(--border-soft);
+  border-top: 1px solid var(--border);
   max-height: 360px;
   overflow: auto;
   line-height: 1.6;
   white-space: pre;
 }
 .block pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.cmd { color: var(--ink-2); background: var(--card-muted); }
+.cmd { color: var(--fg-2); background: var(--muted); }
 pre.cmd { white-space: pre-wrap; overflow-wrap: anywhere; }
 .diff { padding: 0; }
 .diff :deep(.diff) { max-height: none; padding: 4px 0; }
 .diff .link { margin: 0 12px 6px; }
-.tail { color: var(--ink-2); background: var(--danger-tint); }
-.result { color: var(--ink-2); }
-.link { border: 0; background: none; padding: 0; font: inherit; font-family: var(--sans); font-size: 12px; color: var(--blue); cursor: pointer; }
-.todos { list-style: none; margin: 0; padding: 4px 12px 8px 28px; font-family: var(--sans); font-size: 13px; line-height: 1.6; color: var(--ink-2); }
+.tail { color: var(--fg-2); background: var(--danger-tint); }
+.result { color: var(--fg-2); }
+.link { border: 0; background: none; padding: 0; font: inherit; font-family: var(--sans); font-size: 12px; color: var(--primary); cursor: pointer; }
+.todos { list-style: none; margin: 0; padding: 4px 12px 8px 28px; font-family: var(--sans); font-size: 13px; line-height: 1.6; color: var(--fg-2); }
 .todos li { display: flex; gap: 8px; align-items: baseline; }
 .todos .box {
   flex: none;
@@ -130,14 +130,13 @@ pre.cmd { white-space: pre-wrap; overflow-wrap: anywhere; }
   justify-content: center;
   width: 12px;
   height: 12px;
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border-2);
   border-radius: 3px;
   font-size: 9px;
   line-height: 1;
 }
-.todos .completed { color: var(--ink-3); text-decoration: line-through; }
-.todos .completed .box { border-color: var(--green); color: var(--green); }
-.todos .in_progress { color: var(--ink); font-weight: 500; }
-.todos .in_progress .box { border-color: var(--blue); color: var(--blue); }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.todos .completed { color: var(--fg-3); text-decoration: line-through; }
+.todos .completed .box { border-color: var(--ok); color: var(--ok); }
+.todos .in_progress { color: var(--fg); font-weight: 500; }
+.todos .in_progress .box { border-color: var(--primary); color: var(--primary); }
 </style>

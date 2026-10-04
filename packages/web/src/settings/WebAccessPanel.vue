@@ -41,11 +41,11 @@ async function save() {
       Commands that connect to the network still ask. One host per line; empty asks for every page.
     </p>
     <form @submit.prevent="save">
-      <label class="sr-only" for="set-web-domains">Hosts the agent may read without asking</label>
+      <label class="sr" for="set-web-domains">Hosts the agent may read without asking</label>
       <textarea id="set-web-domains" v-model="text" class="mono" rows="6" spellcheck="false"></textarea>
       <div class="actions">
         <p v-if="message" :class="message.tone" role="status">{{ message.text }}</p>
-        <button class="btn btn-primary" type="submit" :disabled="saving">{{ saving ? "Saving…" : "Save" }}</button>
+        <button class="btn primary" type="submit" :disabled="saving">{{ saving ? "Saving…" : "Save" }}</button>
       </div>
     </form>
   </section>
@@ -55,17 +55,17 @@ async function save() {
 .sub { margin: 4px 0 0; }
 form { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
 textarea {
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border-2);
   border-radius: 6px;
   padding: 8px 12px;
   font-size: 12px;
-  color: var(--ink);
+  color: var(--fg);
   background: var(--card);
   width: 100%;
   resize: vertical;
 }
 .actions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
 .actions p { margin: 0; font-size: 13px; }
-.ok { color: var(--ink-2); }
+.ok { color: var(--fg-2); }
 .error { color: var(--danger); }
 </style>

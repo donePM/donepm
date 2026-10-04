@@ -59,7 +59,7 @@ const preview = (text: string) => (text.length > TASK_PREVIEW ? `${text.slice(0,
 
       <div v-else-if="row.type === 'setup'" class="row">
         <span class="who">Setup</span>
-        <div class="tool" :class="{ failed: !row.ok }">
+        <div class="call" :class="{ failed: !row.ok }">
           <button class="tool-head" type="button" :disabled="!row.output" @click="toggle(row.id)">
             <span class="dim">{{ row.output ? (open.has(row.id) ? "▾" : "▸") : "" }} {{ row.ok ? "ok" : "failed" }}</span>
             <span class="summary">{{ row.label }}</span>
@@ -91,7 +91,7 @@ const preview = (text: string) => (text.length > TASK_PREVIEW ? `${text.slice(0,
         <span class="who"></span>
         <div class="group" :class="{ running: groupRunning(row) }">
           <button class="tool-head" type="button" :aria-expanded="open.has(row.id)" @click="toggle(row.id)">
-            <span v-if="groupRunning(row)" class="dot dot-ok" aria-hidden="true"></span>
+            <span v-if="groupRunning(row)" class="dot primary" aria-hidden="true"></span>
             <span v-else class="dim">{{ open.has(row.id) ? "▾" : "▸" }}</span>
             <span class="dim">{{ row.label }}</span>
             <span class="summary">{{ row.summary }}</span>
@@ -107,9 +107,9 @@ const preview = (text: string) => (text.length > TASK_PREVIEW ? `${text.slice(0,
 
       <div v-else-if="row.type === 'agent'" class="row">
         <span class="who agent">Subagent</span>
-        <div class="tool sub" :class="{ running: running && row.status === 'running', failed: row.status === 'failed' }">
+        <div class="call sub" :class="{ running: running && row.status === 'running', failed: row.status === 'failed' }">
           <button class="tool-head" type="button" @click="toggle(row.id)">
-            <span v-if="running && row.status === 'running'" class="dot dot-ok" aria-hidden="true"></span>
+            <span v-if="running && row.status === 'running'" class="dot primary" aria-hidden="true"></span>
             <span class="dim">{{ running && row.status === "running" ? "" : isOpen(row) ? "▾" : "▸" }} {{ row.agentType ?? "Agent" }}</span>
             <span class="summary">{{ row.description }}</span>
             <span class="note dim">{{ agentNote(row, running, now) }}</span>
@@ -134,7 +134,7 @@ const preview = (text: string) => (text.length > TASK_PREVIEW ? `${text.slice(0,
         <div v-if="row.ask" class="ask-open">
           <AskPanel :ask-id="row.ask.id" :tool-name="row.name" :input="row.input" :rules="row.ask.rules" :reason="row.reason" :worktree="worktree" :repo="repo" />
         </div>
-        <div v-else class="tool">
+        <div v-else class="call">
           <button class="tool-head" type="button" @click="toggle(row.id)">
             <span class="dim">{{ open.has(row.id) ? "▾" : "▸" }} {{ row.name }}</span>
             <span class="summary">{{ row.summary }}</span>
@@ -168,12 +168,12 @@ const preview = (text: string) => (text.length > TASK_PREVIEW ? `${text.slice(0,
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--ink-3);
+  color: var(--fg-3);
 }
-.who.agent { color: var(--blue); }
-.who.ask { color: var(--amber); }
+.who.agent { color: var(--primary); }
+.who.ask { color: var(--attn); }
 .pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-.dim { color: var(--ink-3); }
+.dim { color: var(--fg-3); }
 .bubble {
   flex: 1;
   min-width: 0;
@@ -182,10 +182,10 @@ const preview = (text: string) => (text.length > TASK_PREVIEW ? `${text.slice(0,
   border-radius: 8px;
   padding: 12px 14px;
   line-height: 1.5;
-  color: var(--ink-2);
+  color: var(--fg-2);
 }
 .text { flex: 1; min-width: 0; line-height: 1.55; }
-.text.live { color: var(--ink-2); }
+.text.live { color: var(--fg-2); }
 /* The cursor sits after the last block the stream has written so far. */
 .text.live :deep(> :last-child)::after {
   content: "";
@@ -193,14 +193,14 @@ const preview = (text: string) => (text.length > TASK_PREVIEW ? `${text.slice(0,
   width: 8px;
   height: 14px;
   margin-left: 2px;
-  background: var(--blue);
+  background: var(--primary);
   vertical-align: text-bottom;
 }
-.link { border: 0; background: none; padding: 0; margin-left: 6px; font: inherit; font-size: 13px; color: var(--blue); cursor: pointer; }
+.link { border: 0; background: none; padding: 0; margin-left: 6px; font: inherit; font-size: 13px; color: var(--primary); cursor: pointer; }
 .thinking { flex: 1; min-width: 0; }
-.thinking .link { margin-left: 0; color: var(--ink-3); }
+.thinking .link { margin-left: 0; color: var(--fg-3); }
 .thinking p { margin: 6px 0 0; font-size: 13px; line-height: 1.5; }
-.tool {
+.call {
   flex: 1;
   min-width: 0;
   border: 1px solid var(--border);
@@ -210,7 +210,7 @@ const preview = (text: string) => (text.length > TASK_PREVIEW ? `${text.slice(0,
   font-family: var(--mono);
   font-size: 12px;
 }
-.tool.running { border-color: var(--blue); }
+.call.running { border-color: var(--primary); }
 /* Steps follow each other closely; text and turns keep their distance. */
 .step-row + .step-row { margin-top: -10px; }
 .group {
@@ -223,11 +223,11 @@ const preview = (text: string) => (text.length > TASK_PREVIEW ? `${text.slice(0,
   font-family: var(--mono);
   font-size: 12px;
 }
-.group.running { border-left-color: var(--blue); }
-.group > .tool-head:hover { background: var(--card-muted); }
-.group-steps { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 4px 14px; border-top: 1px solid var(--border-soft); }
+.group.running { border-left-color: var(--primary); }
+.group > .tool-head:hover { background: var(--muted); }
+.group-steps { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 4px 14px; border-top: 1px solid var(--border); }
 .note.bad { color: var(--danger); }
-.tool.failed { border-color: var(--danger); }
+.call.failed { border-color: var(--danger); }
 .tool-head {
   display: flex;
   align-items: center;
@@ -237,7 +237,7 @@ const preview = (text: string) => (text.length > TASK_PREVIEW ? `${text.slice(0,
   border: 0;
   background: none;
   font: inherit;
-  color: var(--ink-2);
+  color: var(--fg-2);
   text-align: left;
   cursor: pointer;
 }
@@ -247,30 +247,30 @@ const preview = (text: string) => (text.length > TASK_PREVIEW ? `${text.slice(0,
 .body {
   margin: 0;
   padding: 8px 12px;
-  border-top: 1px solid var(--border-soft);
+  border-top: 1px solid var(--border);
   max-height: 360px;
   overflow: auto;
   line-height: 1.6;
   white-space: pre;
 }
-.body.result { color: var(--ink-2); }
-.tool.sub { font-family: inherit; font-size: 13px; }
-.tool.sub > .tool-head { font-family: var(--mono); font-size: 12px; }
-.children { padding: 10px 12px 12px; border-top: 1px solid var(--border-soft); }
+.body.result { color: var(--fg-2); }
+.call.sub { font-family: inherit; font-size: 13px; }
+.call.sub > .tool-head { font-family: var(--mono); font-size: 12px; }
+.children { padding: 10px 12px 12px; border-top: 1px solid var(--border); }
 .children .meta { margin: 0 0 10px; font-size: 12px; }
 .report { white-space: normal; font-family: inherit; font-size: 13px; }
 .ask-open {
   flex: 1;
   min-width: 0;
   padding: 12px 14px;
-  border: 1px solid var(--amber);
+  border: 1px solid var(--attn);
   border-radius: 8px;
   background: var(--card);
   font-size: 13px;
 }
-.ask-input { padding: 8px 12px; border-top: 1px solid var(--border-soft); }
+.ask-input { padding: 8px 12px; border-top: 1px solid var(--border); }
 .outcome.denied { color: var(--danger); }
-.outcome.allowed, .outcome.allowed_run, .outcome.expired { color: var(--ink-3); }
-.turn { font-size: 12px; color: var(--ink-3); }
+.outcome.allowed, .outcome.allowed_run, .outcome.expired { color: var(--fg-3); }
+.turn { font-size: 12px; color: var(--fg-3); }
 .turn.failed { color: var(--danger); }
 </style>

@@ -965,14 +965,26 @@ finishes or fails. An item without a clone that donePM can clone carries
 
 ## 12. UI
 
-Vue 3. Four views. Mockups of all four screens are in `docs/screens/` (PNG plus HTML sources, see
-its README). Palette: ground `#ECECE8`, card `#FFFFFF`, ink `#141413`,
-secondary text `#3F3F3A` / `#66665F`, borders `#C9C9C3` / `#E3E3DE`, primary blue `#1D4ED8`
-(tint `#DBEAFE`), needs-you amber `#A14A05` (tint `#FFF3DA`), danger `#991B1B`, diff add `#DCFCE7`,
-diff remove `#FBDDDD`, CI pending yellow `#DBAB09` (GitHub's pending check). Fonts: IBM Plex Sans,
-JetBrains Mono.
+Vue 3. Four views. Mockups of the main screens in light and dark are in `docs/screens/` (PNG plus
+HTML sources, see its README). All colours are tokens in `packages/web/src/theme.css`; components
+use only the tokens. Light: ground `#FAFAFA`, card `#FFFFFF`, muted `#F4F4F5`, ink `#09090B` /
+`#3F3F46` / `#6B6B76`, borders `#E4E4E7` / `#D4D4D8`, primary indigo `#4F46E5` (tint `#EEF2FF`),
+needs-you amber `#B45309` (tint `#FFFBEB`), ok green `#15803D` (only CI and merges), danger
+`#DC2626` (bug labels, failures, diff removals), diff add `#DCFCE7`, diff remove `#FEE2E2`. Dark:
+ground `#09090B`, card `#18181B`, ink `#FAFAFA`, primary `#6366F1`, amber `#FBBF24`, green
+`#4ADE80`, danger `#F87171`; tints are the same hues at 12–18% alpha. Code blocks stay dark in both
+themes. Fonts: IBM Plex Sans, JetBrains Mono.
 
-Waiting for CI (`checking`, D35): a small round dot in CI pending yellow stands before "Waiting for
+Theme: one button in the header, right of the status, cycles **system → light → dark → system**.
+Its icon shows the current choice (monitor, sun, moon); its `aria-label` names the current choice
+and the next one ("Theme: system. Switch to light"). Default is system: `prefers-color-scheme`
+decides, and an OS change is followed live. Light and dark ignore the OS. The choice is per browser
+(`localStorage` key `donepm.theme`; an unknown value means system), not daemon state. An inline
+script in `index.html` sets `dark` on `<html>` before first paint, so a reload does not flash.
+`color-scheme` follows the theme, so native controls and scrollbars match. The favicon follows the
+OS only; a page cannot choose its favicon by class.
+
+Waiting for CI (`checking`, D35): a small round dot in needs-you amber stands before "Waiting for
 CI" on the card, in the CI panel heading and in the item's state badge. It pulses gently (opacity and
 scale only, no layout shift) and stays static under `prefers-reduced-motion: reduce`.
 

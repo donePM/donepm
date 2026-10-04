@@ -22,6 +22,6 @@ defineProps<{ replies: DraftReply[]; feedback: FeedbackEntry[]; posted?: number[
 
 <style scoped>
 .replies { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 10px; }
-.to { margin: 0 0 4px; font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
-.done { margin-left: 6px; color: var(--green); }
+.to { margin: 0 0 4px; font-size: 12px; color: var(--fg-3); overflow-wrap: anywhere; }
+.done { margin-left: 6px; color: var(--ok); }
 </style>

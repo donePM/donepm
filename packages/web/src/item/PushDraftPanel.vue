@@ -95,12 +95,12 @@ const reject = () => run(async () => {
         <textarea v-model="reason" class="textarea" rows="3" placeholder="What should change (optional)"></textarea>
       </label>
       <div class="actions">
-        <button class="btn btn-danger" type="submit" :disabled="busy">Reject and send</button>
+        <button class="btn danger" type="submit" :disabled="busy">Reject and send</button>
         <button class="btn" type="button" :disabled="busy" @click="rejecting = false">Cancel</button>
       </div>
     </form>
     <div v-else class="actions">
-      <button class="btn btn-primary" type="button" :disabled="busy || pushing" @click="approve">
+      <button class="btn primary" type="button" :disabled="busy || pushing" @click="approve">
         {{ pushing ? (push ? "Pushing…" : "Posting…") : publishError ? `Retry: approve and ${verb}` : `Approve and ${verb}` }}
       </button>
       <button
@@ -122,7 +122,7 @@ const reject = () => run(async () => {
 <style scoped>
 .draft {
   background: var(--card);
-  border: 1px solid var(--amber-border);
+  border: 1px solid var(--attn-border);
   border-radius: 8px;
   padding: 20px;
   display: flex;
@@ -131,12 +131,12 @@ const reject = () => run(async () => {
 }
 .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 h2 { margin: 0; font-size: 15px; font-weight: 600; }
-h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--ink-2); }
-.meta { font-size: 12px; color: var(--ink-3); }
+h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--fg-2); }
+.meta { font-size: 12px; color: var(--fg-3); }
 .summary { margin: 0; overflow-wrap: anywhere; }
 .commits { margin: 0; padding-left: 18px; font-size: 13px; overflow-wrap: anywhere; }
-.sha, .dim { color: var(--ink-3); }
+.sha, .dim { color: var(--fg-3); }
 .reject { display: flex; flex-direction: column; gap: 10px; }
-.actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--border-soft); }
-.runs { margin-left: auto; font-size: 12px; color: var(--ink-3); }
+.actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--border); }
+.runs { margin-left: auto; font-size: 12px; color: var(--fg-3); }
 </style>

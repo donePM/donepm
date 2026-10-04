@@ -153,7 +153,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
             <h2>The agent stopped: {{ interrupted.reason }}</h2>
             <p class="hint">Resume continues its session in the same worktree.</p>
             <div>
-              <button class="btn btn-primary" type="button" :disabled="pending.has(detail.id)" @click="retry(detail.id, resumeAgent)">Resume</button>
+              <button class="btn primary" type="button" :disabled="pending.has(detail.id)" @click="retry(detail.id, resumeAgent)">Resume</button>
             </div>
             <p v-if="retryError" class="alert" role="alert">{{ retryError }}</p>
           </section>
@@ -161,7 +161,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
             <h2>The agent failed: {{ failure.reason }}</h2>
             <pre v-if="failure.stderrTail" class="stderr mono on-code"><AnsiText :text="failure.stderrTail" /></pre>
             <div>
-              <button class="btn btn-primary" type="button" :disabled="pending.has(detail.id)" @click="retry(detail.id)">Retry</button>
+              <button class="btn primary" type="button" :disabled="pending.has(detail.id)" @click="retry(detail.id)">Retry</button>
             </div>
             <p v-if="retryError" class="alert" role="alert">{{ retryError }}</p>
           </section>
@@ -188,34 +188,34 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
 
 <style scoped>
 .page { padding: 20px 24px 40px; max-width: 1480px; }
-.crumbs { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--ink-3); }
-.crumbs a { color: var(--ink-2); text-decoration: none; }
-.crumbs a:hover { color: var(--blue); }
-.state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--border-soft); color: var(--ink-2); }
-.state.s-needs_you, .state.s-failed { background: var(--amber-tint); color: var(--amber); }
-.state.s-running, .state.s-checking { background: var(--blue-tint); color: var(--blue); }
+.crumbs { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--fg-3); }
+.crumbs a { color: var(--fg-2); text-decoration: none; }
+.crumbs a:hover { color: var(--primary); }
+.state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--muted); color: var(--fg-2); }
+.state.s-needs_you, .state.s-failed { background: var(--attn-tint); color: var(--attn); }
+.state.s-running, .state.s-checking { background: var(--primary-tint); color: var(--primary); }
 h1 { margin: 12px 0 6px; font-size: 22px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
-.no-clone { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; color: var(--ink-3); font-size: 13px; overflow-wrap: anywhere; }
-.facts { margin: 0 0 20px; color: var(--ink-2); font-size: 13px; overflow-wrap: anywhere; }
+.no-clone { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; color: var(--fg-3); font-size: 13px; overflow-wrap: anywhere; }
+.facts { margin: 0 0 20px; color: var(--fg-2); font-size: 13px; overflow-wrap: anywhere; }
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
 .main, .side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .needs {
-  background: var(--amber-tint);
-  border: 1px solid var(--amber-border);
+  background: var(--attn-tint);
+  border: 1px solid var(--attn-border);
   border-radius: 8px;
   padding: 16px 20px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
-.hint { margin: 0; font-size: 13px; color: var(--ink-2); }
+.hint { margin: 0; font-size: 13px; color: var(--fg-2); }
 .needs h2, .panel h2 { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
 .stderr {
   margin: 0;
   padding: 10px 12px;
   border-radius: 6px;
   background: var(--code-bg);
-  color: var(--code-ink);
+  color: var(--code-fg);
   font-size: 12px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;

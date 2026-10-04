@@ -130,7 +130,7 @@ async function act(fn: (id: string) => Promise<void>) {
       >{{ hideRepo ? shortId(item.externalId) : displayId(item.externalId) }}</a>
       <span v-if="priority" class="prio" :class="`prio-${priority.tone}`" :title="priority.title">{{ priority.text }}</span>
       <span v-if="pr" class="kind" :title="pr.title">{{ pr.text }}</span>
-      <span v-if="item.state === 'running'" class="live"><span class="dot dot-ok" aria-hidden="true"></span>running<template v-if="elapsed"> · {{ elapsed }}</template></span>
+      <span v-if="item.state === 'running'" class="live"><span class="dot primary" aria-hidden="true"></span>running<template v-if="elapsed"> · {{ elapsed }}</template></span>
       <span v-else-if="item.state === 'checking'" class="live"><CiPendingDot />waiting for CI</span>
       <span v-else-if="flag" class="flag">{{ flag }}</span>
       <span v-else-if="column === 'needs_you' && !noClone" class="playbook" title="Playbook">{{ item.playbook }}</span>
@@ -184,10 +184,10 @@ async function act(fn: (id: string) => Promise<void>) {
       </div>
       <p v-if="attention.error" class="reason">{{ attention.error }}</p>
       <div class="actions">
-        <button v-if="attention.error" class="btn btn-primary" type="button" :disabled="retrying" @click="retryDraft">
+        <button v-if="attention.error" class="btn primary" type="button" :disabled="retrying" @click="retryDraft">
           {{ retrying ? "Publishing…" : "Retry" }}
         </button>
-        <RouterLink :to="{ name: 'item', params: { id: item.id } }" class="btn" :class="{ 'btn-amber': !attention.error }">Review draft</RouterLink>
+        <RouterLink :to="{ name: 'item', params: { id: item.id } }" class="btn" :class="{ attn: !attention.error }">Review draft</RouterLink>
       </div>
     </template>
     <template v-else-if="attention?.kind === 'ci_failed'">
@@ -197,7 +197,7 @@ async function act(fn: (id: string) => Promise<void>) {
         </li>
       </ul>
       <div class="actions">
-        <button class="btn btn-primary" type="button" :disabled="busy || !item.agentSessionId" title="Resume the agent with the failed checks and their logs" @click="act(fixCi)">Fix with agent</button>
+        <button class="btn primary" type="button" :disabled="busy || !item.agentSessionId" title="Resume the agent with the failed checks and their logs" @click="act(fixCi)">Fix with agent</button>
         <button v-if="attention.runs.length" class="btn" type="button" :disabled="busy" title="gh run rerun --failed" @click="act(rerunCi)">Rerun failed</button>
         <button class="btn subtle" type="button" :disabled="busy" @click="act(markCiDone)">Mark done</button>
       </div>
@@ -211,7 +211,7 @@ async function act(fn: (id: string) => Promise<void>) {
         <li v-for="f in attention.files" :key="f">{{ f }}</li>
       </ul>
       <div class="actions">
-        <button class="btn btn-primary" type="button" :disabled="busy || !item.agentSessionId" title="Fetch the base and let the agent merge it; it proposes a push draft" @click="act(resolveConflict)">Resolve with agent</button>
+        <button class="btn primary" type="button" :disabled="busy || !item.agentSessionId" title="Fetch the base and let the agent merge it; it proposes a push draft" @click="act(resolveConflict)">Resolve with agent</button>
         <button class="btn subtle" type="button" :disabled="busy" @click="act(dismissConflict)">I'll do it myself</button>
       </div>
     </template>
@@ -221,7 +221,7 @@ async function act(fn: (id: string) => Promise<void>) {
         {{ feedbackAuthors }}
       </p>
       <div class="actions">
-        <button class="btn btn-primary" type="button" :disabled="busy || !item.agentSessionId" title="Resume the agent with the comments; it proposes a push or reply draft" @click="act(addressFeedback)">Address with agent</button>
+        <button class="btn primary" type="button" :disabled="busy || !item.agentSessionId" title="Resume the agent with the comments; it proposes a push or reply draft" @click="act(addressFeedback)">Address with agent</button>
         <RouterLink :to="{ name: 'item', params: { id: item.id } }" class="btn">Read</RouterLink>
         <button class="btn subtle" type="button" :disabled="busy" @click="act(dismissFeedback)">Mark done</button>
       </div>
@@ -233,7 +233,7 @@ async function act(fn: (id: string) => Promise<void>) {
     <template v-else-if="attention?.kind === 'resume'">
       <p class="reason">{{ attention.reason }}. The session can continue where it stopped.</p>
       <div class="actions">
-        <button class="btn btn-primary" type="button" :disabled="busy" @click="act(resumeAgent)">Resume</button>
+        <button class="btn primary" type="button" :disabled="busy" @click="act(resumeAgent)">Resume</button>
         <RouterLink :to="{ name: 'agent', params: { id: item.id } }" class="btn">Transcript</RouterLink>
       </div>
     </template>
@@ -250,11 +250,11 @@ async function act(fn: (id: string) => Promise<void>) {
       <span v-else-if="merge?.kind === 'skipped'" class="note warn">Not removed: {{ merge.reason }}</span>
     </div>
     <div v-if="startable" class="actions">
-      <label :for="`pb-${item.id}`" class="sr-only">Playbook</label>
+      <label :for="`pb-${item.id}`" class="sr">Playbook</label>
       <select :id="`pb-${item.id}`" class="select" :value="item.playbook" disabled title="More playbooks come later">
         <option :value="item.playbook">{{ item.playbook }}</option>
       </select>
-      <button class="btn btn-primary" type="button" :disabled="busy" @click="act(startAgent)">
+      <button class="btn primary" type="button" :disabled="busy" @click="act(startAgent)">
         {{ item.state === "failed" ? "Retry" : "Start" }}
       </button>
     </div>
@@ -282,23 +282,23 @@ async function act(fn: (id: string) => Promise<void>) {
   flex-direction: column;
   gap: 10px;
 }
-.card.in-in_progress { border-color: var(--blue); }
-.card.in-needs_you { background: var(--amber-tint); border-color: var(--amber-border); }
-.card.muted { background: var(--card-muted); border: 1px dashed var(--border-control); color: var(--ink-3); }
-.card.muted h3, .card.in-done h3 { color: var(--ink-2); }
-.card.finished { background: var(--card-muted); border-color: var(--border-soft); color: var(--ink-3); }
-.card.finished h3, .card.finished .label { color: var(--ink-3); }
-.card.finished .label { background: transparent; border: 1px solid var(--border-soft); }
-.meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; color: var(--ink-3); }
+.card.in-in_progress { border-color: var(--primary); }
+.card.in-needs_you { background: var(--attn-tint); border-color: var(--attn-border); }
+.card.muted { background: var(--muted); border: 1px dashed var(--border-2); color: var(--fg-3); }
+.card.muted h3, .card.in-done h3 { color: var(--fg-2); }
+.card.finished { background: var(--muted); border-color: var(--border); color: var(--fg-3); }
+.card.finished h3, .card.finished .label { color: var(--fg-3); }
+.card.finished .label { background: transparent; border: 1px solid var(--border); }
+.meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; color: var(--fg-3); }
 .ext { color: inherit; text-decoration: none; min-width: 0; overflow-wrap: anywhere; }
-.ext:hover { color: var(--blue); text-decoration: underline; }
+.ext:hover { color: var(--primary); text-decoration: underline; }
 .playbook {
   flex: none;
   font-size: 11px;
   padding: 1px 7px;
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--border);
   border-radius: 4px;
-  color: var(--ink-2);
+  color: var(--fg-2);
 }
 .kind {
   flex: none;
@@ -306,8 +306,8 @@ async function act(fn: (id: string) => Promise<void>) {
   font-size: 11px;
   padding: 1px 7px;
   border-radius: 4px;
-  border: 1px solid var(--blue);
-  color: var(--blue);
+  border: 1px solid var(--primary);
+  color: var(--primary);
 }
 .prio {
   flex: none;
@@ -317,26 +317,26 @@ async function act(fn: (id: string) => Promise<void>) {
   border-radius: 4px;
 }
 .prio-urgent { background: var(--danger-tint); color: var(--danger); }
-.prio-low { border: 1px solid var(--border-soft); color: var(--ink-3); }
-.card.finished .prio { background: transparent; color: var(--ink-3); }
-.flag { flex: none; color: var(--amber); font-family: var(--sans); font-weight: 500; }
+.prio-low { border: 1px solid var(--border); color: var(--fg-3); }
+.card.finished .prio { background: transparent; color: var(--fg-3); }
+.flag { flex: none; color: var(--attn); font-family: var(--sans); font-weight: 500; }
 h3 { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
 .title { color: inherit; text-decoration: none; }
-.title:hover { color: var(--blue); text-decoration: underline; }
-.stats { font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
-.add { color: #15803d; }
+.title:hover { color: var(--primary); text-decoration: underline; }
+.stats { font-size: 12px; color: var(--fg-2); overflow-wrap: anywhere; }
+.add { color: var(--ok); }
 .del { color: var(--danger); }
-.pr { font-size: 12px; color: var(--blue); text-decoration: none; }
+.pr { font-size: 12px; color: var(--primary); text-decoration: none; }
 .pr:hover { text-decoration: underline; }
-.reason { margin: 0; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
-.checks { margin: 0; padding-left: 16px; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
+.reason { margin: 0; font-size: 13px; color: var(--fg-2); overflow-wrap: anywhere; }
+.checks { margin: 0; padding-left: 16px; font-size: 12px; color: var(--fg-2); overflow-wrap: anywhere; }
 .checks a { color: inherit; }
 .stderr {
   margin: 0;
   padding: 8px 10px;
   border-radius: 6px;
   background: var(--code-bg);
-  color: var(--code-ink);
+  color: var(--code-fg);
   font-size: 11px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -344,19 +344,19 @@ h3 { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; overflow-wr
   overflow: auto;
 }
 .labels { display: flex; gap: 6px; flex-wrap: wrap; }
-.label { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--border-soft); color: var(--ink-2); }
+.label { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--muted); color: var(--fg-2); }
 .label.tone-bug { background: var(--danger-tint); color: var(--danger); }
-.label.tone-feature { background: var(--blue-tint); color: var(--blue); }
+.label.tone-feature { background: var(--primary-tint); color: var(--primary); }
 .note { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-.note.warn { color: var(--amber); }
+.note.warn { color: var(--attn); }
 .note.no-clone { flex-wrap: wrap; }
-.note.quiet { display: block; margin: 0; color: var(--ink-3); }
+.note.quiet { display: block; margin: 0; color: var(--fg-3); }
 .pr-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.merged { font-size: 12px; color: var(--ink-3); }
+.merged { font-size: 12px; color: var(--fg-3); }
 .dismiss { margin-left: auto; height: 26px; padding: 0 10px; font-size: 12px; }
-.live { flex: none; display: flex; align-items: center; gap: 6px; color: var(--blue); }
-.activity { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
-.dim { color: var(--ink-3); }
+.live { flex: none; display: flex; align-items: center; gap: 6px; color: var(--primary); }
+.activity { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--fg-2); overflow-wrap: anywhere; }
+.dim { color: var(--fg-3); }
 .actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .actions .btn { display: inline-flex; align-items: center; text-decoration: none; }
 .select {
@@ -364,15 +364,14 @@ h3 { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; overflow-wr
   min-width: 0;
   height: 32px;
   padding: 0 8px;
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border-2);
   border-radius: 6px;
   background: var(--card);
   font: inherit;
   font-size: 13px;
-  color: var(--ink);
+  color: var(--fg);
 }
 .stop { color: var(--danger); font-weight: 400; }
-.subtle { font-weight: 400; color: var(--ink-2); }
+.subtle { font-weight: 400; color: var(--fg-2); }
 .error { margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--danger-tint); color: var(--danger); font-size: 12px; }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 </style>

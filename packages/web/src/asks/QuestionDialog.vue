@@ -58,7 +58,7 @@ const name = (i: number) => `q-${props.askId}-${i}`;
         <h2 :id="`${name(step)}-title`">{{ q.question }}</h2>
         <p v-if="q.multiSelect" class="hint">Choose any.</p>
         <fieldset class="options">
-          <legend class="sr-only">{{ q.question }}</legend>
+          <legend class="sr">{{ q.question }}</legend>
           <label v-for="o in q.options" :key="o.label" class="option" :class="{ on: choice.picked.includes(o.label) }">
             <input
               :type="q.multiSelect ? 'checkbox' : 'radio'"
@@ -92,8 +92,8 @@ const name = (i: number) => `q-${props.askId}-${i}`;
         <button class="btn" type="button" :disabled="busy" @click="emit('close')">Cancel</button>
         <span class="grow"></span>
         <button v-if="step > 0" class="btn" type="button" :disabled="busy" @click="step -= 1">Back</button>
-        <button v-if="summary" class="btn btn-primary" type="submit" :disabled="busy || !isComplete(questions, choices)">Send answers</button>
-        <button v-else class="btn btn-primary" type="submit" :disabled="busy || !answered">
+        <button v-if="summary" class="btn primary" type="submit" :disabled="busy || !isComplete(questions, choices)">Send answers</button>
+        <button v-else class="btn primary" type="submit" :disabled="busy || !answered">
           {{ count === 1 ? "Send answer" : last ? "Review" : "Next" }}
         </button>
       </div>
@@ -102,26 +102,26 @@ const name = (i: number) => `q-${props.askId}-${i}`;
 </template>
 
 <style scoped>
-.dialog { width: min(560px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--ink); }
-.dialog::backdrop { background: rgb(20 20 19 / 40%); }
+.dialog { width: min(560px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--fg); }
+.dialog::backdrop { background: var(--backdrop); }
 .body { display: flex; flex-direction: column; gap: 12px; padding: 20px; }
 .top { display: flex; align-items: center; gap: 8px; }
-.chip { padding: 2px 8px; border-radius: 999px; background: var(--blue-tint); color: var(--blue); font-size: 12px; font-weight: 500; }
-.count { margin-left: auto; font-size: 12px; color: var(--ink-3); }
+.chip { padding: 2px 8px; border-radius: 999px; background: var(--primary-tint); color: var(--primary); font-size: 12px; font-weight: 500; }
+.count { margin-left: auto; font-size: 12px; color: var(--fg-3); }
 h2 { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.4; }
-.hint { margin: -6px 0 0; font-size: 12px; color: var(--ink-3); }
+.hint { margin: -6px 0 0; font-size: 12px; color: var(--fg-3); }
 .options { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; border: 0; max-height: 50vh; overflow: auto; }
-.option { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: 6px; cursor: pointer; }
-.option.on { border-color: var(--blue); background: var(--blue-tint); }
+.option { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.option.on { border-color: var(--primary); background: var(--primary-tint); }
 .option input { margin-top: 3px; }
 .text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .label { font-weight: 500; }
-.desc { font-size: 13px; color: var(--ink-2); }
-.preview { margin: 6px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--code-bg); color: var(--code-ink); font-size: 12px; white-space: pre; overflow: auto; }
+.desc { font-size: 13px; color: var(--fg-2); }
+.preview { margin: 6px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--code-bg); color: var(--code-fg); font-size: 12px; white-space: pre; overflow: auto; }
 .summary { display: grid; grid-template-columns: 1fr; gap: 4px; margin: 0; }
-.summary dt { color: var(--ink-2); font-size: 13px; }
+.summary dt { color: var(--fg-2); font-size: 13px; }
 .summary dd { margin: 0 0 8px; }
-.link { padding: 0; border: 0; background: none; color: var(--blue); font: inherit; font-weight: 500; cursor: pointer; text-align: left; }
+.link { padding: 0; border: 0; background: none; color: var(--primary); font: inherit; font-weight: 500; cursor: pointer; text-align: left; }
 .buttons { display: flex; gap: 8px; }
 .grow { flex: 1; }
 </style>

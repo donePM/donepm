@@ -31,3 +31,9 @@ export function claudeHint(state: CliState): CliHint {
       return { label: "found, not logged in", tone: "warn", why: "Agents cannot start until the CLI is logged in. Run this in a terminal, then check again:", command: "claude auth login" };
   }
 }
+
+/** The status dot for a tool: green when ready, amber when something needs fixing, grey while unknown. */
+export function hintDot(hint: CliHint | undefined): "ok" | "attn" | "off" {
+  if (!hint) return "off";
+  return hint.tone === "ok" ? "ok" : "attn";
+}

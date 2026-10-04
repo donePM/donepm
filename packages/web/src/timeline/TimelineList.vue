@@ -25,14 +25,14 @@ const nowDate = computed(() => new Date(props.now));
 
 <style scoped>
 ol { list-style: none; margin: 12px 0 0; padding: 0; }
-li { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border-soft); }
+li { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 li:last-child { border-bottom: 0; }
 .dot { margin-top: 6px; }
-.tone-attention { background: var(--amber); }
+.tone-attention { background: var(--attn); }
 .tone-danger { background: var(--danger); }
-.tone-user { background: var(--blue); }
-.tone-system { background: #9a9a92; }
+.tone-user { background: var(--primary); }
+.tone-system { background: var(--border-2); }
 .text { line-height: 1.4; overflow-wrap: anywhere; }
 code { font-family: var(--mono); font-size: 12px; }
-.sub { font-size: 12px; color: var(--ink-3); margin-top: 2px; overflow-wrap: anywhere; }
+.sub { font-size: 12px; color: var(--fg-3); margin-top: 2px; overflow-wrap: anywhere; }
 </style>

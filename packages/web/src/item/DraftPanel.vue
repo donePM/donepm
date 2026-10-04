@@ -97,7 +97,7 @@ const reject = () => run(async () => {
     <div class="field">
       <div class="body-head">
         <span id="draft-body-l">Body</span>
-        <div class="tabs" role="tablist" aria-labelledby="draft-body-l">
+        <div class="modes" role="tablist" aria-labelledby="draft-body-l">
           <button
             v-for="t in (['write', 'preview'] as const)"
             :key="t"
@@ -130,12 +130,12 @@ const reject = () => run(async () => {
         <textarea v-model="reason" class="textarea" rows="3" placeholder="What should change (optional)"></textarea>
       </label>
       <div class="actions">
-        <button class="btn btn-danger" type="submit" :disabled="busy">Reject and send</button>
+        <button class="btn danger" type="submit" :disabled="busy">Reject and send</button>
         <button class="btn" type="button" :disabled="busy" @click="rejecting = false">Cancel</button>
       </div>
     </form>
     <div v-else class="actions">
-      <button class="btn btn-primary" type="button" :disabled="busy || publishing" @click="approve">
+      <button class="btn primary" type="button" :disabled="busy || publishing" @click="approve">
         {{ publishing ? "Creating PR…" : publishError ? "Retry: approve and create PR" : "Approve and create PR" }}
       </button>
       <button
@@ -158,7 +158,7 @@ const reject = () => run(async () => {
 <style scoped>
 .draft {
   background: var(--card);
-  border: 1px solid var(--amber-border);
+  border: 1px solid var(--attn-border);
   border-radius: 8px;
   padding: 20px;
   display: flex;
@@ -167,26 +167,26 @@ const reject = () => run(async () => {
 }
 .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 h2 { margin: 0; font-size: 15px; font-weight: 600; }
-.meta { font-size: 12px; color: var(--ink-3); }
+.meta { font-size: 12px; color: var(--fg-3); }
 .body-head { display: flex; justify-content: space-between; align-items: end; gap: 12px; }
-.body-head > span { font-size: 13px; color: var(--ink-2); }
-.tabs { display: flex; gap: 2px; }
+.body-head > span { font-size: 13px; color: var(--fg-2); }
+.modes { display: flex; gap: 2px; }
 .tab {
   padding: 3px 10px;
   border: 1px solid transparent;
   border-radius: 6px;
   background: none;
-  color: var(--ink-2);
+  color: var(--fg-2);
   font: inherit;
   font-size: 13px;
   cursor: pointer;
 }
-.tab:hover { color: var(--ink); }
-.tab[aria-selected="true"] { border-color: var(--border-control); background: var(--card-muted); color: var(--ink); font-weight: 500; }
-.tab:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
-.preview { min-height: 120px; max-height: 480px; overflow: auto; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 6px; }
-.empty { margin: 0; color: var(--ink-3); }
+.tab:hover { color: var(--fg); }
+.tab[aria-selected="true"] { border-color: var(--border-2); background: var(--muted); color: var(--fg); font-weight: 500; }
+.tab:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.preview { min-height: 120px; max-height: 480px; overflow: auto; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; }
+.empty { margin: 0; color: var(--fg-3); }
 .reject { display: flex; flex-direction: column; gap: 10px; }
-.actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--border-soft); }
-.runs { margin-left: auto; font-size: 12px; color: var(--ink-3); }
+.actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--border); }
+.runs { margin-left: auto; font-size: 12px; color: var(--fg-3); }
 </style>

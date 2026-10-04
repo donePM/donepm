@@ -126,7 +126,7 @@ async function send(patch: Patch, choice?: WorktreeChoice) {
       </fieldset>
       <div class="actions">
         <p v-if="message" :class="message.tone" role="status">{{ message.text }}</p>
-        <button class="btn btn-primary" type="submit" :disabled="saving">{{ saving ? "Saving…" : "Save" }}</button>
+        <button class="btn primary" type="submit" :disabled="saving">{{ saving ? "Saving…" : "Save" }}</button>
       </div>
     </form>
     <MoveWorktreesDialog
@@ -142,19 +142,19 @@ async function send(patch: Patch, choice?: WorktreeChoice) {
 <style scoped>
 form { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
-label { font-weight: 500; color: var(--ink-2); }
+label { font-weight: 500; color: var(--fg-2); }
 .check { display: flex; align-items: center; gap: 8px; font-weight: 400; }
 .check input { width: auto; height: auto; }
-.hint { margin: 0; font-size: 12px; color: var(--ink-3); }
-.group { display: flex; flex-direction: column; gap: 14px; margin: 0; padding: 14px 0 0; border: none; border-top: 1px solid var(--border-soft); min-width: 0; }
-legend { padding: 0 0 4px; font-weight: 600; color: var(--ink); }
+.hint { margin: 0; font-size: 12px; color: var(--fg-3); }
+.group { display: flex; flex-direction: column; gap: 14px; margin: 0; padding: 14px 0 0; border: none; border-top: 1px solid var(--border); min-width: 0; }
+legend { padding: 0 0 4px; font-weight: 600; color: var(--fg); }
 input {
   height: 38px;
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border-2);
   border-radius: 6px;
   padding: 0 12px;
   font-size: 13px;
-  color: var(--ink);
+  color: var(--fg);
   background: var(--card);
   width: 100%;
 }
@@ -164,9 +164,9 @@ input {
   align-items: center;
   gap: 12px;
   padding-top: 14px;
-  border-top: 1px solid var(--border-soft);
+  border-top: 1px solid var(--border);
 }
 .actions p { margin: 0; font-size: 13px; }
-.ok { color: var(--ink-2); }
+.ok { color: var(--fg-2); }
 .error { color: var(--danger); }
 </style>

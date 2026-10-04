@@ -129,21 +129,21 @@ const shownCounts = (lane: Lane) => COLUMNS.filter((c) => lane.counts[c.key] > 0
   align-items: end;
   height: var(--colhead-h);
   padding: 0 0 8px;
-  background: var(--ground);
+  background: var(--bg);
 }
 .cell { display: flex; align-items: baseline; gap: 8px; padding: 0 4px; min-width: 0; }
-h2, .subhead { margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-2); }
-h2.amber, .subhead.amber { color: var(--amber); }
-.count { font-size: 12px; font-weight: 400; color: var(--ink-3); }
-.archive-link { margin-left: auto; font-size: 12px; color: var(--ink-3); text-decoration: none; }
-.archive-link:hover { color: var(--blue); text-decoration: underline; }
+h2, .subhead { margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg-2); }
+h2.amber, .subhead.amber { color: var(--attn); }
+.count { font-size: 12px; font-weight: 400; color: var(--fg-3); }
+.archive-link { margin-left: auto; font-size: 12px; color: var(--fg-3); text-decoration: none; }
+.archive-link:hover { color: var(--primary); text-decoration: underline; }
 .lane { margin-bottom: 12px; }
 .lane-head {
   position: sticky;
   top: var(--colhead-h);
   z-index: 2;
   margin: 0;
-  background: var(--ground);
+  background: var(--bg);
   border-bottom: 1px solid var(--border);
 }
 .toggle {
@@ -155,20 +155,20 @@ h2.amber, .subhead.amber { color: var(--amber); }
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: var(--ink);
+  color: var(--fg);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
-.toggle:hover { background: var(--border-soft); }
-.toggle:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
-.chevron { flex: none; color: var(--ink-3); }
+.toggle:hover { background: var(--muted); }
+.toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.chevron { flex: none; color: var(--fg-3); }
 .chevron.closed { transform: rotate(-90deg); }
 .name { font-weight: 600; overflow-wrap: anywhere; }
-.name.muted { color: var(--ink-3); }
-.counts { display: flex; flex-wrap: wrap; font-size: 12px; color: var(--ink-3); }
+.name.muted { color: var(--fg-3); }
+.counts { display: flex; flex-wrap: wrap; font-size: 12px; color: var(--fg-3); }
 .n + .n::before { content: "·"; margin: 0 6px; }
-.n.amber { color: var(--amber); font-weight: 600; }
+.n.amber { color: var(--attn); font-weight: 600; }
 .lane-body {
   display: grid;
   grid-template-columns: var(--cols);
@@ -178,7 +178,7 @@ h2.amber, .subhead.amber { color: var(--amber); }
 }
 .col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .subhead { display: none; padding: 0 4px; }
-.empty { margin: 0; padding: 12px 4px; color: var(--ink-3); font-size: 13px; }
+.empty { margin: 0; padding: 12px 4px; color: var(--fg-3); font-size: 13px; }
 .error { margin: 16px 24px 0; padding: 10px 14px; border-radius: 6px; background: var(--danger-tint); color: var(--danger); }
 /* Two columns cannot share one header row with four titles, so each column names itself in the lane. */
 @media (max-width: 1100px) {

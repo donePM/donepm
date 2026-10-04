@@ -39,25 +39,25 @@ const poll = computed(() => {
         <path class="bang-line" d="M8 3.5v5.5" stroke-width="2" stroke-linecap="round" />
         <circle class="bang-dot" cx="8" cy="12" r="1.2" />
       </svg>
-      <span class="sr-only">{{ label }}</span>
+      <span class="sr">{{ label }}</span>
     </RouterLink>
-    <span v-else-if="state === 'ok'" class="health"><span class="dot dot-good" aria-hidden="true"></span><span class="sr-only">All systems working</span></span>
-    <span v-else class="health"><span class="dot dot-off" aria-hidden="true"></span><span class="sr-only">Checking…</span></span>
+    <span v-else-if="state === 'ok'" class="health"><span class="dot ok" aria-hidden="true"></span><span class="sr">All systems working</span></span>
+    <span v-else class="health"><span class="dot off" aria-hidden="true"></span><span class="sr">Checking…</span></span>
     <span :class="{ failed: poll.error }" :title="status?.lastPoll?.error">{{ poll.text }}</span>
   </div>
 </template>
 
 <style scoped>
-.status { margin-left: auto; display: flex; align-items: center; gap: 12px; color: var(--ink-2); font-size: 13px; flex-wrap: wrap; }
+.status { margin-left: auto; display: flex; align-items: center; gap: 12px; color: var(--fg-2); font-size: 13px; flex-wrap: wrap; }
 .health { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; }
 .problem { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; color: var(--danger); }
 .problem:hover { color: var(--danger); background: var(--danger-tint); }
-.problem:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.problem:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .bang-line { fill: none; stroke: var(--card); }
 .bang-dot { fill: var(--card); }
-.needs-you { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px 2px 6px; border-radius: 12px; color: var(--amber); font-weight: 600; text-decoration: none; }
-.needs-you:hover, .needs-you:focus-visible { background: var(--amber-tint); }
-.needs-you:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.needs-you { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px 2px 6px; border-radius: 12px; color: var(--attn); font-weight: 600; text-decoration: none; }
+.needs-you:hover, .needs-you:focus-visible { background: var(--attn-tint); }
+.needs-you:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .tri-line { fill: none; stroke: var(--card); }
 .tri-dot { fill: var(--card); }
 .failed { color: var(--danger); }

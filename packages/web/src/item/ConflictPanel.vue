@@ -39,7 +39,7 @@ async function act(fn: (id: string) => Promise<void>) {
       the result as a push draft.
     </p>
     <div class="actions">
-      <button class="btn btn-primary" type="button" :disabled="busy || !item.agentSessionId" @click="act(resolveConflict)">Resolve with agent</button>
+      <button class="btn primary" type="button" :disabled="busy || !item.agentSessionId" @click="act(resolveConflict)">Resolve with agent</button>
       <button class="btn subtle" type="button" :disabled="busy" @click="act(dismissConflict)">I'll do it myself</button>
     </div>
     <p v-if="error" class="alert" role="alert">{{ error }}</p>
@@ -58,10 +58,10 @@ async function act(fn: (id: string) => Promise<void>) {
 
 <style scoped>
 .needs, .panel { border-radius: 8px; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
-.needs { background: var(--amber-tint); border: 1px solid var(--amber-border); }
+.needs { background: var(--attn-tint); border: 1px solid var(--attn-border); }
 .panel { background: var(--card); border: 1px solid var(--border); }
 h2 { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
-.hint { margin: 0; font-size: 13px; color: var(--ink-2); }
+.hint { margin: 0; font-size: 13px; color: var(--fg-2); }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .files { margin: 0; padding-left: 18px; font-size: 12px; overflow-wrap: anywhere; }
 </style>
