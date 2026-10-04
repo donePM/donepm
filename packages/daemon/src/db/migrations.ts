@@ -221,4 +221,6 @@ export const MIGRATIONS: readonly Migration[] = [
   `ALTER TABLE items ADD COLUMN pr_status TEXT;`,
   // The user's per-item auto-merge choice for someone else's pull request (D47); NULL: the repo's default.
   `ALTER TABLE items ADD COLUMN auto_merge INTEGER;`,
+  // Auto-merge held after a refusal that passes (issue #146, D47), as JSON `{ head, mergeState }`.
+  `ALTER TABLE items ADD COLUMN auto_merge_held TEXT;`,
 ];

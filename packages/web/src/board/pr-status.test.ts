@@ -9,6 +9,7 @@ describe("prStatusChips (D47)", () => {
       "Conflicts/bad", "CI failed/bad", "You approved/ok",
     ]);
     expect(texts({ mergeable: "MERGEABLE", base: "main", checks: "PENDING" })).toEqual(["CI running/wait", "Not reviewed by you/plain"]);
+    expect(texts({ mergeable: "MERGEABLE", mergeState: "BEHIND", base: "main", checks: "SUCCESS" })).toEqual(["Behind main/wait", "CI green/ok", "Not reviewed by you/plain"]);
   });
 
   it("keeps a value it does not know, and shows nothing without a status", () => {

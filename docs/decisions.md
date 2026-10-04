@@ -427,7 +427,11 @@ and it is mergeable, the card offers Merge; the click is the user's approval, li
 per-item "merge automatically" checkbox, defaulting to a per-repo setting that is off, lets the
 daemon merge as soon as those three hold; turning it on is the approval given in advance (D2). The
 merge leaves the author's branch alone (no `--delete-branch`). A refused auto-merge turns the
-item's checkbox off instead of retrying every poll. A reviewed PR stays on the board until GitHub
+item's checkbox off instead of retrying every poll. Issue #146 narrowed that: a branch behind its
+base (`mergeStateStatus` `BEHIND`) blocks the merge like failing checks, and a refusal that passes
+on its own (behind, checks pending, a branch moved) keeps the checkbox on, held until the PR's
+head commit or merge state changes, since Dependabot or the author usually updates the branch and
+the user expects the merge then. A reviewed PR stays on the board until GitHub
 says it is merged or closed, so the merge stays in reach.
 
 ## Open (not decided)

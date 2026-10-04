@@ -14,6 +14,8 @@ const PullRequestNode = z
     state: z.string(),
     closedAt: z.string().nullish(),
     mergeable: z.string(),
+    mergeStateStatus: z.string().nullish(),
+    headRefOid: z.string().nullish(),
     baseRefName: z.string(),
     reviewDecision: z.string().nullish(),
     viewerLatestReview: z.object({ state: z.string() }).passthrough().nullish(),
@@ -40,7 +42,7 @@ export interface PrRef {
 }
 
 const FIELDS =
-  "number state closedAt mergeable reviewDecision viewerLatestReview { state } baseRefName " +
+  "number state closedAt mergeable mergeStateStatus headRefOid reviewDecision viewerLatestReview { state } baseRefName " +
   "commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }";
 
 export function prStatusQuery(refs: readonly PrRef[]): string {
@@ -83,6 +85,8 @@ export async function fetchPrStatuses(exec: Exec, refs: readonly PrRef[]): Promi
         state: pr.state,
         ...(pr.closedAt ? { closedAt: pr.closedAt } : {}),
         mergeable: pr.mergeable,
+        ...(pr.mergeStateStatus ? { mergeState: pr.mergeStateStatus } : {}),
+        ...(pr.headRefOid ? { head: pr.headRefOid } : {}),
         base: pr.baseRefName,
         ...(pr.reviewDecision ? { reviewDecision: pr.reviewDecision } : {}),
         ...(pr.viewerLatestReview ? { viewerReview: pr.viewerLatestReview.state } : {}),
