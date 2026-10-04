@@ -261,15 +261,67 @@ export function agentFailed(
  * (which belongs to that directory) are cleared, so a retry starts fresh. The branch is kept.
  */
 export function worktreeRemoved(item: WorkItem, ctx: Ctx, payload: Record<string, unknown> = {}): Transition {
-  const t = apply(
-    { name: "worktreeRemoved", from: ["done", "failed"], to: item.state, actor: "user", event: "worktree.removed" },
+  return withoutWorktree(
+    apply(
+      { name: "worktreeRemoved", from: ["done", "failed"], to: item.state, actor: "user", event: "worktree.removed" },
+      item,
+      ctx,
+      undefined,
+      payload,
+    ),
+  );
+}
+
+/**
+ * The daemon removed a done item's worktree because its pull request was merged and the user
+ * turned on `removeWorktreeOnMerge` (decision D33). Same effect as the user's button; the event
+ * carries `reason: "pr_merged"` and the PR.
+ */
+export function worktreeRemovedOnMerge(item: WorkItem, ctx: Ctx, payload: Record<string, unknown> = {}): Transition {
+  return withoutWorktree(
+    apply(
+      { name: "worktreeRemovedOnMerge", from: ["done"], to: "done", actor: "system", event: "worktree.removed" },
+      item,
+      ctx,
+      undefined,
+      { ...payload, reason: "pr_merged" },
+    ),
+  );
+}
+
+function withoutWorktree(t: Transition): Transition {
+  const { worktreePath: _path, agentSessionId: _session, ...rest } = t.item;
+  return { ...t, item: rest };
+}
+
+/** The pull request a done item's draft opened was merged on GitHub (D33). Not a state change. */
+export function prMerged(item: WorkItem, ctx: Ctx, payload: Record<string, unknown> = {}): Transition {
+  return apply(
+    { name: "prMerged", from: ["done"], to: "done", actor: "system", event: "item.pr_merged" },
     item,
     ctx,
     undefined,
     payload,
   );
-  const { worktreePath: _path, agentSessionId: _session, ...rest } = t.item;
-  return { ...t, item: rest };
+}
+
+/**
+ * The PR was merged but the daemon left the worktree in place, e.g. because it holds uncommitted
+ * changes (D33). `reason` is what the card shows.
+ */
+export function worktreeRemoveSkipped(
+  item: WorkItem,
+  ctx: Ctx,
+  reason: string,
+  details: Record<string, unknown> = {},
+): Transition {
+  return apply(
+    { name: "worktreeRemoveSkipped", from: ["done"], to: "done", actor: "system", event: "worktree.remove_skipped" },
+    item,
+    ctx,
+    undefined,
+    { ...details, reason },
+  );
 }
 
 const ALL_STATES: ItemState[] = ["ready", "running", "needs_you", "done", "failed"];
