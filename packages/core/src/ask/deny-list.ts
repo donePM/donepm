@@ -5,10 +5,31 @@
 export const BLOCKED_COMMANDS = ["gh", "glab", "jira", "az", "acli", "security"] as const;
 
 /**
+ * Defence in depth only (issue #170): `security` spelled out by path or behind a launcher. These
+ * rules are bypassable (a copy of the binary, a symlink, `osascript`, a script that calls the
+ * Security framework) and are not what keeps the Keychain closed. The agent's sandbox is: it denies
+ * reading `~/Library/Keychains` (the daemon's agent settings, D50).
+ */
+export const SPELLED_OUT_KEYCHAIN_DENY_RULES = [
+  "Bash(/usr/bin/security *)",
+  "Bash(env security *)",
+  "Bash(env /usr/bin/security *)",
+  "Bash(/usr/bin/env security *)",
+  "Bash(/usr/bin/env /usr/bin/security *)",
+  "Bash(command security *)",
+  "Bash(exec security *)",
+  "Bash(xcrun security *)",
+] as const;
+
+/**
  * Deny rules passed via `--settings`, on top of the filtered `PATH` (spec 9.1). Both together:
  * the rules stop a command spelled out in Bash, the `PATH` stops it being found at all.
  */
-export const DENY_RULES = [...BLOCKED_COMMANDS.map((c) => `Bash(${c} *)`), "Bash(git push*)"] as const;
+export const DENY_RULES = [
+  ...BLOCKED_COMMANDS.map((c) => `Bash(${c} *)`),
+  "Bash(git push*)",
+  ...SPELLED_OUT_KEYCHAIN_DENY_RULES,
+] as const;
 
 /**
  * A `read_only` playbook (D42) also loses every tool that writes files or reaches the web. Deny

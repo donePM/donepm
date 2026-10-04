@@ -505,9 +505,33 @@ The agent's side gets more blocks:
 - `AZURE_DEVOPS_EXT_PAT` and `ATLASSIAN_API_TOKEN` are dropped from its environment.
 - `AZURE_CONFIG_DIR` points at the empty config directory.
 
-One residual: an item that `security` created trusts `security`. An agent that spells out
-`/usr/bin/security` gets past both the deny rule and `PATH`. The same holds today for the token
-`gh` keeps in the Keychain. Closing that needs the agent sandbox, not a rule.
+An item that `security` created trusts `security`, so an agent that spells out
+`/usr/bin/security` would get past both the deny rule and `PATH`; the token `gh` keeps in the
+Keychain is exposed the same way. The agent's sandbox closes that (#170), not a rule:
+- Claude Code's `--settings` sets `sandbox.filesystem.denyRead` to `~/Library/Keychains` (and the
+  absolute path under the agent's `HOME`). The Security framework reads the login keychain file in
+  the calling process, so inside the sandbox every lookup comes back "item not found". Tested with
+  `sandbox-exec` and a profile shaped like the one Claude Code generates: `/usr/bin/security` by
+  path, through `env`, `bash -c` and `osascript`'s `do shell script`, Python calling
+  `SecKeychainFindGenericPassword`, and `cp` or `ln` of the keychain file all fail. The same profile
+  without the deny hands the item out.
+- `Read(~/Library/Keychains/**)` is denied too: Read, Grep and Glob do not run in the sandbox.
+- Deny rules for `/usr/bin/security`, `env security`, `/usr/bin/env security`, `command`, `exec`
+  and `xcrun` stay as defence in depth. They are bypassable and are not the fix.
+
+What remains open:
+- Claude Code's sandbox always allows the mach lookups of `com.apple.SecurityServer` and
+  `com.apple.securityd.xpc`, and no setting removes them. Denying them would also stop the read,
+  but we cannot. Items in the data protection keychain (iCloud Keychain, apps with an access group)
+  are served by `securityd` over that channel, not from a file; a command-line tool without the
+  entitlement gets none of them, and neither donePM's tokens nor `gh`'s live there.
+- A tool that does not run in the sandbox and is not the Read family, such as an MCP server the
+  user configured, is not covered. MCP servers stay behind their permission asks (D27).
+- A git credential helper backed by the Keychain (`osxkeychain`) fails inside the sandbox, so an
+  agent's `git fetch` over https from a private remote fails. That is intended.
+- Codex (#137) follows when its adapter lands: its sandbox profile needs the same check.
+- The live check (`DONEPM_LIVE=1`, `runner.live.test.ts`) is the proof against the real CLI; it is
+  not run in CI.
 
 The PR and CI watchers work per connection: a PR is watched while its own host is ready, so one
 logged-out host no longer stops the watching of the others.
