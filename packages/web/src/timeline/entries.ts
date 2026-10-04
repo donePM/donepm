@@ -238,6 +238,8 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: R
     }
     case "pr.feedback_dismissed":
       return { tone: "user", text: "You marked the review feedback done" };
+    case "pr.commented":
+      return { tone: "user", text: "You commented on the pull request", ...(str(p.body) ? { detail: str(p.body) } : {}) };
     case "item.pr_merged":
       return { tone: "system", text: `${prName(p.number)} merged` };
     case "worktree.removed": {

@@ -1,3 +1,5 @@
+import type { PrStatus } from "../pr/status.js";
+
 /**
  * An issue to work on, or someone else's pull request that is assigned to the user or asks for their
  * review (D40, D47).
@@ -20,6 +22,8 @@ export interface WorkItem {
   labels: string[];
   /** Login of whoever opened the pull request (`dependabot[bot]`, a colleague); pull requests only (D47). */
   author?: string;
+  /** Where someone else's pull request stands on GitHub, from the last poll (D47). */
+  prStatus?: PrStatus;
   state: ItemState;
   /** Playbook name. */
   playbook: string;

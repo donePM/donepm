@@ -39,6 +39,7 @@ export const EVENT_TYPES = [
   "pr.conflict_dismissed",
   "pr.feedback",
   "pr.feedback_dismissed",
+  "pr.commented",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

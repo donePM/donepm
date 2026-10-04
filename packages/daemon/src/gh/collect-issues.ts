@@ -2,6 +2,7 @@ import { externalIdOf, type Ctx, type WorkItem } from "@donepm/core";
 import type { Config } from "../config/config.js";
 import type { Db } from "../db/database.js";
 import type { EventStore } from "../events/store.js";
+import { refreshPrStatuses } from "../items/pr-status.js";
 import { applyClosedUpstream, issueOrigin, syncIssues } from "../items/sync.js";
 import type { ItemStore } from "../items/store.js";
 import type { Log } from "../log.js";
@@ -112,6 +113,10 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
         if ((await fetchIssueState(exec, repository!, Number(number))) === "CLOSED") tombstones.markClosed(t.externalId);
       }
     }
+
+    // Where the pull requests of others stand: conflicts, reviews, checks (D47). Not a source: a
+    // failed read leaves the last status in place.
+    await refreshPrStatuses(deps, (origin) => managed.has(origin));
 
     const count = new Set(issues.map(externalIdOf)).size;
     log.info({ issues: count, collected: synced.collected.length, updated: synced.updated.length, failed: errors.length }, "poll done");

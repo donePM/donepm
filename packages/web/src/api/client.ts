@@ -54,6 +54,7 @@ export const api = {
   dismissConflict: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/conflict/dismiss`),
   addressFeedback: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/feedback/address`),
   dismissFeedback: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/feedback/dismiss`),
+  commentOnPr: (id: string, body: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/pr/comment`, { body }),
   dismiss: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/dismiss`),
   transcript: (id: string, after?: string) =>
     call<TranscriptMessage[]>(

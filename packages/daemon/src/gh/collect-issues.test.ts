@@ -335,6 +335,34 @@ describe("collectIssues", () => {
     });
   });
 
+  describe("pull request status (D47)", () => {
+    it("reads conflicts, reviews and checks of the pull requests on the board in one call", async () => {
+      let prs = fixture("gh/search-prs-dependabot.json");
+      const exec = fakeExec({
+        ...ready,
+        "gh search issues": ok(fixture("gh/search-issues-empty.json")),
+        "gh search prs --review-requested=@me": ok(fixture("gh/search-prs-empty.json")),
+        "gh search prs --assignee=@me": () => ok(prs),
+        "gh api graphql": { code: 1, stdout: fixture("gh/pr-status-not-found.json"), stderr: "gh: Could not resolve" },
+        "gh issue view": ok(fixture("gh/issue-view-open.json")),
+      });
+      const { deps, pushed } = setup(exec, silentLog, { "github.com/donepm/donepm": { assignOnStart: false, managed: true } });
+      await collectIssues(deps);
+      // The recorded answer resolves the first pull request asked (#88, collected first) and not the second.
+      const graphql = exec.calls.filter((c) => c.args[1] === "graphql");
+      expect(graphql).toHaveLength(1);
+      expect(deps.items.byExternalId("donePM/donepm#88")!.item.prStatus).toEqual({ mergeable: "UNKNOWN", base: "main", checks: "SUCCESS" });
+      expect(deps.items.byExternalId("donePM/donepm#87")!.item.prStatus).toBeUndefined();
+
+      // A reviewed pull request that left the searches is still read.
+      prs = fixture("gh/search-prs-empty.json");
+      pushed.length = 0;
+      await collectIssues(deps);
+      expect(exec.calls.filter((c) => c.args[1] === "graphql")).toHaveLength(2);
+      expect(pushed).toHaveLength(0);
+    });
+  });
+
   describe("unmanaged repositories (D46)", () => {
     const unmanaged = { "github.com/acme/widgets": { assignOnStart: false, managed: false } };
 
