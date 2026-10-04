@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
+import dependabotBody from "./fixtures/dependabot-body.md?raw";
 import { renderMarkdown, repoOf } from "./render";
 
 const repo = { owner: "acme", name: "shop" };
@@ -88,24 +89,106 @@ describe("renderMarkdown", () => {
   });
 });
 
+describe("renderMarkdown with embedded HTML", () => {
+  const dom = (src: string, r = repo) => {
+    const el = document.createElement("div");
+    el.innerHTML = renderMarkdown(src, r);
+    return el;
+  };
+
+  it("renders a Dependabot body like GitHub", () => {
+    // Recorded from donePM/donepm#85, trimmed to a few entries per list.
+    const el = dom(dependabotBody, { owner: "donePM", name: "donepm" });
+    const details = el.querySelectorAll("details");
+    expect(details).toHaveLength(2);
+    expect(details[0]!.querySelector("summary")!.textContent).toBe("Release notes");
+    expect(details[0]!.querySelector("blockquote h2")!.textContent).toBe("v3.0.0");
+    expect(details[1]!.querySelectorAll("li")).toHaveLength(4);
+    expect(el.textContent).not.toMatch(/<\/?(details|summary|p|ul|li|a|code|h2|blockquote)\b/);
+    // The zero-width space Dependabot puts after `@` stays, so no mention link is made.
+    expect(el.querySelector("li code")!.textContent).toBe("@\u200bppkarwasz");
+    expect(el.innerHTML).not.toContain("raw HTML omitted");
+    const link = el.querySelector('a[href="https://github.com/ppkarwasz"]')!;
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(el.querySelector('a[href="https://github.com/dependabot/fetch-metadata"]')).not.toBeNull();
+  });
+
+  it("renders inline tags inside Markdown", () => {
+    const out = html("Press <kbd>Ctrl</kbd>, H<sub>2</sub>O, x<sup>2</sup>, <b>bold</b>");
+    expect(out).toBe("<p>Press <kbd>Ctrl</kbd>, H<sub>2</sub>O, x<sup>2</sup>, <b>bold</b></p>\n");
+  });
+
+  it("keeps Markdown working between HTML blocks", () => {
+    const el = dom("<details open>\n<summary>More</summary>\n\n- **one**\n- two\n\n</details>");
+    expect(el.querySelector("details")!.hasAttribute("open")).toBe(true);
+    expect(el.querySelector("details ul strong")!.textContent).toBe("one");
+  });
+
+  it("treats links and images in raw HTML like Markdown ones", () => {
+    const el = dom('<a href="docs/a.md">rel</a> <img src="./i.png" alt="i"> <img src="https://tracker.example/p.gif" alt="t">');
+    expect(el.querySelector("a")!.getAttribute("href")).toBe("https://github.com/acme/shop/blob/HEAD/docs/a.md");
+    expect(el.querySelector("img")!.getAttribute("src")).toBe("https://github.com/acme/shop/raw/HEAD/i.png");
+    expect(el.querySelectorAll("img")).toHaveLength(1);
+    const tracker = el.querySelector('a[href="https://tracker.example/p.gif"]')!;
+    expect(tracker.textContent).toBe("t");
+    expect(tracker.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("does not link references inside raw links", () => {
+    expect(html('<a href="https://example.com">see #13</a>')).not.toContain("issues/13");
+  });
+
+  it("prefixes ids and names so a body cannot clobber the page", () => {
+    const el = dom('<a id="app" name="x">a</a>');
+    expect(el.querySelector("a")!.id).toBe("user-content-app");
+  });
+});
+
 describe("renderMarkdown never lets script through", () => {
   it.each([
     ["script tag", "<script>alert(1)</script>"],
+    ["inline script", "text <script>alert(1)</script> more"],
     ["onerror", '<img src="x" onerror="alert(1)">'],
+    ["onclick", '<details><summary onclick="alert(1)">s</summary></details>'],
     ["iframe", '<iframe src="https://evil.example"></iframe>'],
+    ["javascript: raw link", '<a href="javascript:alert(1)">x</a>'],
+    ["javascript: entity link", '<a href="jav&#x61;script:alert(1)">x</a>'],
+    ["svg", '<svg><a href="javascript:alert(1)"><text>x</text></a></svg>'],
+    ["data: raw image", '<img src="data:image/svg+xml,<svg onload=alert(1)>">'],
     ["javascript: link", "[x](javascript:alert(1))"],
     ["javascript: autolink", "<javascript:alert(1)>"],
     ["data: image", "![x](data:text/html,<script>alert(1)</script>)"],
   ])("%s", (_, src) => {
     const doc = document.createElement("div");
     doc.innerHTML = html(src);
-    expect(doc.querySelector("script, iframe")).toBeNull();
+    expect(doc.querySelector("script, iframe, svg")).toBeNull();
     for (const el of doc.querySelectorAll("*")) {
       for (const attr of el.attributes) {
         expect(attr.name).not.toMatch(/^on/i);
         expect(attr.value).not.toMatch(/^\s*(javascript|data):/i);
       }
     }
+  });
+});
+
+describe("renderMarkdown strips what GitHub strips", () => {
+  it.each([
+    ["style tag", "<style>body { display: none }</style>", "style"],
+    ["form", '<form action="https://evil.example"><input name="q"><button>go</button></form>', "form, input, button"],
+    ["media", '<video src="https://evil.example/v.mp4"></video><audio src="https://evil.example/a.mp3"></audio>', "video, audio"],
+    ["object", '<object data="https://evil.example/x"></object><embed src="https://evil.example/x">', "object, embed"],
+    ["base and meta", '<base href="https://evil.example/"><meta http-equiv="refresh" content="0">', "base, meta"],
+  ])("%s", (_, src, selector) => {
+    const doc = document.createElement("div");
+    doc.innerHTML = html(src);
+    expect(doc.querySelector(selector)).toBeNull();
+  });
+
+  it("drops style and srcset attributes", () => {
+    const out = html('<p style="position:fixed">x</p><img src="https://github.com/a.png" srcset="https://evil.example/b.png 2x">');
+    expect(out).not.toContain("style=");
+    expect(out).not.toContain("srcset");
   });
 });
 

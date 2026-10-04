@@ -1120,8 +1120,11 @@ for the whole view on a phone). Every scroll container is positioned, so visuall
 - The issue body and the PR draft body render as GitHub-flavoured Markdown (headings, lists, task
   lists read-only, tables, fenced code, quotes, strikethrough, autolinks). The PR draft has Write
   and Preview tabs; Preview shows the unsaved text and is where a new draft opens.
-- Markdown is untrusted: raw HTML is off in the parser (`markdown-it`) and the output goes through
-  DOMPurify before `v-html`. Links open in a new tab with `rel="noopener noreferrer"`; `javascript:`
+- Markdown is untrusted. Embedded HTML renders like on GitHub (Dependabot's `<details>` release
+  notes, `<kbd>`, `<sub>`), and the output goes through DOMPurify before `v-html`: no scripts,
+  event handlers, SVG, `<style>` or `style=`, forms, iframes, media or `srcset`; `id` and `name`
+  get a `user-content-` prefix. Links and images in raw HTML follow the same rules as Markdown
+  ones. Links open in a new tab with `rel="noopener noreferrer"`; `javascript:`
   and `data:` URLs never become links. Relative links resolve against
   `https://github.com/<owner>/<repo>/blob/HEAD/`, relative images against `…/raw/HEAD/`; without a
   GitHub repo they stay text. `#123`, `owner/repo#123` and `@user` link to GitHub.

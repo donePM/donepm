@@ -61,10 +61,33 @@ const html = computed(() => renderMarkdown(props.source, props.repo));
 .md :deep(th), .md :deep(td) { padding: 5px 10px; border: 1px solid var(--border); text-align: left; }
 .md :deep(th) { background: var(--muted); font-weight: 600; }
 .md :deep(img) { max-width: 100%; }
+.md :deep(details) { margin: 0 0 12px; }
+.md :deep(summary) {
+  cursor: pointer;
+  width: fit-content;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border-radius: 4px;
+  color: var(--fg-2);
+  font-weight: 500;
+}
+.md :deep(summary:hover) { background: var(--muted); color: var(--fg); }
+.md :deep(summary:focus-visible) { outline: 2px solid var(--primary-ring); outline-offset: 1px; }
+.md :deep(details[open] > summary) { margin-bottom: 8px; }
+.md :deep(details > :last-child) { margin-bottom: 0; }
+.md :deep(kbd) {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  border: 1px solid var(--border-2);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--muted);
+}
 
 .md.compact { line-height: 1.5; }
 .md.compact :deep(p), .md.compact :deep(ul), .md.compact :deep(ol), .md.compact :deep(blockquote),
-.md.compact :deep(pre), .md.compact :deep(table) { margin-bottom: 8px; }
+.md.compact :deep(pre), .md.compact :deep(table), .md.compact :deep(details) { margin-bottom: 8px; }
 .md.compact :deep(h1), .md.compact :deep(h2), .md.compact :deep(h3),
 .md.compact :deep(h4), .md.compact :deep(h5), .md.compact :deep(h6) {
   margin: 12px 0 6px;
