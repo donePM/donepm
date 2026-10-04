@@ -228,16 +228,14 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
           <DiffPanel v-else-if="tab === 'changes' && detail.worktreePath" :diff="diff" :loading="diffLoading" :error="diffError" @refresh="reloadDiff" />
           <TimelineList v-else-if="tab === 'timeline'" :events="detail.events" :asks="detail.asks" :now="now" />
         </div>
-        <aside class="side">
+        <aside v-if="detail.worktreePath" class="side">
           <WorktreeBlock
-            v-if="detail.worktreePath"
             :item-id="detail.id"
             :path="detail.worktreePath"
             :session-id="detail.agentSessionId"
             :removable="(detail.state === 'done' || detail.state === 'failed') && !detail.agent.running"
             @removed="reload"
           />
-          <TimelineList v-if="tab !== 'timeline'" :events="detail.events" :asks="detail.asks" :now="now" />
         </aside>
       </main>
     </template>
@@ -261,8 +259,6 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
 .layout { padding: 20px; display: flex; flex-wrap: wrap; gap: 20px; align-items: start; }
 .main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
 .side { flex: 1 1 300px; max-width: 380px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
-.tabs { overflow-x: auto; }
-.tabs a { white-space: nowrap; }
 .count { margin-left: 6px; }
 .needs {
   background: var(--attn-tint);
