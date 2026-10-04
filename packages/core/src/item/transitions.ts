@@ -104,6 +104,20 @@ export function answered(
 }
 
 /**
+ * The daemon, not the user, denied a pending ask because the process is being stopped (Stop or
+ * shutdown, spec 9.5). The item keeps its state; only the event is new.
+ */
+export function askDeniedBySystem(item: WorkItem, ctx: Ctx, askId: string, message: string): Transition {
+  return apply(
+    { name: "askDeniedBySystem", from: ["running", "needs_you"], to: item.state, actor: "system", event: "permission.answered" },
+    item,
+    ctx,
+    askId,
+    { behavior: "deny", message, reason: message },
+  );
+}
+
+/**
  * The daemon restarted while the agent was running or mid-turn waiting on a question (spec 9.5).
  * The process is gone; the item waits for the user to resume the session.
  */

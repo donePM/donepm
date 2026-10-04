@@ -1,5 +1,5 @@
 import {
-  agentAsked, agentFailed, answered, answeredInput, checkAnswers, isQuestionTool, questionsOf, type Answers, autoAllowed, isRuleOfferable, matchingDomain, webFetchHost, toolSummary, turnEnded, turnStarted,
+  agentAsked, agentFailed, answered, askDeniedBySystem, interrupted, answeredInput, checkAnswers, isQuestionTool, questionsOf, type Answers, autoAllowed, isRuleOfferable, matchingDomain, webFetchHost, toolSummary, turnEnded, turnStarted,
   type Ctx, type PermissionRule, type Playbook, type TranscriptKind, type WorkItem,
 } from "@donepm/core";
 import type { AskStore } from "../asks/store.js";
@@ -15,6 +15,8 @@ import type { AgentProcess, ProcessFactory } from "./process.js";
 
 export const STDERR_TAIL_LINES = 50;
 export const KILL_GRACE_MS = 5_000;
+export const DENY_ON_SHUTDOWN = "donePM is shutting down; the ask was not answered.";
+export const DENY_ON_STOP = "The user stopped the agent; the ask was not answered.";
 
 export interface RunnerDeps {
   items: ItemStore;
@@ -61,6 +63,10 @@ interface Session {
   /** The user pressed Stop: the item fails with a reason it can be retried from. */
   stoppedByUser: boolean;
   done: boolean;
+  /** Why asks are denied from now on: set when the process is being stopped. */
+  closing?: string;
+  /** The item was already marked interrupted for this stop. */
+  interruptedNoted?: boolean;
   /** Tool calls without a result yet, by tool_use id, in call order. */
   tools: Map<string, CurrentTool>;
   exited?: Promise<void>;
@@ -231,6 +237,8 @@ export class AgentRunner {
     if (!s?.proc) throw new StopError("no agent is running for this item");
     if (!s.stoppedByUser) {
       s.stoppedByUser = true;
+      s.closing = DENY_ON_STOP;
+      this.denyPending(s, "stopped by you");
       s.proc.kill("SIGTERM");
       if (!s.done) {
         const timer = setTimeout(() => {
@@ -248,6 +256,8 @@ export class AgentRunner {
     const live = [...this.sessions.values()].filter((s) => s.proc);
     for (const s of live) {
       s.stopping = true;
+      s.closing = DENY_ON_SHUTDOWN;
+      this.denyPending(s, "donePM is shutting down");
       s.proc!.kill("SIGTERM");
     }
     const exited = Promise.all(live.map((s) => s.exited));
@@ -260,6 +270,33 @@ export class AgentRunner {
       await exited;
     }
     clearTimeout(timer);
+  }
+
+  /**
+   * Answer every pending ask of the process with a deny before it is signalled, so the agent does not
+   * wait on a question nobody can answer (spec 9.5). The item keeps its state; if it waited on those
+   * asks it is interrupted, to be resumed.
+   */
+  private denyPending(session: Session, interruptReason: string): void {
+    const message = session.closing;
+    if (!message || !session.proc) return;
+    const pending = this.deps.asks.pending(session.itemId);
+    if (pending.length === 0) return;
+    for (const ask of pending) {
+      const line = askAnswerLine(ask.requestId, { behavior: "deny", message });
+      session.proc.write(line);
+      this.deps.asks.setState(ask.id, "denied", this.deps.ctx.now(), message);
+      this.store(session, "raw", JSON.parse(line));
+      const item = this.item(ask.itemId);
+      if (item.state === "running" || item.state === "needs_you") {
+        this.deps.writer.commit(askDeniedBySystem(item, this.deps.ctx, ask.id, message));
+      }
+    }
+    const item = this.item(session.itemId);
+    if (item.state === "needs_you" && !session.interruptedNoted) {
+      session.interruptedNoted = true;
+      this.deps.writer.commit(interrupted(item, this.deps.ctx, interruptReason));
+    }
   }
 
   private ingest(session: Session, line: string): void {
@@ -299,7 +336,7 @@ export class AgentRunner {
     let item = this.item(session.itemId);
     // Persist the moment it arrives: it is what --resume needs after a crash.
     if (item.agentSessionId !== sessionId) item = this.deps.writer.save({ ...item, agentSessionId: sessionId });
-    if (!first && startedOwnTurn && item.state === "needs_you" && this.deps.asks.pending(item.id).length === 0) {
+    if (!first && startedOwnTurn && !session.closing && item.state === "needs_you" && this.deps.asks.pending(item.id).length === 0) {
       // A second init: the CLI started a turn on its own (spec 9.3).
       this.deps.writer.commit(turnStarted(item, this.deps.ctx));
     }
@@ -316,6 +353,8 @@ export class AgentRunner {
     if (item.state === "running" || item.state === "needs_you") {
       this.deps.writer.commit(agentAsked(item, this.deps.ctx, ask.id, { toolName }));
     }
+    // A question that arrives while the process is being stopped cannot be answered either.
+    if (session.closing) this.denyPending(session, session.stoppedByUser ? "stopped by you" : "donePM is shutting down");
   }
 
   /**

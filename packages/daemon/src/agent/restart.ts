@@ -5,6 +5,7 @@ import type { ItemStore } from "../items/store.js";
 import type { Log } from "../log.js";
 
 export const RESTART_REASON = "daemon restarted";
+export const EXPIRED_REASON = "donePM was not running when this was asked";
 
 /**
  * On start no agent process exists (spec 9.5). Items left mid-turn (running, or waiting on a
@@ -15,7 +16,7 @@ export const RESTART_REASON = "daemon restarted";
 export function recoverAfterRestart(deps: { items: ItemStore; asks: AskStore; writer: ItemWriter; ctx: Ctx; log: Log }): void {
   const asked = new Set<string>();
   for (const ask of deps.asks.inState("pending")) {
-    deps.asks.setState(ask.id, "expired", deps.ctx.now());
+    deps.asks.setState(ask.id, "expired", deps.ctx.now(), EXPIRED_REASON);
     asked.add(ask.itemId);
   }
   for (const { item } of deps.items.all()) {

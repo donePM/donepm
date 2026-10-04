@@ -340,6 +340,63 @@ describe("AgentRunner", () => {
     expect(t.state("item-2").state).toBe("running");
   });
 
+  describe("pending asks when the process is closed", () => {
+    const ask = { type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" } } };
+
+    it("Stop denies the ask before SIGTERM and interrupts the item", async () => {
+      const t = setup();
+      const proc = await t.launch(t.addItem(1));
+      proc.emit(ask);
+      const [pending] = t.asks.forItem("item-1");
+      const sentAtSignal: number[] = [];
+      const kill = proc.kill.bind(proc);
+      proc.kill = (sig) => {
+        sentAtSignal.push(proc.sent().length);
+        kill(sig);
+      };
+      await t.runner.stop("item-1");
+
+      expect(sentAtSignal).toEqual([proc.sent().length]);
+      expect(proc.sent().at(-1)).toMatchObject({
+        response: { request_id: "r1", response: { behavior: "deny", message: expect.stringContaining("stopped") } },
+      });
+      expect(t.asks.get(pending!.id)).toMatchObject({ state: "denied", outcomeReason: expect.stringContaining("stopped") });
+      expect(t.asks.pending("item-1")).toEqual([]);
+      expect(t.state("item-1").state).toBe("needs_you");
+      expect(t.types("item-1")).toEqual(["agent.started", "permission.asked", "permission.answered", "agent.interrupted"]);
+      expect(t.events.forItem("item-1")[2]).toMatchObject({ actor: "system", refId: pending!.id, payload: { behavior: "deny" } });
+    });
+
+    it("shutdown denies every pending ask before SIGTERM", async () => {
+      const t = setup();
+      const proc = await t.launch(t.addItem(1));
+      proc.emit(ask, { ...ask, request_id: "r2" });
+      const sentBefore = proc.sent().length;
+      await t.runner.stopAll(10);
+
+      const denies = proc.sent().slice(sentBefore);
+      expect(denies.map((d) => d.response.request_id)).toEqual(["r1", "r2"]);
+      expect(denies.every((d) => d.response.response.behavior === "deny")).toBe(true);
+      expect(proc.signals).toEqual(["SIGTERM"]);
+      expect(t.asks.forItem("item-1").map((a) => [a.state, a.outcomeReason])).toEqual([
+        ["denied", "donePM is shutting down; the ask was not answered."],
+        ["denied", "donePM is shutting down; the ask was not answered."],
+      ]);
+      expect(t.types("item-1").filter((x) => x === "agent.interrupted")).toHaveLength(1);
+    });
+
+    it("denies a question that arrives while the process is closing", async () => {
+      const t = setup();
+      const proc = await t.launch(t.addItem(1));
+      proc.exitOnSignal = false;
+      const done = t.runner.stop("item-1", 1);
+      proc.emit(ask);
+      await done;
+      expect(proc.sent().at(-1).response.response.behavior).toBe("deny");
+      expect(t.asks.pending("item-1")).toEqual([]);
+    });
+  });
+
   describe("stop", () => {
     it("SIGTERMs the agent and fails a running item with a reason it can be retried from", async () => {
       const t = setup();

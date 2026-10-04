@@ -325,7 +325,7 @@ describe("daemon", { timeout: 30_000 }, () => {
     });
     first.last().emit({ type: "control_request", request_id: "r2", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "rm x" } } });
     expect((await get(d, `/api/items/${item.id}`)).body.state).toBe("needs_you");
-    // An agent mid-turn: the ask is answered later, the state is what shutdown keeps.
+    // An agent mid-turn: shutdown denies the open ask and keeps the state.
     await daemon!.stop();
     expect(first.last().signals).toEqual(["SIGTERM"]);
 
@@ -334,8 +334,8 @@ describe("daemon", { timeout: 30_000 }, () => {
     d = await start(h, undefined, undefined, second);
     const after = (await get(d, `/api/items/${item.id}`)).body;
     expect(after.state).toBe("needs_you");
-    expect(after.attention).toEqual({ kind: "resume", reason: "daemon restarted" });
-    expect(after.asks.map((a: any) => a.state)).toEqual(["allowed", "expired"]);
+    expect(after.attention).toEqual({ kind: "resume", reason: "donePM is shutting down" });
+    expect(after.asks.map((a: any) => a.state)).toEqual(["allowed", "denied"]);
     expect(second.spawned).toHaveLength(0);
 
     const resumed = await get(d, `/api/items/${item.id}/resume`, { method: "POST" });

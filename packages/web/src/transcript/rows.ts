@@ -58,7 +58,7 @@ export type Row =
    * The agent asked for permission. `ask` is the stored question while it waits for an answer;
    * `outcome` is how it ended, unknown for asks from before donePM kept them.
    */
-  | { type: "ask"; id: string; name: string; summary: string; input: unknown; reason?: string; ask?: PermissionAsk; outcome?: AskOutcome }
+  | { type: "ask"; id: string; name: string; summary: string; input: unknown; reason?: string; ask?: PermissionAsk; outcome?: AskOutcome; outcomeReason?: string }
   /** The end of a turn. */
   | { type: "result"; id: string; ok: boolean; label: string };
 
@@ -208,6 +208,11 @@ export function hasPendingAsk(row: Row): boolean {
 
 /** How an ask ended, in words. Questions are answered or declined, not allowed. */
 export function askOutcomeText(row: AskRow): string {
+  const text = outcomeWord(row);
+  return row.outcomeReason && text ? `${text}: ${row.outcomeReason}` : text;
+}
+
+function outcomeWord(row: AskRow): string {
   const question = row.name === "AskUserQuestion";
   switch (row.outcome) {
     case "pending":
@@ -318,6 +323,7 @@ export function toRows(messages: readonly TranscriptMessage[], asks: readonly Pe
           if (typeof req.decision_reason === "string") row.reason = req.decision_reason;
           if (ask?.state === "pending" && outcome === "pending") row.ask = ask;
           if (outcome) row.outcome = outcome;
+          if (ask?.outcomeReason) row.outcomeReason = ask.outcomeReason;
           flow.rows.push(row);
           break;
         }
