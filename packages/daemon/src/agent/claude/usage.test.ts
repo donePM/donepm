@@ -13,7 +13,7 @@ describe("usageFromResult", () => {
   });
 
   it("maps the usage of a recorded result", () => {
-    const line = readFileSync(new URL("../../fixtures/stream/basic.jsonl", import.meta.url), "utf8").split("\n").find((l) => l.includes('"type":"result"'))!;
+    const line = readFileSync(new URL("../../../fixtures/stream/basic.jsonl", import.meta.url), "utf8").split("\n").find((l) => l.includes('"type":"result"'))!;
     expect(usageFromResult(JSON.parse(line).usage)).toEqual({ inputTokens: 18 + 11565 + 39765, outputTokens: 519, cacheReadInputTokens: 39765, cacheWriteInputTokens: 11565 });
   });
 

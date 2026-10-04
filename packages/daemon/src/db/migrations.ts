@@ -226,4 +226,10 @@ export const MIGRATIONS: readonly Migration[] = [
   // The coding agent an item runs with (issue #136, D49), fixed once it has a session. NULL: not started
   // yet, or started before there was a choice, which was Claude Code.
   `ALTER TABLE items ADD COLUMN agent_kind TEXT;`,
+  // The agent that asked and what it asked about, in neutral words (issue #136). NULL: asked before,
+  // by Claude Code; the store derives the subject from the tool name and input.
+  `
+  ALTER TABLE asks ADD COLUMN agent_kind TEXT;
+  ALTER TABLE asks ADD COLUMN subject TEXT;
+  `,
 ];

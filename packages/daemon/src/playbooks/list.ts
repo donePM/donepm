@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import type { Playbook } from "@donepm/core";
-import { permissionRules } from "../agent/argv.js";
+import { permissionRules } from "../agent/claude/argv.js";
 import { toolNames } from "../bridge/tools.js";
 import { readPlaybookDir, repoPlaybookDir, type PlaybookFile, type PlaybookProblem } from "./load.js";
 

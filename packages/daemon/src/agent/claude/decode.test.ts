@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fixture } from "../test-support/fake-exec.js";
+import { fixture } from "../../test-support/fake-exec.js";
 import { parentToolUseId, questionsOf, taskEvent } from "@donepm/core";
 import { decodeLine, type Decoded } from "./decode.js";
 

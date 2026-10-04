@@ -1,7 +1,7 @@
-import { usageFromResult } from "./usage.js";
 import {
-  agentAsked, agentFailed, alwaysAllowed, answered, askDeniedBySystem, matchGrants, rawRule, repoName, type AskFlags, type GrantRef, interrupted, answeredInput, checkAnswers, isQuestionTool, questionsOf, type Answers, autoAllowed, isRuleOfferable, matchingDomain, webFetchHost, toolSummary, turnEnded, turnStarted,
-  type Ctx, type PermissionRule, type Playbook, type TranscriptKind, type WorkItem,
+  agentAsked, agentFailed, agentOf, alwaysAllowed, answered, askDeniedBySystem, matchGrants, rawRule, repoName, type GrantRef, interrupted, checkAnswers, type Answers, autoAllowed, isRuleOfferable, matchingDomain, toolSummary, turnEnded, turnStarted,
+  isStored, storedKind,
+  type AgentAsk, type AgentKind, type Ctx, type PermissionAsk, type PermissionRule, type Playbook, type TokenUsage, type TranscriptKind, type WorkItem,
 } from "@donepm/core";
 import type { GrantStore } from "../asks/grants.js";
 import type { AskStore } from "../asks/store.js";
@@ -11,8 +11,7 @@ import type { CurrentTool } from "../items/view.js";
 import type { Log } from "../log.js";
 import type { TranscriptStore } from "../transcript/store.js";
 import type { PushType } from "../ws/hub.js";
-import { askAnswerLine, claudeArgv, userTurnLine } from "./argv.js";
-import { decodeLine } from "./decode.js";
+import { adapterFor as builtInAdapter, type AgentAdapter, type AgentConnection, type AgentStep, type McpServer } from "./adapter.js";
 import type { AgentProcess, ProcessFactory } from "./process.js";
 
 export const STDERR_TAIL_LINES = 50;
@@ -29,8 +28,10 @@ export interface RunnerDeps {
   ctx: Ctx;
   log: Log;
   spawn: ProcessFactory;
-  /** Path of the `claude` binary. */
-  claudePath: () => string;
+  /** Detected path of an agent's program. Undefined: its name, looked up on `PATH`. */
+  agentPath: (kind: AgentKind) => string | undefined;
+  /** The adapter for a kind (issue #136). Absent: the built-in ones. */
+  adapterFor?: (kind: AgentKind) => AgentAdapter;
   /** Environment for the agent: filtered `PATH`, no tokens. */
   env: () => Promise<NodeJS.ProcessEnv>;
   maxConcurrent: () => number;
@@ -38,8 +39,8 @@ export interface RunnerDeps {
   onCountChanged?: (running: number) => void;
   /** The current tool of an item changed; the board shows it. */
   onActivity?: (itemId: string) => void;
-  /** Opens the draft gate for one process: writes its `--mcp-config` file, `close` revokes it. */
-  mcp?: (item: WorkItem, playbook: Playbook) => { configPath: string; close: () => void };
+  /** Opens the draft gate for one process: donePM's MCP server for it; `close` revokes it. */
+  mcp?: (item: WorkItem, playbook: Playbook) => { server: McpServer; close: () => void };
   /** Hosts whose WebFetch asks the daemon allows itself (D31). Absent or empty: every one asks. */
   webFetchDomains?: () => readonly string[];
   /** "Always allow" grants per repository (D38). Absent: every ask goes to the user. */
@@ -58,9 +59,13 @@ export interface LaunchInput {
 interface Session {
   itemId: string;
   proc?: AgentProcess;
+  adapter?: AgentAdapter;
+  conn?: AgentConnection;
   sessionId?: string;
-  /** A `result` closed the latest turn. Reset on every `init`. */
+  /** The latest turn ended. Reset when the next one starts. */
   turnClosed: boolean;
+  /** Usage the agent reported since the last turn ended; goes into `agent.turn_ended`. */
+  usage?: { usage?: TokenUsage; costUsd?: number };
   stderr: string[];
   /** Shutdown of the daemon: the item keeps its state. */
   stopping: boolean;
@@ -73,7 +78,7 @@ interface Session {
   interruptedNoted?: boolean;
   /** A read-only playbook (D42): the repository's "Always allow" grants do not apply. */
   readOnly?: boolean;
-  /** Tool calls without a result yet, by tool_use id, in call order. */
+  /** Tool calls without a result yet, by the agent's id, in call order. */
   tools: Map<string, CurrentTool>;
   exited?: Promise<void>;
 }
@@ -86,8 +91,9 @@ export class AgentBusyError extends Error {
 }
 
 /**
- * Runs one `claude` process per item (spec 9). Reads stdout line by line, stores what it reads,
- * and moves the item through the core transitions. Never fails on an unknown line.
+ * Runs one agent process per item (spec 9), through the adapter of the item's agent kind (issue
+ * #136). Reads stdout line by line, stores what it reads, and moves the item through the core
+ * transitions. Never fails on an unknown line.
  */
 export class AgentRunner {
   private readonly sessions = new Map<string, Session>();
@@ -102,7 +108,7 @@ export class AgentRunner {
     return this.sessions.has(itemId);
   }
 
-  /** A `claude` process is alive for the item (a reserved slot still preparing does not count). */
+  /** An agent process is alive for the item (a reserved slot still preparing does not count). */
   hasProcess(itemId: string): boolean {
     return this.sessions.get(itemId)?.proc !== undefined;
   }
@@ -138,22 +144,34 @@ export class AgentRunner {
   async launch(input: LaunchInput): Promise<void> {
     const session = this.sessions.get(input.item.id);
     if (!session) throw new Error("launch without reserve");
+    const kind = agentOf(input.item);
+    const adapter = (this.deps.adapterFor ?? builtInAdapter)(kind);
     const env = await this.deps.env();
     const mcp = this.deps.mcp?.(input.item, input.playbook);
-    const args = claudeArgv({
-      playbook: input.playbook,
-      ...(mcp ? { mcpConfigPath: mcp.configPath } : {}),
-      ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
-      ...(env.HOME ? { home: env.HOME } : {}),
-    });
-    const proc = this.deps.spawn(this.deps.claudePath(), args, { cwd: input.cwd, env });
+    let launched: { args: string[]; cleanup?: () => void };
+    try {
+      launched = adapter.launch({
+        itemId: input.item.id,
+        playbook: input.playbook,
+        ...(mcp ? { mcp: mcp.server } : {}),
+        ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
+        ...(env.HOME ? { home: env.HOME } : {}),
+      });
+    } catch (e) {
+      mcp?.close();
+      throw e;
+    }
+    const proc = this.deps.spawn(this.deps.agentPath(kind) ?? adapter.command, launched.args, { cwd: input.cwd, env });
     session.proc = proc;
+    session.adapter = adapter;
+    session.conn = adapter.connect();
     session.readOnly = input.playbook.readOnly === true;
     if (input.resumeSessionId) session.sessionId = input.resumeSessionId;
 
     session.exited = new Promise((resolve) => {
       proc.onExit((code, signal) => {
         mcp?.close();
+        launched.cleanup?.();
         this.exited(session, code, signal);
         resolve();
       });
@@ -171,18 +189,14 @@ export class AgentRunner {
       }
     });
 
-    const line = userTurnLine(input.prompt);
-    proc.write(line);
-    this.store(session, "user", JSON.parse(line));
+    this.run(session, session.conn.firstTurn(input.prompt));
   }
 
   /** Send the agent its next user message, e.g. the reason a draft was rejected. */
   say(itemId: string, text: string): void {
     const session = this.sessions.get(itemId);
-    if (!session?.proc) throw new Error("the agent for this item is not running");
-    const line = userTurnLine(text);
-    session.proc.write(line);
-    this.store(session, "user", JSON.parse(line));
+    if (!session?.proc || !session.conn) throw new Error("the agent for this item is not running");
+    this.run(session, session.conn.nextTurn(text));
   }
 
   /** Answer a pending permission question (spec 9.4). */
@@ -194,46 +208,46 @@ export class AgentRunner {
     if (!ask) throw new AskError(404, "ask not found");
     if (ask.state !== "pending") throw new AskError(409, `ask already ${ask.state}`);
     const session = this.sessions.get(ask.itemId);
-    if (!session?.proc) throw new AskError(409, "the agent for this item is not running");
+    if (!session?.proc || !session.conn) throw new AskError(409, "the agent for this item is not running");
 
     // "For this run" without suggested rules is a plain allow. Stored rules passed the guard already;
-    // check again because a blocked grant must never reach the CLI.
+    // check again because a blocked grant must never reach the agent.
     const granted = answer.behavior === "allow" && answer.scope === "run" ? ask.rules : [];
     if (!granted.every(isRuleOfferable)) throw new AskError(409, "this ask has a rule that may not be granted");
-    // "Always allow" (D38) answers with a plain allow: the CLI keeps asking, and the daemon answers
+    // "Always allow" (D38) answers with a plain allow: the agent keeps asking, and the daemon answers
     // from the grants, so removing one in Settings applies to this run too.
     const always = answer.behavior === "allow" && answer.scope === "always";
     if (always) {
-      if (!this.deps.grants) throw new AskError(409, "always allow is not available");
+      if (!this.deps.grants || !session.adapter?.capabilities.alwaysAllow) throw new AskError(409, "always allow is not available");
       if (ask.rules.length === 0) throw new AskError(409, "this ask has no rule to always allow");
       if (!ask.rules.every(isRuleOfferable)) throw new AskError(409, "this ask has a rule that may not be granted");
     }
 
-    // AskUserQuestion: Allow alone tells the agent "the user did not answer". Answers go in the input.
-    let input = ask.input;
+    // A question: Allow alone tells the agent "the user did not answer", so answers are required.
     let answers: Answers | undefined;
     if (answer.behavior === "allow") {
-      if (isQuestionTool(ask.toolName)) {
+      if (ask.subject.kind === "question") {
         if (!answer.answers) throw new AskError(400, "answer the questions or decline");
         try {
-          answers = checkAnswers(questionsOf(ask.input), answer.answers);
+          answers = checkAnswers(ask.subject.questions, answer.answers);
         } catch (err) {
           throw new AskError(400, (err as Error).message);
         }
-        input = answeredInput(ask.input, answers);
       } else if (answer.answers) {
-        throw new AskError(400, "only AskUserQuestion takes answers");
+        throw new AskError(400, "only a question takes answers");
       }
     }
 
-    const line =
+    const steps = session.conn.answerAsk(
+      ask,
       answer.behavior === "allow"
-        ? askAnswerLine(ask.requestId, { behavior: "allow", input, rules: granted })
-        : askAnswerLine(ask.requestId, { behavior: "deny", message: answer.message || "The user denied this.", interrupt: answer.interrupt });
-    session.proc.write(line);
+        ? { behavior: "allow", ...(granted.length ? { rules: granted } : {}), ...(answers ? { answers } : {}) }
+        : { behavior: "deny", message: answer.message || "The user denied this.", ...(answer.interrupt !== undefined ? { interrupt: answer.interrupt } : {}) },
+    );
     const at = this.deps.ctx.now();
+    this.writeAll(session, steps, false);
     this.deps.asks.setState(ask.id, answer.behavior === "allow" ? "allowed" : "denied", at);
-    this.store(session, "raw", JSON.parse(line));
+    this.recordAll(session, steps);
 
     const grants = always ? this.grant(ask.itemId, ask.id, ask.rules, `${ask.toolName}: ${toolSummary(ask.toolName, ask.input)}`, at) : [];
 
@@ -316,14 +330,14 @@ export class AgentRunner {
    */
   private denyPending(session: Session, interruptReason: string): void {
     const message = session.closing;
-    if (!message || !session.proc) return;
+    if (!message || !session.proc || !session.conn) return;
     const pending = this.deps.asks.pending(session.itemId);
     if (pending.length === 0) return;
     for (const ask of pending) {
-      const line = askAnswerLine(ask.requestId, { behavior: "deny", message });
-      session.proc.write(line);
+      const steps = session.conn.answerAsk(ask, { behavior: "deny", message });
+      this.writeAll(session, steps, false);
       this.deps.asks.setState(ask.id, "denied", this.deps.ctx.now(), message);
-      this.store(session, "raw", JSON.parse(line));
+      this.recordAll(session, steps);
       const item = this.item(ask.itemId);
       if (item.state === "running" || item.state === "needs_you") {
         this.deps.writer.commit(askDeniedBySystem(item, this.deps.ctx, ask.id, message));
@@ -337,83 +351,126 @@ export class AgentRunner {
   }
 
   private ingest(session: Session, line: string): void {
-    const d = decodeLine(line);
-    switch (d.type) {
-      case "malformed":
-        this.deps.log.warn({ itemId: session.itemId, line: line.slice(0, 200) }, "skipped malformed agent line");
-        return;
-      case "stream":
-        this.deps.push("stream.delta", { itemId: session.itemId, event: d.event });
-        return;
-      case "init":
-        this.onInit(session, d.sessionId, d.raw);
-        return;
-      case "message":
-        this.store(session, d.kind, d.raw);
-        this.track(session, d.kind, d.raw);
-        return;
-      case "ask":
-        this.store(session, "raw", d.raw);
-        this.onAsk(session, d.requestId, d.toolName, d.input, d.rules, d.reason, d.suggested, d.flags);
-        return;
-      case "result":
-        this.store(session, "result", d.raw);
-        this.onResult(session, d);
-        return;
+    const steps = session.conn!.decode(line);
+    if (steps.some((s) => s.type === "malformed")) {
+      this.deps.log.warn({ itemId: session.itemId, line: line.slice(0, 200) }, "skipped malformed agent line");
+    }
+    this.run(session, steps);
+  }
+
+  /** Act on a connection's steps in order. The board hears of tool changes once per batch. */
+  private run(session: Session, steps: readonly AgentStep[]): void {
+    let toolsChanged = false;
+    for (const step of steps) {
+      if (step.type !== "write" && isStored(step)) {
+        this.store(session, storedKind(step), step.raw);
+        continue;
+      }
+      switch (step.type) {
+        case "write":
+          session.proc!.write(step.line);
+          if (step.record) this.store(session, step.record.kind, step.record.raw);
+          break;
+        case "live":
+          this.deps.push("stream.delta", { itemId: session.itemId, event: step.event });
+          break;
+        case "session_bound":
+          this.onSessionBound(session, step.sessionId);
+          break;
+        case "turn_started":
+          this.onTurnStarted(session);
+          break;
+        case "tool_started":
+          session.tools.set(step.id, { name: step.name, summary: step.summary });
+          toolsChanged = true;
+          break;
+        case "tool_finished":
+          toolsChanged = session.tools.delete(step.id) || toolsChanged;
+          break;
+        case "ask":
+          this.onAsk(session, step.ask);
+          break;
+        case "usage":
+          session.usage = { ...session.usage, ...(step.usage ? { usage: step.usage } : {}), ...(step.costUsd !== undefined ? { costUsd: step.costUsd } : {}) };
+          break;
+        case "turn_ended":
+          this.onTurnEnded(session, step);
+          break;
+        case "malformed":
+          break;
+      }
+    }
+    if (toolsChanged) this.deps.onActivity?.(session.itemId);
+  }
+
+  /** Write a connection's lines to the agent without recording them yet. */
+  private writeAll(session: Session, steps: readonly AgentStep[], record: boolean): void {
+    for (const step of steps) {
+      if (step.type !== "write") continue;
+      session.proc!.write(step.line);
+      if (record && step.record) this.store(session, step.record.kind, step.record.raw);
     }
   }
 
-  private onInit(session: Session, sessionId: string, raw: unknown): void {
-    const first = session.sessionId === undefined && !session.turnClosed;
-    const startedOwnTurn = session.turnClosed;
-    session.sessionId = sessionId;
-    session.turnClosed = false;
-    this.store(session, "raw", raw);
+  /** Record what `writeAll` wrote, once the ask's state is stored. */
+  private recordAll(session: Session, steps: readonly AgentStep[]): void {
+    for (const step of steps) if (step.type === "write" && step.record) this.store(session, step.record.kind, step.record.raw);
+  }
 
-    let item = this.item(session.itemId);
-    // Persist the moment it arrives: it is what --resume needs after a crash.
-    if (item.agentSessionId !== sessionId) item = this.deps.writer.save({ ...item, agentSessionId: sessionId });
-    if (!first && startedOwnTurn && !session.closing && item.state === "needs_you" && this.deps.asks.pending(item.id).length === 0) {
-      // A second init: the CLI started a turn on its own (spec 9.3).
+  private onSessionBound(session: Session, sessionId: string): void {
+    session.sessionId = sessionId;
+    const item = this.item(session.itemId);
+    // Persist the moment it arrives: it is what a resume needs after a crash.
+    if (item.agentSessionId !== sessionId) this.deps.writer.save({ ...item, agentSessionId: sessionId });
+  }
+
+  private onTurnStarted(session: Session): void {
+    const startedOwnTurn = session.turnClosed;
+    session.turnClosed = false;
+    const item = this.item(session.itemId);
+    if (startedOwnTurn && !session.closing && item.state === "needs_you" && this.deps.asks.pending(item.id).length === 0) {
+      // A new turn after the last one ended: the agent started it on its own (spec 9.3).
       this.deps.writer.commit(turnStarted(item, this.deps.ctx));
     }
   }
 
-  private onAsk(
-    session: Session, requestId: string, toolName: string, input: unknown, rules: PermissionRule[], reason?: string,
-    suggested: PermissionRule[] = [], flags: AskFlags = { suppressAlwaysAllowRule: false, requiresUserInteraction: false },
-  ): void {
+  private onAsk(session: Session, asked: AgentAsk): void {
     const at = this.deps.ctx.now();
-    if (this.autoAllow(session, requestId, toolName, input, at)) return;
-    if (this.allowByGrant(session, requestId, toolName, input, suggested, flags, at)) return;
-    const ask = {
-      id: this.deps.ctx.newId(), itemId: session.itemId, requestId, toolName, input, state: "pending" as const, rules, ...(reason ? { reason } : {}),
-    };
+    if (this.autoAllow(session, asked, at)) return;
+    if (this.allowByGrant(session, asked, at)) return;
+    const ask: PermissionAsk = { ...this.askRecord(session, asked), state: "pending", rules: asked.rules?.offered ?? [], ...(asked.reason ? { reason: asked.reason } : {}) };
     this.deps.asks.insert(ask, at);
     const item = this.item(session.itemId);
     if (item.state === "running" || item.state === "needs_you") {
-      this.deps.writer.commit(agentAsked(item, this.deps.ctx, ask.id, { toolName }));
+      this.deps.writer.commit(agentAsked(item, this.deps.ctx, ask.id, { toolName: ask.toolName }));
     }
     // A question that arrives while the process is being stopped cannot be answered either.
     if (session.closing) this.denyPending(session, session.stoppedByUser ? "stopped by you" : "donePM is shutting down");
   }
 
+  private askRecord(session: Session, asked: AgentAsk) {
+    return {
+      id: this.deps.ctx.newId(), itemId: session.itemId, agentKind: session.adapter!.kind,
+      requestId: asked.requestId, toolName: asked.toolName, input: asked.input, subject: asked.subject,
+    };
+  }
+
   /**
-   * A WebFetch to a host on the user's list is answered here and never reaches the user (D31). Only
-   * WebFetch: the same host in a `--settings` rule would also open it to sandboxed Bash (D27).
+   * A plain read of one URL on a host on the user's list is answered here and never reaches the
+   * user (D31). Only such a read: the same host in a sandbox rule would also open it to commands (D27).
    */
-  private autoAllow(session: Session, requestId: string, toolName: string, input: unknown, at: string): boolean {
-    if (toolName !== "WebFetch" || !session.proc) return false;
-    const host = webFetchHost(input);
-    const domain = host && matchingDomain(host, this.deps.webFetchDomains?.() ?? []);
-    if (!host || !domain) return false;
+  private autoAllow(session: Session, asked: AgentAsk, at: string): boolean {
+    const host = asked.fetchHost;
+    if (!host || !session.proc || !session.conn) return false;
+    const domain = matchingDomain(host, this.deps.webFetchDomains?.() ?? []);
+    if (!domain) return false;
     const item = this.item(session.itemId);
     if (item.state !== "running" && item.state !== "needs_you") return false;
 
-    session.proc.write(askAnswerLine(requestId, { behavior: "allow", input }));
-    const ask = { id: this.deps.ctx.newId(), itemId: session.itemId, requestId, toolName, input, state: "allowed" as const, rules: [] };
+    this.writeAll(session, session.conn.answerAsk(asked, { behavior: "allow" }), false);
+    const ask: PermissionAsk = { ...this.askRecord(session, asked), state: "allowed", rules: [] };
     this.deps.asks.insert(ask, at);
-    this.deps.writer.commit(autoAllowed(item, this.deps.ctx, ask.id, { toolName, host, domain }));
+    this.deps.writer.commit(autoAllowed(item, this.deps.ctx, ask.id, { toolName: ask.toolName, host, domain }));
     return true;
   }
 
@@ -422,40 +479,36 @@ export class AgentRunner {
    * answered with a plain allow (D38). The grants are read on every ask, so a removal in Settings
    * applies to a running agent from its next ask on.
    */
-  private allowByGrant(
-    session: Session, requestId: string, toolName: string, input: unknown, suggested: PermissionRule[], flags: AskFlags, at: string,
-  ): boolean {
+  private allowByGrant(session: Session, asked: AgentAsk, at: string): boolean {
     // Grants were given for the user's own work; code under review asks every time (D42).
-    if (!this.deps.grants || !session.proc || session.closing || session.readOnly) return false;
+    if (!this.deps.grants || !asked.rules || !session.proc || !session.conn || session.closing || session.readOnly) return false;
     const repo = this.repoOf(session.itemId);
-    const grants = matchGrants(toolName, suggested, flags, this.deps.grants.active(repo));
+    const grants = matchGrants(asked.toolName, asked.rules.suggested, asked.rules.flags, this.deps.grants.active(repo));
     if (!grants) return false;
     const item = this.item(session.itemId);
     if (item.state !== "running" && item.state !== "needs_you") return false;
 
-    const line = askAnswerLine(requestId, { behavior: "allow", input });
-    session.proc.write(line);
-    this.store(session, "raw", JSON.parse(line));
+    this.writeAll(session, session.conn.answerAsk(asked, { behavior: "allow" }), true);
     const reason = `always allowed in ${repoName(repo)}: ${grants.map(rawRule).join(", ")}`;
-    const ask = { id: this.deps.ctx.newId(), itemId: session.itemId, requestId, toolName, input, state: "pending" as const, rules: [] };
+    const ask: PermissionAsk = { ...this.askRecord(session, asked), state: "pending", rules: [] };
     this.deps.asks.insert(ask, at);
     this.deps.asks.setState(ask.id, "allowed", at, reason);
     this.deps.grants.used(grants.map((g) => g.id), at);
     this.deps.writer.commit(autoAllowed(item, this.deps.ctx, ask.id, {
-      toolName, repo, grants: grants.map((g) => ({ grantId: g.id, toolName: g.toolName, ...(g.ruleContent !== undefined ? { ruleContent: g.ruleContent } : {}) })),
+      toolName: ask.toolName, repo, grants: grants.map((g) => ({ grantId: g.id, toolName: g.toolName, ...(g.ruleContent !== undefined ? { ruleContent: g.ruleContent } : {}) })),
     }));
     return true;
   }
 
-  private onResult(session: Session, d: { isError: boolean; subtype: string | undefined; raw: unknown }): void {
+  private onTurnEnded(session: Session, ended: { isError: boolean; detail?: string }): void {
     session.turnClosed = true;
+    const usage = session.usage;
+    session.usage = undefined;
     const item = this.item(session.itemId);
     if (item.state !== "running" || this.deps.asks.pending(item.id).length > 0) return;
-    const raw = d.raw as { total_cost_usd?: unknown; usage?: unknown };
-    const payload: Record<string, unknown> = { subtype: d.subtype ?? null, isError: d.isError };
-    if (typeof raw.total_cost_usd === "number") payload.costUsd = raw.total_cost_usd;
-    const usage = usageFromResult(raw.usage);
-    if (usage) payload.usage = usage;
+    const payload: Record<string, unknown> = { subtype: ended.detail ?? null, isError: ended.isError };
+    if (usage?.costUsd !== undefined) payload.costUsd = usage.costUsd;
+    if (usage?.usage) payload.usage = usage.usage;
     this.deps.writer.commit(turnEnded(item, this.deps.ctx, payload));
   }
 
@@ -476,31 +529,15 @@ export class AgentRunner {
 
     const item = this.item(session.itemId);
     if (item.state !== "running" && item.state !== "needs_you") return;
+    const name = session.adapter?.command ?? "the agent";
     const reason =
       code === -1
-        ? "claude could not be started"
+        ? `${name} could not be started`
         : signal
-          ? `claude was killed by ${signal}`
-          : `claude exited with code ${code} before finishing its turn`;
+          ? `${name} was killed by ${signal}`
+          : `${name} exited with code ${code} before finishing its turn`;
     this.deps.writer.commit(agentFailed(item, this.deps.ctx, reason, { stderrTail: session.stderr }));
     this.deps.log.warn({ itemId: item.id, code, signal }, reason);
-  }
-
-  /** Follow tool calls and their results for the "current tool" on the board. */
-  private track(session: Session, kind: TranscriptKind, raw: unknown): void {
-    if (kind !== "tool_use" && kind !== "tool_result") return;
-    const blocks = (raw as { message?: { content?: unknown } }).message?.content;
-    if (!Array.isArray(blocks)) return;
-    let changed = false;
-    for (const b of blocks as Array<Record<string, unknown>>) {
-      if (b.type === "tool_use" && typeof b.id === "string" && typeof b.name === "string") {
-        session.tools.set(b.id, { name: b.name, summary: toolSummary(b.name, b.input) });
-        changed = true;
-      } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
-        changed = session.tools.delete(b.tool_use_id) || changed;
-      }
-    }
-    if (changed) this.deps.onActivity?.(session.itemId);
   }
 
   private store(session: Session, kind: TranscriptKind, raw: unknown): void {

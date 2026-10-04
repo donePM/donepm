@@ -25,7 +25,7 @@ describe("recoverAfterRestart", () => {
       "github.com/o/r",
     );
     writer.commit(start(items.get("i1")!.item, ctx));
-    asks.insert({ id: "a1", itemId: "i1", requestId: "r1", toolName: "Bash", input: {}, state: "pending", rules: [] }, ctx.now());
+    asks.insert({ id: "a1", itemId: "i1", agentKind: "claude-code", requestId: "r1", toolName: "Bash", input: {}, subject: { kind: "tool", name: "Bash", input: {} }, state: "pending", rules: [] }, ctx.now());
 
     recoverAfterRestart({ items, asks, writer, ctx, log: silentLog });
 

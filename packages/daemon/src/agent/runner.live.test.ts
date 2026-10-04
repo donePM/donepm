@@ -28,7 +28,7 @@ describe.skipIf(!process.env.DONEPM_LIVE)("AgentRunner (live)", () => {
     const runner = new AgentRunner({
       items, writer, asks: new AskStore(db), transcript, ctx, log: silentLog, spawn: spawnProcess,
       push: () => {},
-      claudePath: () => "claude",
+      agentPath: () => undefined,
       env: () => agentEnv(process.env, { shimRoot: join(cwd, ".shims"), emptyConfigDir: join(cwd, ".no-credentials") }),
       maxConcurrent: () => 1,
     });

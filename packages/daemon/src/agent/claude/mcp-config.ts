@@ -5,11 +5,10 @@ export interface McpConfigInput {
   /** Directory owned by the daemon (mode 0700). */
   dir: string;
   itemId: string;
-  /** `node`, so the shim runs even when the filtered PATH lost it. */
-  nodePath: string;
-  bridgePath: string;
-  socketPath: string;
-  token: string;
+  /** donePM's MCP server: the shim, run with `node` so it starts even when the filtered PATH lost it. */
+  command: string;
+  args: string[];
+  env: Record<string, string>;
 }
 
 /**
@@ -18,15 +17,7 @@ export interface McpConfigInput {
  */
 export function writeMcpConfig(input: McpConfigInput): { path: string; remove: () => void } {
   const path = join(input.dir, `mcp-${input.itemId}.json`);
-  const config = {
-    mcpServers: {
-      donepm: {
-        command: input.nodePath,
-        args: [input.bridgePath],
-        env: { DONEPM_SOCKET: input.socketPath, DONEPM_TOKEN: input.token },
-      },
-    },
-  };
+  const config = { mcpServers: { donepm: { command: input.command, args: input.args, env: input.env } } };
   // The mode applies only to a new file.
   rmSync(path, { force: true });
   writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
