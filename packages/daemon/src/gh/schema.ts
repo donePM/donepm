@@ -27,6 +27,9 @@ export const ListIssuesSchema = z.array(ListIssueSchema);
 
 export const IssueStateSchema = z.object({ state: z.enum(["OPEN", "CLOSED"]) });
 
+/** `gh pr view <n> --json state,mergedAt`. */
+export const PrStateSchema = z.object({ state: z.enum(["OPEN", "CLOSED", "MERGED"]), mergedAt: z.string().nullable() });
+
 export function toSourceIssue(i: z.infer<typeof ListIssueSchema>, repository: string): SourceIssue {
   return {
     repository,

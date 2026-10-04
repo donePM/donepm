@@ -7,5 +7,7 @@ Recorded with `gh` 2.102.0 on 2026-10-03.
   replaced because the real issues are private.
 - `issue-list.json`: `gh issue list --assignee @me --state open --json number,title,body,labels,url` (fallback path), redacted the same way.
 - `issue-view-*.json`: `gh issue view <n> --repo <r> --json state`.
+- `pr-view-*.json`: `gh pr view <n> --repo <r> --json state,mergedAt`. Written by hand in gh's
+  shape (sorted keys, `mergedAt` null while open); re-record with a real PR when convenient.
 - `auth-status-*`: `gh auth status` output; account name replaced.
 - `search-unknown-command.stderr`: what an old `gh` without `search issues` prints.

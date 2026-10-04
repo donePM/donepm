@@ -12,7 +12,7 @@ export type FetchResult =
 
 type Parsed<T> = { ok: true; value: T } | { ok: false; kind: "schema"; error: string; raw: string };
 
-function parseJson<T>(schema: ZodType<T, any, any>, raw: string): Parsed<T> {
+export function parseJson<T>(schema: ZodType<T, any, any>, raw: string): Parsed<T> {
   let json: unknown;
   try {
     json = JSON.parse(raw);

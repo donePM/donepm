@@ -1,4 +1,4 @@
-import type { Ctx, WorkItem } from "@donepm/core";
+import { prMergeOf, type Ctx, type WorkItem } from "@donepm/core";
 import type { FastifyInstance } from "fastify";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -42,6 +42,7 @@ import { RepoStore } from "./repos/store.js";
 import { StatusStore } from "./status/status.js";
 import { TranscriptStore } from "./transcript/store.js";
 import { failMissingWorktrees, findOrphans } from "./worktrees/reconcile.js";
+import { settleMergedPrs } from "./worktrees/on-merge.js";
 import { removeItemWorktree, removeOrphan } from "./worktrees/remove.js";
 import { Hub } from "./ws/hub.js";
 
@@ -110,6 +111,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const view = (item: WorkItem) => {
     const itemEvents = events.forItem(item.id);
     const itemDrafts = drafts.forItem(item.id);
+    const pr = itemDrafts.findLast((d) => d.state === "executed")?.result;
     return toItemView(
       item,
       item.repoId ? repos.get(item.repoId) : undefined,
@@ -126,7 +128,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
         drafts: itemDrafts,
         events: itemEvents,
       }),
-      itemDrafts.findLast((d) => d.state === "executed")?.result,
+      pr ? { ...pr, ...prMergeOf(itemEvents) } : undefined,
     );
   };
   const pushItem = (item: WorkItem) => hub.push("item.updated", view(item));
@@ -199,7 +201,15 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   };
 
   const poller = new Poller(
-    () => collectIssues({ db, exec: opts.exec, items, events, repos, status, ctx: opts.ctx, log: app.log, sources: () => config.sources, onItemUpdated: pushItem }),
+    async () => {
+      await collectIssues({ db, exec: opts.exec, items, events, repos, status, ctx: opts.ctx, log: app.log, sources: () => config.sources, onItemUpdated: pushItem });
+      if (status.get().gh?.state !== "ready") return;
+      await settleMergedPrs({
+        items, events, drafts, repos, writer, exec: opts.exec, ctx: opts.ctx, log: app.log,
+        removeOnMerge: () => config.removeWorktreeOnMerge,
+        agentActive: (i) => runner.isRunning(i),
+      });
+    },
     config.pollIntervalSeconds * 1000,
   );
 

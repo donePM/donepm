@@ -42,6 +42,8 @@ export const ConfigSchema = z
     branchPrefix: z.string().default("dp/"),
     pollIntervalSeconds: z.number().int().min(10).default(60),
     maxConcurrentAgents: z.number().int().min(1).default(1),
+    /** Remove a done item's clean worktree once the PR its draft opened is merged (D33). */
+    removeWorktreeOnMerge: z.boolean().default(false),
     /** Keyed by normalised origin. Replaced as a whole by `PUT /api/settings`. */
     sources: z.record(SourceKey, SourceSchema).default({}),
     /** WebFetch to these hosts (and their subdomains) is allowed by the daemon, not asked (D31). */
