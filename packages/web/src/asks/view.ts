@@ -1,47 +1,58 @@
+import { claudeAskSubject, type AskSubject } from "@donepm/core";
+import { parsePatch } from "diff";
 import stripAnsi from "strip-ansi";
 import { toolDiff, type DiffLine } from "../transcript/rows";
 
-/** What an ask shows of its tool's input: always all of it, never cut (issue #67). */
+/** What an ask shows of what the agent wants: always all of it, never cut (issue #67). */
 export type AskView =
-  /** Bash: the whole command; its description and cwd when the input has them. */
+  /** A shell command, whole; its description and cwd when the agent gave them. */
   | { kind: "command"; command: string; description?: string; cwd?: string }
-  /** Write, Edit, MultiEdit: the file and the change. */
+  /** A file write or edit: the file and the change. */
   | { kind: "edit"; path: string; diff: DiffLine[] }
-  /** WebFetch, the sandbox's network question: the URL or host on its own. */
+  /** A fetch or a connection: the URL or host on its own. */
   | { kind: "target"; target: string }
   /** MCP and unknown tools: the input as JSON. */
   | { kind: "json"; text: string };
-
-type Json = Record<string, unknown>;
-const isObject = (v: unknown): v is Json => typeof v === "object" && v !== null && !Array.isArray(v);
-const str = (v: unknown): string | undefined => (typeof v === "string" && v !== "" ? v : undefined);
-
-const TARGET: Record<string, string> = { WebFetch: "url", SandboxNetworkAccess: "host" };
 
 /** Home directories as `~`; the user knows where their home is. */
 export function tildePath(path: string): string {
   return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
 }
 
-/** `worktree`: the item's worktree; a cwd there is the default and not worth a line. */
-export function askView(toolName: string, input: unknown, worktree?: string): AskView {
-  const fields = isObject(input) ? input : {};
-  if (toolName === "Bash" && str(fields.command)) {
-    const description = str(fields.description);
-    const cwd = str(fields.cwd);
-    return {
-      kind: "command",
-      command: fields.command as string,
-      ...(description ? { description } : {}),
-      ...(cwd && cwd !== worktree ? { cwd: tildePath(cwd) } : {}),
-    };
+/**
+ * The view of an ask, drawn from its neutral subject (issue #136). Without one (a row from the
+ * transcript alone) the subject comes from Claude Code's tool name and input. `worktree`: the
+ * item's worktree; a cwd there is the default and not worth a line.
+ */
+export function askView(toolName: string, input: unknown, worktree?: string, subject?: AskSubject): AskView {
+  const s = subject ?? claudeAskSubject(toolName, input);
+  switch (s.kind) {
+    case "command":
+      return {
+        kind: "command",
+        command: s.command,
+        ...(s.description ? { description: s.description } : {}),
+        ...(s.cwd && s.cwd !== worktree ? { cwd: tildePath(s.cwd) } : {}),
+      };
+    case "file_change": {
+      const diff = s.diff !== undefined ? patchLines(s.diff) : toolDiff(toolName, input);
+      if (diff) return { kind: "edit", path: tildePath(s.path), diff };
+      break;
+    }
+    case "network":
+      return { kind: "target", target: s.url ?? s.host };
   }
-  const diff = toolDiff(toolName, input);
-  const path = str(fields.file_path);
-  if (diff && path) return { kind: "edit", path: tildePath(path), diff };
-  const target = TARGET[toolName] && str(fields[TARGET[toolName]]);
-  if (target) return { kind: "target", target };
   return { kind: "json", text: JSON.stringify(input, null, 2) };
+}
+
+/** A unified diff from the agent as diff lines, headers left out. */
+function patchLines(patch: string): DiffLine[] {
+  return parsePatch(patch).flatMap((file) =>
+    file.hunks.flatMap((h, i) => [
+      ...(i > 0 ? [{ op: " ", text: "…" } as DiffLine] : []),
+      ...h.lines.filter((l) => /^[ +-]/.test(l)).map((l) => ({ op: l[0], text: l.slice(1) }) as DiffLine),
+    ]),
+  );
 }
 
 /** What "Copy" puts on the clipboard: the command, the target, or the input as JSON. */

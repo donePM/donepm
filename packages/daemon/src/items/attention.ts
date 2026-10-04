@@ -1,14 +1,14 @@
 import {
   ciFailureOf, draftTitle, prConflictOf, prFeedbackOf,
   type CheckLog, type CiPr, type Draft, type DraftState, type DraftType, type Event, type FailedCheck, type FeedbackEntry, type ItemState,
-  type PermissionAsk, type PermissionRule,
+  type AskSubject, type PermissionAsk, type PermissionRule,
 } from "@donepm/core";
 
 const OPEN_DRAFT: ReadonlySet<DraftState> = new Set(["pending", "approved", "failed"]);
 
 /** What a Needs You card shows: the one thing the user has to do (spec §12.1). */
 export type Attention =
-  | { kind: "ask"; askId: string; toolName: string; input: unknown; rules: PermissionRule[]; reason?: string }
+  | { kind: "ask"; askId: string; toolName: string; input: unknown; subject: AskSubject; rules: PermissionRule[]; reason?: string }
   | {
       kind: "draft";
       draftId: string;
@@ -48,7 +48,7 @@ export function attentionOf(input: {
   if (input.state === "needs_you") {
     const ask = input.asks.find((a) => a.state === "pending");
     if (ask) {
-      return { kind: "ask", askId: ask.id, toolName: ask.toolName, input: ask.input, rules: ask.rules, ...(ask.reason ? { reason: ask.reason } : {}) };
+      return { kind: "ask", askId: ask.id, toolName: ask.toolName, input: ask.input, subject: ask.subject, rules: ask.rules, ...(ask.reason ? { reason: ask.reason } : {}) };
     }
     const draft = input.drafts.find((d) => OPEN_DRAFT.has(d.state));
     if (draft) {

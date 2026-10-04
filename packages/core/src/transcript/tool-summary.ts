@@ -1,5 +1,9 @@
 import stripAnsi from "strip-ansi";
 
+// Claude Code's tool names and input fields (Bash, Edit, WebFetch, Agent, …): the one-line summary of
+// a call in its stream-json, for the board and the transcript. Another agent's adapter summarises its
+// own calls (issue #136).
+
 const MAX = 120;
 
 type Json = Record<string, unknown>;

@@ -195,6 +195,7 @@ async function act(fn: (id: string) => Promise<void>) {
       :ask-id="attention.askId"
       :tool-name="attention.toolName"
       :input="attention.input"
+      :subject="attention.subject"
       :rules="attention.rules"
       :reason="attention.reason"
       :worktree="item.worktreePath"

@@ -71,6 +71,7 @@ describe("AgentRunner", () => {
       { type: "user", message: { role: "user", content: [{ type: "text", text: "Do the thing" }] } },
     ]);
     expect(t.transcript.page("item-1").map((m) => m.kind)).toEqual(["user"]);
+    expect(t.transcript.page("item-1")[0]!.agentKind).toBe("claude-code");
   });
 
   it("stores a recorded session, binds the session id and ends the turn in Needs You", async () => {
