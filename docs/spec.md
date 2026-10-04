@@ -898,7 +898,12 @@ Vue 3. Four views. Mockups of all four screens are in `docs/screens/` (PNG plus 
 its README). Palette: ground `#ECECE8`, card `#FFFFFF`, ink `#141413`,
 secondary text `#3F3F3A` / `#66665F`, borders `#C9C9C3` / `#E3E3DE`, primary blue `#1D4ED8`
 (tint `#DBEAFE`), needs-you amber `#A14A05` (tint `#FFF3DA`), danger `#991B1B`, diff add `#DCFCE7`,
-diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
+diff remove `#FBDDDD`, CI pending yellow `#DBAB09` (GitHub's pending check). Fonts: IBM Plex Sans,
+JetBrains Mono.
+
+Waiting for CI (`checking`, D35): a small round dot in CI pending yellow stands before "Waiting for
+CI" on the card, in the CI panel heading and in the item's state badge. It pulses gently (opacity and
+scale only, no layout shift) and stays static under `prefers-reduced-motion: reduce`.
 
 Header, every view: right side shows the status dot (red problem icon when the daemon has a
 problem). Left of it an amber warning triangle with a count appears while at least one item is in
@@ -925,7 +930,7 @@ you". Amber means "you have something to do"; red stays for daemon problems.
 - A card whose priority is not the default P2 shows the tier as a badge next to its id: `P0` and
   `P1` in danger colours, `P3` quiet (D45). A priority changed on GitHub moves a Ready card within
   one poll, and its timeline shows the `item.refreshed` event.
-- In Progress card of a `checking` item: "waiting for CI", Mark done.
+- In Progress card of a `checking` item: pulsing CI pending dot, "waiting for CI", Mark done.
 - Done card: PR link, Remove worktree. With `removeWorktreeOnMerge` on, a quiet note "Worktree is
   removed when PR #45 is merged" (PR linked) until it is; "Not removed: uncommitted changes" when
   the poll kept it (6.5). After the merge: "PR merged". A conflict the user took on: quiet note

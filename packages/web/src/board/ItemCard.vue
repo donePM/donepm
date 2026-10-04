@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { errorText, isPublishFailure } from "../api/errors";
 import type { ItemView } from "../api/types";
 import AskPanel from "../asks/AskPanel.vue";
+import CiPendingDot from "../ci/CiPendingDot.vue";
 import { repoOf } from "../markdown/render";
 import { diffFiles, diffStats, type DiffStats } from "../diff/files";
 import { agentElapsed, clock, usageLabel } from "../time/duration";
@@ -127,7 +128,7 @@ async function act(fn: (id: string) => Promise<void>) {
       <span v-if="priority" class="prio" :class="`prio-${priority.tone}`" :title="priority.title">{{ priority.text }}</span>
       <span v-if="reviewing" class="kind" title="A pull request that asks for your review">PR review</span>
       <span v-if="item.state === 'running'" class="live"><span class="dot dot-ok" aria-hidden="true"></span>running<template v-if="elapsed"> · {{ elapsed }}</template></span>
-      <span v-else-if="item.state === 'checking'" class="live"><span class="dot dot-off" aria-hidden="true"></span>waiting for CI</span>
+      <span v-else-if="item.state === 'checking'" class="live"><CiPendingDot />waiting for CI</span>
       <span v-else-if="flag" class="flag">{{ flag }}</span>
       <span v-else-if="column === 'needs_you' && !noClone" class="playbook" title="Playbook">{{ item.playbook }}</span>
     </div>

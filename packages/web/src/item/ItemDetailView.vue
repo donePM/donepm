@@ -6,6 +6,7 @@ import { pending, resumeAgent, startAgent } from "../agents/actions";
 import AnsiText from "../ansi/AnsiText.vue";
 import { errorText } from "../api/errors";
 import AskPanel from "../asks/AskPanel.vue";
+import CiPendingDot from "../ci/CiPendingDot.vue";
 import { displayId } from "../board/columns";
 import { diffFiles, diffStats } from "../diff/files";
 import DiffPanel from "../diff/DiffPanel.vue";
@@ -83,7 +84,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
         <RouterLink to="/">← Board</RouterLink>
         <span aria-hidden="true">/</span>
         <a class="mono ext" :href="detail.externalUrl" target="_blank" rel="noreferrer">{{ displayId(detail.externalId) }}</a>
-        <span class="state" :class="`s-${detail.state}`">{{ badge }}</span>
+        <span class="state" :class="`s-${detail.state}`"><CiPendingDot v-if="detail.state === 'checking'" />{{ badge }}</span>
       </nav>
       <h1>{{ detail.title }}</h1>
       <p v-if="detail.branch" class="facts mono">
@@ -185,7 +186,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
 .crumbs { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--ink-3); }
 .crumbs a { color: var(--ink-2); text-decoration: none; }
 .crumbs a:hover { color: var(--blue); }
-.state { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--border-soft); color: var(--ink-2); }
+.state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--border-soft); color: var(--ink-2); }
 .state.s-needs_you, .state.s-failed { background: var(--amber-tint); color: var(--amber); }
 .state.s-running, .state.s-checking { background: var(--blue-tint); color: var(--blue); }
 h1 { margin: 12px 0 6px; font-size: 22px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
