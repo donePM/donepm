@@ -128,12 +128,15 @@ const pollOf = (origin: string) => status.value?.lastPoll?.sources?.[origin];
               <td class="mono">{{ r.path }}</td>
               <td class="mono nowrap">{{ r.defaultBranch }}</td>
               <td :class="r.setup ? 'mono' : 'none'">{{ r.setup ? ".donepm/setup.yml" : "none" }}</td>
-              <td class="collects">
-                <span v-if="sources?.[r.originUrl]?.query" class="mono">{{ sources[r.originUrl]!.query }}</span>
-                <span v-else class="none">assigned to you</span>
-                <span v-if="sources?.[r.originUrl]?.assignOnStart" class="tag">assigns on start</span>
-                <span v-if="pollOf(r.originUrl)?.ok === false" class="failed" :title="pollOf(r.originUrl)!.error">query failed</span>
-                <button v-if="editing?.origin !== r.originUrl" class="link" @click="edit(r.originUrl)">Edit</button>
+              <td>
+                <!-- Flex inside the cell: a td with display: flex leaves the table and loses the row height (#90). -->
+                <div class="collects">
+                  <span v-if="sources?.[r.originUrl]?.query" class="mono">{{ sources[r.originUrl]!.query }}</span>
+                  <span v-else class="none">assigned to you</span>
+                  <span v-if="sources?.[r.originUrl]?.assignOnStart" class="tag">assigns on start</span>
+                  <span v-if="pollOf(r.originUrl)?.ok === false" class="failed" :title="pollOf(r.originUrl)!.error">query failed</span>
+                  <button v-if="editing?.origin !== r.originUrl" class="link" @click="edit(r.originUrl)">Edit</button>
+                </div>
               </td>
               <td class="toggle">
                 <input
@@ -198,7 +201,7 @@ const pollOf = (origin: string) => status.value?.lastPoll?.sources?.[origin];
 <style scoped>
 .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .scroll { overflow-x: auto; margin-top: 16px; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 13px; }
 th { text-align: left; font-weight: 500; color: var(--ink-2); padding: 8px 12px; border-bottom: 1px solid var(--border); }
 td { padding: 9px 12px; border-bottom: 1px solid var(--border-soft); vertical-align: top; overflow-wrap: anywhere; }
 td.mono { font-size: 12px; }
