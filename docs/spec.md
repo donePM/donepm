@@ -867,6 +867,12 @@ secondary text `#3F3F3A` / `#66665F`, borders `#C9C9C3` / `#E3E3DE`, primary blu
 (tint `#DBEAFE`), needs-you amber `#A14A05` (tint `#FFF3DA`), danger `#991B1B`, diff add `#DCFCE7`,
 diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
 
+Header, every view: right side shows the status dot (red problem icon when the daemon has a
+problem). Left of it an amber warning triangle with a count appears while at least one item is in
+the Needs You column (`columnOf`, so `failed` counts; archived items do not). It is hidden at zero,
+links to the board, updates live from `item.updated`, and has an `aria-label` such as "3 items need
+you". Amber means "you have something to do"; red stays for daemon problems.
+
 ### 12.1 Board
 
 - Four columns: Ready, In Progress, Needs You, Done. Cards: title, repo, external id, labels,

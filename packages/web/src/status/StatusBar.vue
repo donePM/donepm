@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { items } from "../board/items";
 import { useNow } from "../time/now";
 import { ago } from "../time/relative";
 import { health, problems, summary } from "./health";
+import { needsYouCount, needsYouLabel } from "./needs-you";
 import { reachable, status } from "./status";
 
 const now = useNow();
+
+const waiting = computed(() => needsYouCount(items.value));
+const waitingLabel = computed(() => needsYouLabel(waiting.value));
 
 const list = computed(() => problems(status.value, reachable.value));
 const state = computed(() => health(status.value, reachable.value));
@@ -20,6 +25,14 @@ const poll = computed(() => {
 
 <template>
   <div class="status" aria-live="polite">
+    <RouterLink v-if="waiting > 0" to="/" class="needs-you" :aria-label="waitingLabel" :title="waitingLabel">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path d="M8 1.5 15 14H1z" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+        <path class="tri-line" d="M8 6v4" stroke-width="1.6" stroke-linecap="round" />
+        <circle class="tri-dot" cx="8" cy="12" r="0.9" />
+      </svg>
+      <span class="count">{{ waiting }}</span>
+    </RouterLink>
     <RouterLink v-if="state === 'problem'" to="/settings" class="problem" :aria-label="label" :title="label">
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <circle cx="8" cy="8" r="8" fill="currentColor" />
@@ -42,5 +55,10 @@ const poll = computed(() => {
 .problem:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .bang-line { fill: none; stroke: var(--card); }
 .bang-dot { fill: var(--card); }
+.needs-you { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px 2px 6px; border-radius: 12px; color: var(--amber); font-weight: 600; text-decoration: none; }
+.needs-you:hover, .needs-you:focus-visible { background: var(--amber-tint); }
+.needs-you:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.tri-line { fill: none; stroke: var(--card); }
+.tri-dot { fill: var(--card); }
 .failed { color: var(--danger); }
 </style>
