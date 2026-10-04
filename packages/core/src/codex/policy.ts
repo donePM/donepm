@@ -1,20 +1,22 @@
 import type { PermissionMode } from "../agent/capabilities.js";
 
-/** Codex's `SandboxMode` for `thread/start` (app-server protocol v2). */
-export type CodexSandboxMode = "read-only" | "workspace-write";
-
-/** Codex's `SandboxPolicy` for `turn/start`: the same choice, with the details spelled out. */
-export type CodexSandboxPolicy =
-  | { type: "readOnly"; networkAccess: false }
-  | { type: "workspaceWrite"; writableRoots: string[]; networkAccess: false; excludeTmpdirEnvVar: false; excludeSlashTmp: false };
+/**
+ * The built-in Codex permission profile donePM's own profile extends: `:read-only` reads anywhere
+ * but writes nowhere, `:workspace` also writes in the thread's `cwd` (the worktree).
+ */
+export type CodexBaseProfile = ":read-only" | ":workspace";
 
 export interface CodexPolicy {
   /** Codex asks before anything its sandbox does not allow, and the user answers (never `never`). */
   approvalPolicy: "on-request";
   /** The user reviews, not Codex's own reviewer agent. */
   approvalsReviewer: "user";
-  sandbox: CodexSandboxMode;
-  sandboxPolicy: CodexSandboxPolicy;
+  /**
+   * The sandbox, as a permission profile on the command line rather than a legacy `sandbox` mode on
+   * `thread/start`: only a profile can deny reading a path (the Keychain, D50), and a `sandbox` or
+   * `sandboxPolicy` in a request replaces the profile.
+   */
+  extends: CodexBaseProfile;
 }
 
 /**
@@ -24,19 +26,13 @@ export interface CodexPolicy {
  * is `default` with no web search. `plan` and `bypassPermissions` have no Codex counterpart that
  * keeps the network closed, so they are refused, never widened.
  */
-export function codexPolicy(playbook: { permissionMode: PermissionMode; readOnly?: boolean }, cwd: string): CodexPolicy {
+export function codexPolicy(playbook: { permissionMode: PermissionMode; readOnly?: boolean }): CodexPolicy {
   const base = { approvalPolicy: "on-request", approvalsReviewer: "user" } as const;
   if (playbook.permissionMode === "plan" || playbook.permissionMode === "bypassPermissions") {
     throw new Error(`permission_mode ${playbook.permissionMode} is not available with codex`);
   }
-  if (playbook.readOnly || playbook.permissionMode === "default") {
-    return { ...base, sandbox: "read-only", sandboxPolicy: { type: "readOnly", networkAccess: false } };
-  }
-  return {
-    ...base,
-    sandbox: "workspace-write",
-    sandboxPolicy: { type: "workspaceWrite", writableRoots: [cwd], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
-  };
+  if (playbook.readOnly || playbook.permissionMode === "default") return { ...base, extends: ":read-only" };
+  return { ...base, extends: ":workspace" };
 }
 
 /**

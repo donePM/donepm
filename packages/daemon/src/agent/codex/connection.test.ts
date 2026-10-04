@@ -25,7 +25,7 @@ describe("CodexConnection", () => {
     const init = c.decode(all[0]!);
     expect(writes(init)).toEqual([
       { method: "initialized" },
-      { id: 2, method: "thread/start", params: { cwd: "/wt", approvalPolicy: "on-request", approvalsReviewer: "user", sandbox: "workspace-write", model: "gpt-5.5" } },
+      { id: 2, method: "thread/start", params: { cwd: "/wt", approvalPolicy: "on-request", approvalsReviewer: "user", model: "gpt-5.5" } },
     ]);
 
     const thread = decodeAll(c, all.slice(1, 3));
@@ -38,7 +38,6 @@ describe("CodexConnection", () => {
         threadId: "01a02144-3b7e-7233-97f2-73ebd5105085",
         input: [{ type: "text", text: "Do it", text_elements: [] }],
         cwd: "/wt", approvalPolicy: "on-request", approvalsReviewer: "user",
-        sandboxPolicy: { type: "workspaceWrite", writableRoots: ["/wt"], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
         model: "gpt-5.5", effort: "high",
       },
     });
@@ -59,7 +58,9 @@ describe("CodexConnection", () => {
     const c = new CodexConnection({ ...launch, resumeSessionId: "01a02144-3b7e-7233-97f2-73ebd5105085" });
     c.firstTurn("Create note.txt");
     const all = lines("resume-file-approval.ndjson");
-    expect(writes(c.decode(all[0]!))[1]).toMatchObject({ id: 2, method: "thread/resume", params: { threadId: "01a02144-3b7e-7233-97f2-73ebd5105085", sandbox: "workspace-write" } });
+    const resume = writes(c.decode(all[0]!))[1];
+    expect(resume).toMatchObject({ id: 2, method: "thread/resume", params: { threadId: "01a02144-3b7e-7233-97f2-73ebd5105085", cwd: "/wt" } });
+    expect(resume).not.toHaveProperty("params.sandbox");
     const steps = decodeAll(c, all.slice(1, 36));
     const ask = steps.find((s) => s.type === "ask");
     expect(ask).toBeUndefined();

@@ -2,28 +2,21 @@ import { describe, expect, it } from "vitest";
 import { codexModel, codexPolicy } from "./policy.js";
 
 describe("codexPolicy", () => {
-  it("asks before any write in default mode, with the network off", () => {
-    expect(codexPolicy({ permissionMode: "default" }, "/w")).toEqual({
-      approvalPolicy: "on-request",
-      approvalsReviewer: "user",
-      sandbox: "read-only",
-      sandboxPolicy: { type: "readOnly", networkAccess: false },
-    });
+  it("asks before any write in default mode", () => {
+    expect(codexPolicy({ permissionMode: "default" })).toEqual({ approvalPolicy: "on-request", approvalsReviewer: "user", extends: ":read-only" });
   });
 
   it("writes in the worktree only with acceptEdits", () => {
-    const p = codexPolicy({ permissionMode: "acceptEdits" }, "/w");
-    expect(p.sandbox).toBe("workspace-write");
-    expect(p.sandboxPolicy).toEqual({ type: "workspaceWrite", writableRoots: ["/w"], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false });
+    expect(codexPolicy({ permissionMode: "acceptEdits" }).extends).toBe(":workspace");
   });
 
   it("keeps a read_only playbook read-only whatever the mode says", () => {
-    expect(codexPolicy({ permissionMode: "acceptEdits", readOnly: true }, "/w").sandbox).toBe("read-only");
+    expect(codexPolicy({ permissionMode: "acceptEdits", readOnly: true }).extends).toBe(":read-only");
   });
 
   it("refuses plan and bypassPermissions", () => {
-    expect(() => codexPolicy({ permissionMode: "plan" }, "/w")).toThrow(/plan is not available with codex/);
-    expect(() => codexPolicy({ permissionMode: "bypassPermissions" }, "/w")).toThrow(/bypassPermissions/);
+    expect(() => codexPolicy({ permissionMode: "plan" })).toThrow(/plan is not available with codex/);
+    expect(() => codexPolicy({ permissionMode: "bypassPermissions" })).toThrow(/bypassPermissions/);
   });
 });
 

@@ -62,7 +62,7 @@ export class CodexConnection implements AgentConnection {
   private readonly effort: string | undefined;
 
   constructor(private readonly launch: AdapterLaunch) {
-    this.policy = codexPolicy(launch.playbook, launch.cwd);
+    this.policy = codexPolicy(launch.playbook);
     this.model = codexModel(launch.playbook.model);
     const effort = launch.playbook.effort;
     this.effort = effort && (CODEX_EFFORT_LEVELS as readonly string[]).includes(effort) ? effort : undefined;
@@ -290,7 +290,6 @@ export class CodexConnection implements AgentConnection {
       cwd: this.launch.cwd,
       approvalPolicy: this.policy.approvalPolicy,
       approvalsReviewer: this.policy.approvalsReviewer,
-      sandboxPolicy: this.policy.sandboxPolicy,
       ...(this.model ? { model: this.model } : {}),
       ...(this.effort ? { effort: this.effort } : {}),
     };
@@ -315,11 +314,12 @@ export class CodexConnection implements AgentConnection {
   }
 
   private openThread(): AgentWrite {
+    // No `sandbox` here and no `sandboxPolicy` on turns: either replaces the permission profile set
+    // on the command line (argv.ts), and with it the Keychain deny.
     const common = {
       cwd: this.launch.cwd,
       approvalPolicy: this.policy.approvalPolicy,
       approvalsReviewer: this.policy.approvalsReviewer,
-      sandbox: this.policy.sandbox,
       ...(this.model ? { model: this.model } : {}),
     };
     const resume = this.launch.resumeSessionId;

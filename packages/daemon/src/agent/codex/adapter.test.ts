@@ -10,8 +10,22 @@ import { codexTokens, subtractUsage } from "./usage.js";
 const playbook = { model: "gpt-5.5", permissionMode: "acceptEdits" as const };
 
 describe("codexArgv", () => {
-  it("runs the app server over stdio without network for commands", () => {
-    expect(codexArgv({})).toEqual(["app-server", "--listen", "stdio://", "-c", "sandbox_workspace_write.network_access=false"]);
+  it("runs the app server over stdio in a profile that denies the Keychain, network off", () => {
+    expect(codexArgv({ profile: ":workspace", home: "/Users/a" })).toEqual([
+      "app-server", "--listen", "stdio://",
+      "-c", 'default_permissions="donepm"',
+      "-c", 'permissions.donepm.extends=":workspace"',
+      "-c", 'permissions.donepm.filesystem={"~/Library/Keychains"="deny","/Users/a/Library/Keychains"="deny"}',
+      "-c", "sandbox_workspace_write.network_access=false",
+    ]);
+  });
+
+  it("is read-only and denies the Keychain without a known home", () => {
+    expect(codexArgv({}).slice(3, 9)).toEqual([
+      "-c", 'default_permissions="donepm"',
+      "-c", 'permissions.donepm.extends=":read-only"',
+      "-c", 'permissions.donepm.filesystem={"~/Library/Keychains"="deny"}',
+    ]);
   });
 
   it("turns web search off for a read-only playbook", () => {
@@ -20,7 +34,7 @@ describe("codexArgv", () => {
 
   it("adds donePM's MCP server as TOML, its tools approved", () => {
     const args = codexArgv({ mcp: { command: "/usr/bin/node", args: ["/a b/shim.js"], env: { DONEPM_SOCKET: "/s", DONEPM_TOKEN_FILE: "/t" } } });
-    expect(args.slice(5)).toEqual([
+    expect(args.slice(11)).toEqual([
       "-c", 'mcp_servers.donepm.command="/usr/bin/node"',
       "-c", 'mcp_servers.donepm.args=["/a b/shim.js"]',
       "-c", 'mcp_servers.donepm.env={"DONEPM_SOCKET"="/s","DONEPM_TOKEN_FILE"="/t"}',
@@ -52,6 +66,11 @@ describe("codex.launch", () => {
 
   it("starts without an MCP server when none is given", () => {
     expect(codex.launch({ itemId: "i", cwd: "/wt", playbook: { ...playbook, readOnly: true } })).toEqual({ args: codexArgv({ readOnly: true }) });
+  });
+
+  it("lets acceptEdits write in the worktree and denies the Keychain under the agent's home", () => {
+    const { args } = codex.launch({ itemId: "i", cwd: "/wt", home: "/Users/a", playbook });
+    expect(args).toEqual(codexArgv({ profile: ":workspace", home: "/Users/a" }));
   });
 });
 

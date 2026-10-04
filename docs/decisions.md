@@ -516,8 +516,22 @@ Keychain is exposed the same way. The agent's sandbox closes that (#170), not a 
   `SecKeychainFindGenericPassword`, and `cp` or `ln` of the keychain file all fail. The same profile
   without the deny hands the item out.
 - `Read(~/Library/Keychains/**)` is denied too: Read, Grep and Glob do not run in the sandbox.
+- Codex (#137) gets the same deny through a permission profile on its command line:
+  `default_permissions="donepm"`, `permissions.donepm.extends` set to `:workspace` or
+  `:read-only`, and `permissions.donepm.filesystem` mapping `~/Library/Keychains` and the absolute
+  path to `deny`. Codex's legacy `sandbox_mode` policies cannot deny a read; a profile can. Tested
+  with Codex 0.133.0 and no model turn: under `codex sandbox macos` a denied directory, including
+  the real `~/Library/Keychains`, fails with "Operation not permitted" in both spellings, while the
+  same command without the profile reads it; app-server's `command/exec` with these flags fails the
+  same way, the worktree stays writable and the network stays off. `thread/start` then reports
+  `activePermissionProfile` `donepm`; sending `sandbox` on `thread/start` drops the profile, so
+  donePM sends no `sandbox` and no `sandboxPolicy`. Not tested: a `security` lookup inside Codex's
+  sandbox (we rely on the same seatbelt mechanism tested above for Claude Code), and a real turn's
+  commands (the live test covers that).
 - Deny rules for `/usr/bin/security`, `env security`, `/usr/bin/env security`, `command`, `exec`
-  and `xcrun` stay as defence in depth. They are bypassable and are not the fix.
+  and `xcrun` stay as defence in depth. They are bypassable and are not the fix. Codex has no
+  such rules; donePM declines an escalation that runs a blocked command, but commands inside the
+  sandbox run without asking.
 
 What remains open:
 - Claude Code's sandbox always allows the mach lookups of `com.apple.SecurityServer` and
@@ -529,9 +543,11 @@ What remains open:
   user configured, is not covered. MCP servers stay behind their permission asks (D27).
 - A git credential helper backed by the Keychain (`osxkeychain`) fails inside the sandbox, so an
   agent's `git fetch` over https from a private remote fails. That is intended.
-- Codex (#137) follows when its adapter lands: its sandbox profile needs the same check.
-- The live check (`DONEPM_LIVE=1`, `runner.live.test.ts`) is the proof against the real CLI; it is
-  not run in CI.
+- Whether Codex's seatbelt profile also allows the `securityd` mach lookups is not checked; the
+  same data protection keychain caveat applies at most. Codex is assumed to start MCP servers
+  outside its sandbox, as Claude Code does, so the same MCP caveat holds; not checked either.
+- The live checks (`DONEPM_LIVE=1`, `runner.live.test.ts`, `runner.codex.live.test.ts`) are the
+  proof against the real CLIs; they are not run in CI.
 
 The PR and CI watchers work per connection: a PR is watched while its own host is ready, so one
 logged-out host no longer stops the watching of the others.
