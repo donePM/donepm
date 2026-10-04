@@ -189,6 +189,19 @@ it. Files that `.donepm/setup.yml` copied in (D25) do not count, since the setup
 With the setting off the daemon only records `item.pr_merged` once, and the card says "PR merged".
 A worktree whose agent is running is never touched.
 
+**D34. A new worktree gets its dependencies from the main clone by copy-on-write, else the daemon
+installs them.** Dependencies are gitignored, so `git worktree add` does not bring them, and the
+agent has no network to install them (D27). Agents worked around it by symlinking the main clone's
+`node_modules` (#78): writes then land in the main clone, and pnpm refuses a symlinked hoist
+directory. Setup now detects the package managers from the lockfiles in the root (pnpm, bun, yarn,
+npm: one of them, in that order; Composer next to it). When the main clone has the same lockfile and
+its dependencies, the daemon clones every `node_modules` (one per workspace package) or `vendor`
+copy-on-write (`cp -c` on APFS, `--reflink=auto` on Linux): seconds and no extra disk for 262 MB.
+Otherwise it runs the manager's frozen install in the worktree; the daemon may use the network, the
+agent still may not. Only gitignored directories are filled, so a committed `vendor/` stays as git
+left it. `dependencies: off` in `.donepm/setup.yml` turns the step off for repos whose `run`
+installs on its own terms. Bloom has no such step: its users write a setup script per repo.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.
