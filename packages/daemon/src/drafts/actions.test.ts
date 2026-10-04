@@ -29,6 +29,7 @@ describe("editDraft", () => {
     editDraft(t.deps, d.id, { title: "Better" });
     editDraft(t.deps, d.id, { body: "longer" });
     const stored = t.drafts.get(d.id)!;
+    if (stored.type !== "pr") throw new Error("expected a PR draft");
     expect(stored.payload).toEqual({ title: "A", body: "b", base: "main" });
     expect(stored.userEdits).toEqual({ title: "Better", body: "longer", base: "main" });
     expect(t.state()).toBe("needs_you");

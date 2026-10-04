@@ -1,0 +1,50 @@
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.5767501Z packages/daemon test:     ^[[90m308| ^[[39m    ^[[35mawait^[[39m ^[[35mget^[[39m(d^[[33m,^[[39m ^[[32m`/api/items/^[[39m^[[36m${^[[39mitem^[[33m.^[[39mid^[[36m}^[[39m^[[32m/start`^[[39m^[[33m,^[[39m { method^[[33m:^[[39m ^[[32m"POST"^[[39m })^[[33m;^[[39m
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.5777434Z packages/daemon test:     ^[[90m309| ^[[39m    ^[[35mawait^[[39m vi^[[33m.^[[39m^[[34mwaitFor^[[39m(() ^[[33m=>^[[39m ^[[34mexpect^[[39m(first^[[33m.^[[39mspawned)^[[33m.^[[39m^[[34mtoHaveLength^[[39m(^[[34m1^[[39m))^[[33m;^[[39m
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.5779772Z packages/daemon test:     ^[[90m   | ^[[39m                                                 ^[[31m^^[[39m
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.5781524Z packages/daemon test:     ^[[90m310| ^[[39m    first^[[33m.^[[39m^[[34mlast^[[39m()^[[33m.^[[39m^[[34memit^[[39m(
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.5783896Z packages/daemon test:     ^[[90m311| ^[[39m      { type^[[33m:^[[39m ^[[32m"system"^[[39m^[[33m,^[[39m subtype^[[33m:^[[39m ^[[32m"init"^[[39m^[[33m,^[[39m session_id^[[33m:^[[39m ^[[32m"s1"^[[39m }^[[33m,^[[39m
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.5785644Z packages/daemon test: 
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.5786830Z packages/daemon test: ^[[31m^[[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯^[[22m^[[39m
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.5787815Z packages/daemon test: 
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.5788466Z packages/daemon test: 
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.5790269Z packages/daemon test: ^[[2m Test Files ^[[22m ^[[1m^[[31m1 failed^[[39m^[[22m^[[2m | ^[[22m^[[1m^[[32m25 passed^[[39m^[[22m^[[2m | ^[[22m^[[33m2 skipped^[[39m^[[90m (28)^[[39m
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.5792695Z packages/daemon test: ^[[2m      Tests ^[[22m ^[[1m^[[31m1 failed^[[39m^[[22m^[[2m | ^[[22m^[[1m^[[32m198 passed^[[39m^[[22m^[[2m | ^[[22m^[[33m2 skipped^[[39m^[[90m (201)^[[39m
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.5794301Z packages/daemon test: ^[[2m   Start at ^[[22m 19:49:42
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.5796450Z packages/daemon test: ^[[2m   Duration ^[[22m 12.95s^[[2m (transform 1.74s, setup 0ms, collect 6.70s, tests 13.10s, environment 11ms, prepare 3.53s)^[[22m
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.5797810Z packages/daemon test: 
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.5801483Z packages/daemon test: 
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.5805886Z packages/daemon test: ::error file=/home/runner/work/donepm/donepm/packages/daemon/src/daemon.test.ts,title=src/daemon.test.ts > daemon > after a restart a running item waits with Resume%2C which continues the session with --resume,line=309,column=50::AssertionError: expected [] to have a length of 1 but got +0%0A%0A- Expected%0A+ Received%0A%0A- 1%0A+ 0%0A%0A ❯ src/daemon.test.ts:309:50%0A%0A
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.6836684Z [ELIFECYCLE] Test failed. See above for more details.
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.6838032Z packages/daemon test: Failed
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.6845486Z Error: ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.6845902Z 
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.6847218Z   × "pnpm recursive run" failed in /home/runner/work/donepm/donepm/packages/
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.6847714Z   │ daemon
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.6847844Z 
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.6864117Z [ELIFECYCLE] Test failed. See above for more details.
+test (ubuntu-latest, node 24)	Run pnpm test	2026-10-03T19:49:55.6897137Z ##[error]Process completed with exit code 1.
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.3945913Z packages/daemon test:     ^[[90m308| ^[[39m    ^[[35mawait^[[39m ^[[35mget^[[39m(d^[[33m,^[[39m ^[[32m`/api/items/^[[39m^[[36m${^[[39mitem^[[33m.^[[39mid^[[36m}^[[39m^[[32m/start`^[[39m^[[33m,^[[39m { method^[[33m:^[[39m ^[[32m"POST"^[[39m })^[[33m;^[[39m
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.3950658Z packages/daemon test:     ^[[90m309| ^[[39m    ^[[35mawait^[[39m vi^[[33m.^[[39m^[[34mwaitFor^[[39m(() ^[[33m=>^[[39m ^[[34mexpect^[[39m(first^[[33m.^[[39mspawned)^[[33m.^[[39m^[[34mtoHaveLength^[[39m(^[[34m1^[[39m))^[[33m;^[[39m
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.3952569Z packages/daemon test:     ^[[90m   | ^[[39m                                                 ^[[31m^^[[39m
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.3954077Z packages/daemon test:     ^[[90m310| ^[[39m    first^[[33m.^[[39m^[[34mlast^[[39m()^[[33m.^[[39m^[[34memit^[[39m(
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.3956396Z packages/daemon test:     ^[[90m311| ^[[39m      { type^[[33m:^[[39m ^[[32m"system"^[[39m^[[33m,^[[39m subtype^[[33m:^[[39m ^[[32m"init"^[[39m^[[33m,^[[39m session_id^[[33m:^[[39m ^[[32m"s1"^[[39m }^[[33m,^[[39m
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.3957793Z packages/daemon test: 
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.3958220Z packages/daemon test: 
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.3959096Z packages/daemon test: ^[[31m^[[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯^[[22m^[[39m
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.3960088Z packages/daemon test: 
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.3961601Z packages/daemon test: ^[[2m Test Files ^[[22m ^[[1m^[[31m1 failed^[[39m^[[22m^[[2m | ^[[22m^[[1m^[[32m25 passed^[[39m^[[22m^[[2m | ^[[22m^[[33m2 skipped^[[39m^[[90m (28)^[[39m
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.3963640Z packages/daemon test: ^[[2m      Tests ^[[22m ^[[1m^[[31m1 failed^[[39m^[[22m^[[2m | ^[[22m^[[1m^[[32m198 passed^[[39m^[[22m^[[2m | ^[[22m^[[33m2 skipped^[[39m^[[90m (201)^[[39m
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.3964431Z packages/daemon test: ^[[2m   Start at ^[[22m 19:49:42
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.3965349Z packages/daemon test: ^[[2m   Duration ^[[22m 15.46s^[[2m (transform 2.26s, setup 0ms, collect 8.78s, tests 15.43s, environment 13ms, prepare 5.00s)^[[22m
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.3965993Z packages/daemon test: 
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.3979249Z packages/daemon test: 
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.3981607Z packages/daemon test: ::error file=/home/runner/work/donepm/donepm/packages/daemon/src/daemon.test.ts,title=src/daemon.test.ts > daemon > after a restart a running item waits with Resume%2C which continues the session with --resume,line=309,column=50::AssertionError: expected [] to have a length of 1 but got +0%0A%0A- Expected%0A+ Received%0A%0A- 1%0A+ 0%0A%0A ❯ src/daemon.test.ts:309:50%0A%0A
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.5005897Z [ELIFECYCLE] Test failed. See above for more details.
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.5006443Z packages/daemon test: Failed
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.5016187Z Error: ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.5016684Z 
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.5017822Z   × "pnpm recursive run" failed in /home/runner/work/donepm/donepm/packages/
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.5018722Z   │ daemon
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.5018992Z 
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.5036355Z [ELIFECYCLE] Test failed. See above for more details.
+test (ubuntu-latest, node 22)	Run pnpm test	2026-10-03T19:49:58.5067508Z ##[error]Process completed with exit code 1.

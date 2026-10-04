@@ -1,4 +1,4 @@
-import { prMergeOf, type Ctx, type WorkItem } from "@donepm/core";
+import { executedPr, prMergeOf, type Ctx, type WorkItem } from "@donepm/core";
 import type { FastifyInstance } from "fastify";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -43,6 +43,8 @@ import { StatusStore } from "./status/status.js";
 import { TranscriptStore } from "./transcript/store.js";
 import { failMissingWorktrees, findOrphans } from "./worktrees/reconcile.js";
 import { settleMergedPrs } from "./worktrees/on-merge.js";
+import { fixCi, markCiDone, rerunCi } from "./ci/actions.js";
+import { watchCi } from "./ci/watch.js";
 import { removeItemWorktree, removeOrphan } from "./worktrees/remove.js";
 import { Hub } from "./ws/hub.js";
 
@@ -111,7 +113,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const view = (item: WorkItem) => {
     const itemEvents = events.forItem(item.id);
     const itemDrafts = drafts.forItem(item.id);
-    const pr = itemDrafts.findLast((d) => d.state === "executed")?.result;
+    const pr = executedPr(itemDrafts);
     return toItemView(
       item,
       item.repoId ? repos.get(item.repoId) : undefined,
@@ -204,6 +206,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     async () => {
       await collectIssues({ db, exec: opts.exec, items, events, repos, status, ctx: opts.ctx, log: app.log, sources: () => config.sources, onItemUpdated: pushItem });
       if (status.get().gh?.state !== "ready") return;
+      await watchCi({ items, events, writer, exec: opts.exec, ctx: opts.ctx, log: app.log });
       await settleMergedPrs({
         items, events, drafts, repos, writer, exec: opts.exec, ctx: opts.ctx, log: app.log,
         removeOnMerge: () => config.removeWorktreeOnMerge,
@@ -241,6 +244,10 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     removeOrphan: (path) => removeOrphan({ exec: opts.exec, orphans }, path),
     stopItem: (id) => runner.stop(id),
     dismissItem: (id) => dismissItem({ items, writer, ctx: opts.ctx, agentActive: (i) => runner.isRunning(i) }, id),
+    rerunCi: (id) => rerunCi({ items, events, writer, ctx: opts.ctx, exec: opts.exec }, id),
+    markCiDone: (id) => markCiDone({ items, events, writer, ctx: opts.ctx, agentActive: (i) => runner.isRunning(i) }, id),
+    fixCi: (id) =>
+      fixCi({ items, events, writer, ctx: opts.ctx, resume: async (itemId, how) => track(await resumeItem(startDeps(), itemId, how)) }, id),
     view,
     answerAsk: (id, answer) => runner.answer(id, answer),
     diff: (input) => itemDiff(opts.exec, input),
@@ -289,7 +296,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
         app.log.warn({ err: e }, "could not write the default playbook"),
       );
       await app.listen({ host: "127.0.0.1", port });
-      bridge = await listenBridge({ ...draftDeps, sessions: bridgeSessions, log: app.log, version: opts.version }, bridgeSocket);
+      bridge = await listenBridge({ ...draftDeps, exec: opts.exec, sessions: bridgeSessions, log: app.log, version: opts.version }, bridgeSocket);
       app.log.info({ configFile: paths.configFile, dbFile: paths.dbFile }, "donepm started");
       await recheck();
       if (status.get().claude?.version) app.log.info({ version: status.get().claude?.version }, "claude cli");

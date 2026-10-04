@@ -25,6 +25,10 @@ export const EVENT_TYPES = [
   "draft.execution_failed",
   "worktree.removed",
   "worktree.remove_skipped",
+  "ci.started",
+  "ci.passed",
+  "ci.failed",
+  "ci.marked_done",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

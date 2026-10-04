@@ -10,6 +10,7 @@ import { WorktreeError } from "../worktrees/create.js";
 import type { OrphanWorktree } from "../worktrees/reconcile.js";
 import { RemoveError } from "../worktrees/remove.js";
 import { DismissError } from "../items/dismiss.js";
+import { CiActionError } from "../ci/actions.js";
 import type { AskStore } from "../asks/store.js";
 import { ConfigSchema, SourceKey, type Config } from "../config/config.js";
 import { DraftError } from "../drafts/actions.js";
@@ -53,6 +54,12 @@ export interface ServerDeps {
   removeOrphan: (path: string) => Promise<void>;
   /** Throws DismissError. Moves an item whose issue was closed upstream to Done (D32). */
   dismissItem: (id: string) => WorkItem;
+  /** Throws CiActionError. "Rerun failed jobs" on a red CI; resolves once gh reran them (D35). */
+  rerunCi: (id: string) => Promise<WorkItem>;
+  /** Throws CiActionError. Moves an item waiting for or failed by CI to Done. */
+  markCiDone: (id: string) => WorkItem;
+  /** Throws CiActionError or StartError; same contract as resumeItem, with the failures as the message. */
+  fixCi: (id: string) => Promise<unknown>;
   /** Throws StopError when no agent process is alive. Resolves once it exited. */
   stopItem: (id: string) => Promise<void>;
   /** The item as the API shows it: clone, badges, agent. */
@@ -109,6 +116,15 @@ async function removeCall<T>(reply: FastifyReply, fn: () => Promise<T>) {
   } catch (e) {
     if (e instanceof RemoveError) return reply.code(e.status).send({ error: e.message });
     if (e instanceof WorktreeError) return reply.code(502).send({ error: e.output.trim() ? `${e.message}: ${e.output.trim()}` : e.message });
+    throw e;
+  }
+}
+
+async function ciCall<T>(reply: FastifyReply, fn: () => Promise<T>) {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof CiActionError || e instanceof StartError) return reply.code(e.status).send({ error: e.message });
     throw e;
   }
 }
@@ -198,6 +214,19 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       if (e instanceof DismissError) return reply.code(e.status).send({ error: e.message });
       throw e;
     }
+  });
+
+  app.post<{ Params: { id: string } }>("/api/items/:id/ci/rerun", async (req, reply) =>
+    ciCall(reply, async () => deps.view(await deps.rerunCi(req.params.id))),
+  );
+
+  app.post<{ Params: { id: string } }>("/api/items/:id/ci/done", async (req, reply) =>
+    ciCall(reply, async () => deps.view(deps.markCiDone(req.params.id))),
+  );
+
+  app.post<{ Params: { id: string } }>("/api/items/:id/ci/fix", async (req, reply) => {
+    const r = await ciCall(reply, () => deps.fixCi(req.params.id));
+    return reply.sent ? r : reply.code(202).send(r);
   });
 
   app.post<{ Params: { id: string } }>("/api/items/:id/stop", async (req, reply) => {

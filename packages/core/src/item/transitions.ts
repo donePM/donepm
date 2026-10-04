@@ -191,19 +191,94 @@ export function draftApproved(item: WorkItem, ctx: Ctx, draftId: string): Transi
   );
 }
 
-/** The daemon executed an approved draft (spec 6.3). Item is done. `payload` holds the result. */
+/** The pull request a CI wait is about, as `ci.*` events carry it. */
+export interface CiPr {
+  number: number;
+  url: string;
+}
+
+/**
+ * The daemon executed an approved draft (spec 6.3): the PR is open or the commits are pushed to it.
+ * The item waits for the PR's CI (decision D35), so `ci.started` follows `draft.executed`.
+ * `payload` holds the result.
+ */
 export function draftExecuted(
   item: WorkItem,
   ctx: Ctx,
   draftId: string,
+  pr: CiPr,
   payload: Record<string, unknown> = {},
 ): Transition {
-  return apply(
-    { name: "draftExecuted", from: ["needs_you"], to: "done", actor: "system", event: "draft.executed" },
+  const executed = apply(
+    { name: "draftExecuted", from: ["needs_you"], to: "checking", actor: "system", event: "draft.executed" },
     item,
     ctx,
     draftId,
     payload,
+  );
+  const started = apply(
+    { name: "draftExecuted", from: ["checking"], to: "checking", actor: "system", event: "ci.started" },
+    executed.item,
+    ctx,
+    draftId,
+    { ...pr },
+  );
+  return { item: started.item, events: [...executed.events, ...started.events] };
+}
+
+/**
+ * Every check of the PR passed, or none appeared within the grace period (D35). The item is done.
+ * `payload.checks` is how many there were.
+ */
+export function ciPassed(item: WorkItem, ctx: Ctx, payload: Record<string, unknown> = {}): Transition {
+  return apply({ name: "ciPassed", from: ["checking"], to: "done", actor: "system", event: "ci.passed" }, item, ctx, undefined, payload);
+}
+
+/** A check failed. The user decides: fix with the agent, rerun, or mark done anyway. */
+export function ciFailed(item: WorkItem, ctx: Ctx, payload: Record<string, unknown> = {}): Transition {
+  return apply(
+    { name: "ciFailed", from: ["checking"], to: "needs_you", actor: "system", event: "ci.failed" },
+    item,
+    ctx,
+    undefined,
+    payload,
+  );
+}
+
+/** The user reran the failed jobs; the item waits for CI again. `payload.runs` are the reruns. */
+export function ciRerun(item: WorkItem, ctx: Ctx, pr: CiPr, runs: readonly string[]): Transition {
+  return apply(
+    { name: "ciRerun", from: ["needs_you"], to: "checking", actor: "user", event: "ci.started" },
+    item,
+    ctx,
+    undefined,
+    { ...pr, reason: "rerun", runs: [...runs] },
+  );
+}
+
+/**
+ * The user called the item done although CI is red, or before it finished (D35). The event says
+ * so; the card does not hide it.
+ */
+export function ciMarkedDone(item: WorkItem, ctx: Ctx, payload: Record<string, unknown> = {}): Transition {
+  return apply(
+    { name: "ciMarkedDone", from: ["checking", "needs_you"], to: "done", actor: "user", event: "ci.marked_done" },
+    item,
+    ctx,
+    undefined,
+    payload,
+  );
+}
+
+/** The user sent the CI failure to the agent: `--resume` with the failure as the message. */
+export function ciFix(item: WorkItem, ctx: Ctx): Transition {
+  if (!item.agentSessionId) throw new InvalidTransitionError("ciFix", item.state);
+  return apply(
+    { name: "ciFix", from: ["needs_you"], to: "running", actor: "user", event: "agent.resumed" },
+    item,
+    ctx,
+    undefined,
+    { reason: "ci_failed" },
   );
 }
 
@@ -329,7 +404,7 @@ export function worktreeRemoveSkipped(
   );
 }
 
-const ALL_STATES: ItemState[] = ["ready", "running", "needs_you", "done", "failed"];
+const ALL_STATES: ItemState[] = ["ready", "running", "needs_you", "checking", "done", "failed"];
 
 /**
  * The daemon assigned the issue to the user on start (opt-in per repository, decision D28). Not a

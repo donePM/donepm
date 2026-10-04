@@ -1,4 +1,4 @@
-import type { Draft, Event, PermissionAsk, PermissionRule, PrDraftPayload, PrDraftResult, PrMerge, Repo, TranscriptMessage, WorkItem } from "@donepm/core";
+import type { CheckLog, CiPr, Draft, DraftType, Event, FailedCheck, PermissionAsk, PermissionRule, PrDraft, PrDraftPayload, PushDraft, PrDraftResult, PrMerge, Repo, TranscriptMessage, WorkItem } from "@donepm/core";
 
 // Mirrors of what the daemon's HTTP API returns (packages/daemon/src/http/server.ts).
 
@@ -19,7 +19,8 @@ export interface AgentView {
 /** What a Needs You card shows. */
 export type Attention =
   | { kind: "ask"; askId: string; toolName: string; input: unknown; rules: PermissionRule[]; reason?: string }
-  | { kind: "draft"; draftId: string; title: string; executing?: true; error?: string }
+  | { kind: "draft"; draftId: string; draftType: DraftType; title: string; executing?: true; error?: string }
+  | { kind: "ci_failed"; pr?: CiPr; failed: FailedCheck[]; logs: CheckLog[]; runs: string[] }
   | { kind: "failed"; reason: string; stderrTail?: string }
   | { kind: "resume"; reason: string };
 
@@ -128,4 +129,4 @@ export interface SourceTest {
   issues: { number: number; title: string; url: string }[];
 }
 
-export type { Draft, Event, PermissionAsk, PermissionRule, PrDraftPayload, Repo, TranscriptMessage };
+export type { Draft, Event, PermissionAsk, PermissionRule, PrDraft, PrDraftPayload, PushDraft, Repo, TranscriptMessage };

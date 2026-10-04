@@ -202,6 +202,20 @@ agent still may not. Only gitignored directories are filled, so a committed `ven
 left it. `dependencies: off` in `.donepm/setup.yml` turns the step off for repos whose `run`
 installs on its own terms. Bloom has no such step: its users write a setup script per repo.
 
+**D35. An opened PR waits for its CI; red CI goes back to the user, and fixes leave by a push
+draft.** A PR with red CI was "done" on the board and nobody noticed (#62). After `draft pr` runs,
+the item is `checking` (In Progress, no agent) and each poll reads `gh pr checks`. All checks count,
+not only required ones: a red optional check is still something the user wants to see, and "Mark
+done" is one click. The verdict waits until every check finished, so the card shows all failures at
+once. A PR with no checks after 60 s has no CI and is done; within those 60 s it may just not have
+registered them. Red → `needs_you` with the failed checks and the tail of their logs, fetched by the
+daemon, because the agent cannot reach GitHub (D27). The user picks: the agent fixes it (resumed with
+the failures and logs as message), rerun the failed jobs (flaky), or mark done. The agent's fix
+leaves through a new draft type `push` (`draft_push`), allowed wherever `pr` is, since it only adds
+commits to the PR the user already approved; the daemon fills in the commits from git, the agent
+gives a summary. Pushing stays a daemon action after approval, as every outward effect. Bloom does
+not watch CI.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

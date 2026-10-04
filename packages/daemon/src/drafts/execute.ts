@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   draftApproved, draftExecuted, draftExecutionFailed,
-  type Draft, type PrDraftPayload, type PrDraftResult, type WorkItem,
+  type CiPr, type Draft, type PrDraftPayload, type PrDraftResult, type PushDraftResult, type WorkItem,
 } from "@donepm/core";
 import type { Exec, ExecResult } from "../process/exec.js";
 import { setupCopies } from "../worktrees/setup.js";
@@ -33,9 +33,9 @@ export interface ApproveDeps extends DraftDeps {
 }
 
 /**
- * The user approved a PR draft (spec 6.3): the daemon, never the agent, commits leftovers, pushes
- * the branch and opens the pull request with the user's edits. A failed draft can be approved
- * again (Retry). Throws DraftError before anything ran; ExecutionError once a step failed, with
+ * The user approved a draft (spec 6.3): the daemon, never the agent, commits leftovers and pushes
+ * the branch; for a PR draft it then opens the pull request with the user's edits. Either way the
+ * item then waits for the PR's CI (D35). A failed draft can be approved again (Retry). Throws DraftError before anything ran; ExecutionError once a step failed, with
  * the draft `failed` and the item still waiting for the user.
  */
 export async function approveDraft(deps: ApproveDeps, draftId: string): Promise<Draft> {
@@ -51,12 +51,19 @@ export async function approveDraft(deps: ApproveDeps, draftId: string): Promise<
   deps.drafts.setState(draft.id, "approved", deps.ctx.now());
   let current = deps.writer.commit(draftApproved(item, deps.ctx, draft.id));
 
-  const payload = draft.userEdits ?? draft.payload;
-  let result: PrDraftResult;
+  const where = { worktree: item.worktreePath, branch: item.branch };
+  let result: PrDraftResult | PushDraftResult;
+  let pr: CiPr;
   try {
-    result = await publish(deps.exec, { worktree: item.worktreePath, branch: item.branch, repo: repo.originUrl, payload });
+    if (draft.type === "pr") {
+      result = await publish(deps.exec, { ...where, repo: repo.originUrl, payload: draft.userEdits ?? draft.payload });
+      pr = result;
+    } else {
+      result = await pushCommits(deps.exec, where);
+      pr = { number: draft.payload.number, url: draft.payload.url };
+    }
   } catch (e) {
-    const err = e instanceof ExecutionError ? e : new ExecutionError("pr", (e as Error).message);
+    const err = e instanceof ExecutionError ? e : new ExecutionError(draft.type, (e as Error).message);
     deps.drafts.setState(draft.id, "failed", deps.ctx.now());
     current = itemNow(deps, current);
     deps.writer.commit(draftExecutionFailed(current, deps.ctx, draft.id, { step: err.step, error: err.message }));
@@ -65,9 +72,9 @@ export async function approveDraft(deps: ApproveDeps, draftId: string): Promise<
 
   deps.drafts.setResult(draft.id, result, deps.ctx.now());
   current = itemNow(deps, current);
-  deps.writer.commit(draftExecuted(current, deps.ctx, draft.id, { ...result }));
+  deps.writer.commit(draftExecuted(current, deps.ctx, draft.id, { number: pr.number, url: pr.url }, { ...result }));
   await deps.stopAgent(item.id).catch(() => {});
-  return { ...draft, state: "executed", result };
+  return { ...draft, state: "executed", result } as Draft;
 }
 
 /**
@@ -91,12 +98,17 @@ function itemNow(deps: DraftDeps, fallback: WorkItem): WorkItem {
   return deps.items.get(fallback.id)?.item ?? fallback;
 }
 
-async function publish(
-  exec: Exec,
-  input: { worktree: string; branch: string; repo: string; payload: PrDraftPayload },
-): Promise<PrDraftResult> {
-  const git = (...args: string[]) => exec("git", ["-C", input.worktree, ...args], { timeoutMs: PUSH_TIMEOUT_MS });
+interface Where {
+  worktree: string;
+  branch: string;
+}
 
+const gitIn = (exec: Exec, worktree: string) => (...args: string[]) =>
+  exec("git", ["-C", worktree, ...args], { timeoutMs: PUSH_TIMEOUT_MS });
+
+/** Commit what the agent left uncommitted (D25), then push the branch. */
+async function commitAndPush(exec: Exec, input: Where): Promise<void> {
+  const git = gitIn(exec, input.worktree);
   const status = await git("status", "--porcelain");
   check(status, "commit", "git status");
   if (status.stdout.trim()) {
@@ -108,8 +120,19 @@ async function publish(
     if (staged.code === 1) check(await git("commit", "--message", WIP_MESSAGE), "commit", "git commit");
     else check(staged, "commit", "git diff --cached");
   }
-
   check(await git("push", "--set-upstream", "origin", input.branch), "push", "git push");
+}
+
+/** A push draft: the new commits go to the branch the PR already tracks. */
+async function pushCommits(exec: Exec, input: Where): Promise<PushDraftResult> {
+  await commitAndPush(exec, input);
+  const head = await gitIn(exec, input.worktree)("rev-parse", "HEAD");
+  check(head, "push", "git rev-parse");
+  return { sha: head.stdout.trim() };
+}
+
+async function publish(exec: Exec, input: Where & { repo: string; payload: PrDraftPayload }): Promise<PrDraftResult> {
+  await commitAndPush(exec, input);
 
   const dir = mkdtempSync(join(tmpdir(), "donepm-pr-"));
   try {

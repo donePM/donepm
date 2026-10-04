@@ -26,6 +26,9 @@ Labels: {{ labels }}
 5. Commit your work in small, clear commits on this branch. Use conventional commit messages.
 6. When done, call the `draft_pr` tool with a title and a body. The body should say what changed,
    why, and how it was tested. Reference the issue with `Closes #<number>`.
+7. After the PR is open, donePM waits for its CI. If a check fails and the user asks you to fix
+   it, you get the failed checks and the ends of their logs. Fix the cause, commit, and call the
+   `draft_push` tool so the user can push the commits to the same PR.
 
 ## Rules
 

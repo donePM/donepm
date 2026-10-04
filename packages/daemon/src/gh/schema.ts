@@ -42,3 +42,26 @@ export function toSourceIssue(i: z.infer<typeof ListIssueSchema>, repository: st
     createdAt: i.createdAt,
   };
 }
+
+/** gh's stand-in for a timestamp that is not there yet, e.g. the `completedAt` of a pending check. */
+const ZERO_TIME = /^0001-01-01T/;
+const OptionalTime = z
+  .string()
+  .optional()
+  .transform((t) => (t && !ZERO_TIME.test(t) ? t : undefined));
+const OptionalText = z
+  .string()
+  .optional()
+  .transform((t) => t || undefined);
+
+/** One entry of `gh pr checks --json name,state,bucket,link,workflow,startedAt,completedAt`. */
+export const PrCheckSchema = z.object({
+  name: z.string(),
+  state: z.string(),
+  bucket: z.string(),
+  link: OptionalText,
+  workflow: OptionalText,
+  startedAt: OptionalTime,
+  completedAt: OptionalTime,
+});
+export const PrChecksSchema = z.array(PrCheckSchema);

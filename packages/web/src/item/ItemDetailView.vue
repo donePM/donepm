@@ -14,7 +14,9 @@ import { useNow } from "../time/now";
 import { timeLabel } from "../timeline/entries";
 import TimelineList from "../timeline/TimelineList.vue";
 import { useItemDetail } from "./detail";
+import CiPanel from "./CiPanel.vue";
 import DraftPanel from "./DraftPanel.vue";
+import PushDraftPanel from "./PushDraftPanel.vue";
 import WorktreeBlock from "./WorktreeBlock.vue";
 
 const route = useRoute();
@@ -36,6 +38,7 @@ const stats = computed(() => (diff.value ? diffStats(diffFiles(diff.value.patch)
 const STATE_LABEL: Record<string, string> = {
   ready: "Ready",
   running: "Running",
+  checking: "Waiting for CI",
   needs_you: "Needs you",
   failed: "Failed",
   done: "Done",
@@ -44,7 +47,8 @@ const badge = computed(() => {
   const d = detail.value;
   if (!d) return "";
   const label = STATE_LABEL[d.state] ?? d.state;
-  if (d.attention?.kind === "draft") return `${label} · PR draft`;
+  if (d.attention?.kind === "draft") return `${label} · ${d.attention.draftType === "push" ? "push" : "PR"} draft`;
+  if (d.attention?.kind === "ci_failed") return `${label} · CI failed`;
   if (d.attention?.kind === "ask") return `${label} · permission`;
   if (d.attention?.kind === "resume") return `${label} · interrupted`;
   return label;
@@ -94,8 +98,16 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
               @answered="reload"
             />
           </section>
+          <PushDraftPanel
+            v-if="draft?.type === 'push' && detail.state === 'needs_you'"
+            :draft="draft"
+            :created-at="draftCreatedAt"
+            :can-reject="detail.agent.running || !!detail.agentSessionId"
+            :publish-error="publishError"
+            @changed="reload"
+          />
           <DraftPanel
-            v-if="draft && detail.state === 'needs_you'"
+            v-else-if="draft?.type === 'pr' && detail.state === 'needs_you'"
             :draft="draft"
             :created-at="draftCreatedAt"
             :can-reject="detail.agent.running || !!detail.agentSessionId"
@@ -103,6 +115,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
             :repo="repo"
             @changed="reload"
           />
+          <CiPanel :item="detail" @changed="reload" />
           <section v-if="detail.pr" class="panel" aria-labelledby="pr-h">
             <h2 id="pr-h">Pull request</h2>
             <a :href="detail.pr.url" target="_blank" rel="noreferrer" class="mono">#{{ detail.pr.number }} · {{ detail.pr.url }}</a>
@@ -151,7 +164,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
 .crumbs a:hover { color: var(--blue); }
 .state { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--border-soft); color: var(--ink-2); }
 .state.s-needs_you, .state.s-failed { background: var(--amber-tint); color: var(--amber); }
-.state.s-running { background: var(--blue-tint); color: var(--blue); }
+.state.s-running, .state.s-checking { background: var(--blue-tint); color: var(--blue); }
 h1 { margin: 12px 0 6px; font-size: 22px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
 .facts { margin: 0 0 20px; color: var(--ink-2); font-size: 13px; overflow-wrap: anywhere; }
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }

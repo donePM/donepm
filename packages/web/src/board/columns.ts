@@ -14,6 +14,8 @@ export const COLUMNS: { key: ColumnKey; title: string }[] = [
 const COLUMN_OF: Record<ItemState, ColumnKey> = {
   ready: "ready",
   running: "in_progress",
+  // Waiting for CI is still work in progress; nothing to do for the user (D35).
+  checking: "in_progress",
   needs_you: "needs_you",
   failed: "needs_you",
   done: "done",

@@ -51,9 +51,11 @@ function answersText(ask: PermissionAsk | undefined, answers: unknown): string |
   return parts.length ? parts.join(" · ") : undefined;
 }
 
-function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>): Omit<TimelineEntry, "id" | "at"> {
+function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: ReadonlySet<string>): Omit<TimelineEntry, "id" | "at"> {
   const p = e.payload;
   const ask = e.refId ? asks.get(e.refId) : undefined;
+  const push = e.refId !== undefined && pushDrafts.has(e.refId);
+  const draftName = push ? "push draft" : "PR draft";
   switch (e.type) {
     case "item.collected":
       return { tone: "system", text: "Collected from GitHub" };
@@ -70,6 +72,7 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>): Omit<Timelin
     case "agent.started":
       return { tone: e.actor === "user" ? "user" : "system", text: "Agent started" };
     case "agent.resumed":
+      if (p.reason === "ci_failed") return { tone: "user", text: "You let the agent fix the failed CI" };
       return { tone: e.actor === "user" ? "user" : "system", text: e.actor === "user" ? "You resumed the agent" : "Agent resumed" };
     case "agent.interrupted":
       return { tone: "attention", text: "Agent interrupted", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
@@ -113,17 +116,29 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>): Omit<Timelin
         ...(str(p.domain) ? { detail: `${str(p.domain)} is in Settings → Web access` } : {}),
       };
     case "draft.created":
-      return { tone: "attention", text: "Agent created PR draft", ...(str(p.title) ? { detail: str(p.title) } : {}) };
+      return { tone: "attention", text: `Agent created ${draftName}`, ...(str(p.title) ? { detail: str(p.title) } : {}) };
     case "draft.edited":
-      return { tone: "user", text: "You edited the PR draft" };
+      return { tone: "user", text: `You edited the ${draftName}` };
     case "draft.approved":
-      return { tone: "user", text: "You approved the PR draft" };
+      return { tone: "user", text: `You approved the ${draftName}` };
     case "draft.rejected":
-      return { tone: "user", text: "You rejected the PR draft", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
+      return { tone: "user", text: `You rejected the ${draftName}`, ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
     case "draft.executed":
+      if (push) return { tone: "system", text: "Commits pushed", ...(str(p.sha) ? { code: str(p.sha)!.slice(0, 7) } : {}) };
       return { tone: "system", text: "Pull request created", ...(str(p.url) ? { detail: str(p.url) } : {}) };
     case "draft.execution_failed":
-      return { tone: "danger", text: "Creating the pull request failed", ...(str(p.error) ? { detail: str(p.error) } : {}) };
+      return { tone: "danger", text: push ? "Pushing failed" : "Creating the pull request failed", ...(str(p.error) ? { detail: str(p.error) } : {}) };
+    case "ci.started":
+      if (p.reason === "rerun") return { tone: "user", text: `You reran the failed jobs on ${prName(p.number)}` };
+      return { tone: "system", text: `Waiting for CI on ${prName(p.number)}` };
+    case "ci.passed":
+      return { tone: "system", text: p.checks === 0 ? `${prName(p.number)} has no CI, done` : "CI passed, done" };
+    case "ci.failed": {
+      const failed = Array.isArray(p.failed) ? p.failed.flatMap((c: unknown) => str((c as { name?: unknown } | null)?.name) ?? []) : [];
+      return { tone: "attention", text: "CI failed", ...(failed.length ? { detail: failed.join(", ") } : {}) };
+    }
+    case "ci.marked_done":
+      return { tone: "user", text: "You marked it done without green CI" };
     case "item.pr_merged":
       return { tone: "system", text: `${prName(p.number)} merged` };
     case "worktree.removed": {
@@ -148,10 +163,12 @@ const prName = (n: unknown) => (typeof n === "number" ? `PR #${n}` : "PR");
 /** Events as the item detail lists them: newest first (spec §12.2). */
 export function timelineEntries(events: readonly Event[], asks: readonly PermissionAsk[]): TimelineEntry[] {
   const byId = new Map(asks.map((a) => [a.id, a]));
+  // Only `draft.created` says which kind of draft; the later draft events point to it by refId.
+  const pushDrafts = new Set(events.flatMap((e) => (e.type === "draft.created" && e.payload.type === "push" && e.refId ? [e.refId] : [])));
   return events
     .map((e, i) => ({ e, i }))
     .sort((a, b) => b.e.at.localeCompare(a.e.at) || b.i - a.i)
-    .map(({ e }) => ({ id: e.id, at: e.at, ...entry(e, byId) }));
+    .map(({ e }) => ({ id: e.id, at: e.at, ...entry(e, byId, pushDrafts) }));
 }
 
 /** "09:41" today, "Yesterday 17:02", else "Sep 28 17:02". Local time. */

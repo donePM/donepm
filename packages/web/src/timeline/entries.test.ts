@@ -72,6 +72,37 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("describes the CI wait and push drafts", () => {
+    const events = [
+      ev("draft.executed", { url: "https://github.com/o/r/pull/7", number: 7 }, { refId: "d1" }),
+      ev("ci.started", { number: 7, url: "u" }, { refId: "d1" }),
+      ev("ci.failed", { number: 7, failed: [{ name: "test" }, { name: "lint" }], logs: [] }),
+      ev("ci.started", { number: 7, reason: "rerun", runs: ["1"] }, { actor: "user" }),
+      ev("ci.failed", { number: 7, failed: [{ name: "test" }], logs: [] }),
+      ev("agent.resumed", { reason: "ci_failed" }, { actor: "user" }),
+      ev("draft.created", { type: "push", title: "Push 1 commit to PR #7" }, { refId: "d2", actor: "agent" }),
+      ev("draft.approved", {}, { refId: "d2", actor: "user" }),
+      ev("draft.executed", { sha: "c0ffee1234" }, { refId: "d2" }),
+      ev("ci.passed", { number: 7, checks: 3 }),
+      ev("ci.marked_done", {}, { actor: "user" }),
+      ev("ci.passed", { number: 8, checks: 0 }),
+    ];
+    expect(timelineEntries(events, []).map(({ tone, text, code, detail }) => ({ tone, text, code, detail })).reverse()).toEqual([
+      { tone: "system", text: "Pull request created", code: undefined, detail: "https://github.com/o/r/pull/7" },
+      { tone: "system", text: "Waiting for CI on PR #7", code: undefined, detail: undefined },
+      { tone: "attention", text: "CI failed", code: undefined, detail: "test, lint" },
+      { tone: "user", text: "You reran the failed jobs on PR #7", code: undefined, detail: undefined },
+      { tone: "attention", text: "CI failed", code: undefined, detail: "test" },
+      { tone: "user", text: "You let the agent fix the failed CI", code: undefined, detail: undefined },
+      { tone: "attention", text: "Agent created push draft", code: undefined, detail: "Push 1 commit to PR #7" },
+      { tone: "user", text: "You approved the push draft", code: undefined, detail: undefined },
+      { tone: "system", text: "Commits pushed", code: "c0ffee1", detail: undefined },
+      { tone: "system", text: "CI passed, done", code: undefined, detail: undefined },
+      { tone: "user", text: "You marked it done without green CI", code: undefined, detail: undefined },
+      { tone: "system", text: "PR #8 has no CI, done", code: undefined, detail: undefined },
+    ]);
+  });
+
   it("describes items closed upstream", () => {
     const events = [ev("item.closed_upstream"), ev("item.dismissed", {}, { actor: "user" })];
     expect(timelineEntries(events, []).map(({ tone, text }) => ({ tone, text }))).toEqual([

@@ -10,6 +10,7 @@ import { spawnProcess } from "../agent/process.js";
 import { AgentRunner } from "../agent/runner.js";
 import { AskStore } from "../asks/store.js";
 import { silentLog } from "../log.js";
+import { exec } from "../process/exec.js";
 import { draftStores } from "../test-support/draft-stores.js";
 import { TranscriptStore } from "../transcript/store.js";
 import { writeMcpConfig } from "./mcp-config.js";
@@ -28,7 +29,7 @@ describe.skipIf(!process.env.DONEPM_LIVE)("draft_pr (live)", () => {
     const transcript = new TranscriptStore(t.db);
     const sessions = new BridgeSessions();
     const socket = join(cwd, "mcp.sock");
-    const bridge = await listenBridge({ ...t.deps, sessions, log: silentLog, version: "live" }, socket);
+    const bridge = await listenBridge({ ...t.deps, exec, sessions, log: silentLog, version: "live" }, socket);
     const runner = new AgentRunner({
       items: t.items, writer: t.deps.writer, asks: new AskStore(t.db), transcript, ctx: t.deps.ctx, log: silentLog,
       spawn: spawnProcess, push: () => {},
@@ -56,7 +57,7 @@ describe.skipIf(!process.env.DONEPM_LIVE)("draft_pr (live)", () => {
     await runner.stopAll();
     await bridge.close();
 
-    expect(t.drafts.pending("item-1")[0]!.payload.title).toBe("Live check");
+    expect(t.drafts.pending("item-1")[0]).toMatchObject({ type: "pr", payload: { title: "Live check" } });
     expect(t.state()).toBe("needs_you");
   }, 240_000);
 });

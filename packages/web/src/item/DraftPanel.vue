@@ -2,13 +2,13 @@
 import { computed, ref, watch } from "vue";
 import { api } from "../api/client";
 import { errorText, isPublishFailure } from "../api/errors";
-import type { Draft, PrDraftPayload } from "../api/types";
+import type { PrDraft, PrDraftPayload } from "../api/types";
 import MarkdownView from "../markdown/MarkdownView.vue";
 import type { RepoRef } from "../markdown/render";
 import { draftTab, type DraftTab } from "./draft-tab";
 
 const props = defineProps<{
-  draft: Draft;
+  draft: PrDraft;
   createdAt?: string;
   /** A live agent hears the reason now; a stored session is resumed with it. */
   canReject: boolean;

@@ -75,8 +75,8 @@ functions. `daemon` calls them and persists the result.
 ### 4.2 Item states
 
 ```
-ready → running → needs_you → running → ... → done
-                ↘ failed
+ready → running → needs_you → running → ... → checking → done
+                ↘ failed                         ↘ needs_you (CI red) → running (fix) → …
 ```
 
 | state | column | meaning |
@@ -84,13 +84,15 @@ ready → running → needs_you → running → ... → done
 | ready | Ready | collected, no agent yet |
 | running | In Progress | agent turn is open |
 | needs_you | Needs You | agent waits: permission question, or a draft is pending |
-| done | Done | draft `pr` was approved and executed |
+| checking | In Progress | the PR is open and the daemon waits for its CI (6.6); no agent runs |
+| done | Done | CI of the PR passed, the PR has no CI, or the user marked it done |
 | failed | Needs You | agent exited with error; card shows stderr tail and offers retry |
 
 Transitions are functions in `core`: `start(item)`, `agentAsked(item)`, `answered(item)`,
 `draftCreated(item)`, `draftApproved(item)`, `draftExecuted(item)`, `draftExecutionFailed(item)`,
 `draftRejected(item)`, `agentFailed(item)`, `interrupted(item)`, `resume(item)`,
-`worktreeRemoved(item)`.
+`worktreeRemoved(item)`, `ciPassed(item)`, `ciFailed(item)`, `ciRerun(item)`, `ciMarkedDone(item)`,
+`ciFix(item)`.
 Invalid transitions throw.
 
 ### 4.3 Event
@@ -115,7 +117,8 @@ see 6.4), `permission.auto_allowed` (the daemon answered a WebFetch ask itself, 
 `item.closed_upstream` (a never-started item moved to Done) and `item.dismissed` (the user moved
 a started one to Done), both see 6.2, `item.pr_merged` (the item's PR was merged, the worktree
 stays) and `worktree.remove_skipped` (merged, but the worktree has uncommitted changes), both see
-6.5. `worktree.removed` carries `reason: "pr_merged"` and actor `system` when the poll removed it.
+6.5, `ci.started`, `ci.passed`, `ci.failed` and `ci.marked_done` (see 6.6). `agent.resumed` carries
+`reason: "ci_failed"` when the user let the agent fix a red CI. `worktree.removed` carries `reason: "pr_merged"` and actor `system` when the poll removed it.
 
 ### 4.4 Draft
 
@@ -123,11 +126,11 @@ stays) and `worktree.remove_skipped` (merged, but the worktree has uncommitted c
 |---|---|---|
 | id | uuid | |
 | itemId | uuid | |
-| type | `pr` | more later |
-| payload | JSON | for `pr`: `{ title, body, base }` |
+| type | `pr` \| `push` | |
+| payload | JSON | for `pr`: `{ title, body, base }`; for `push`: `{ summary, number, url, branch, commits, uncommitted }` |
 | state | `pending` \| `approved` \| `rejected` \| `executed` \| `failed` | |
 | userEdits | JSON? | the payload after user edits |
-| result | JSON? | for `pr`: `{ url, number }` |
+| result | JSON? | for `pr`: `{ url, number }`; for `push`: `{ sha }` |
 
 ### 4.5 PermissionAsk
 
@@ -238,7 +241,10 @@ git -C <worktree> push -u origin <branch>
 gh pr create --repo <owner/repo> --head <branch> --base <base> --title <t> --body-file <tmp>
 ```
 
-Store the PR URL in the draft result. Add `draft.executed` event. Set item to `done`.
+Store the PR URL in the draft result. Add `draft.executed` and `ci.started`. Set item to `checking`.
+
+A `push` draft runs only the push (uncommitted changes are committed first, as for `pr`) and stores
+the new head as `{ sha }`; then `ci.started` again and `checking`.
 
 ### 6.4 Assign on start
 
@@ -268,6 +274,34 @@ retried on the next poll.
 - The agent runs → `item.pr_merged`; the worktree is left alone.
 
 Turning the setting on later removes worktrees of PRs already recorded as merged on the next poll.
+
+### 6.6 CI watch
+
+Part of each poll, before 6.5, while `gh` is ready (decision D35). For every `checking` item:
+
+```
+gh pr checks <number> --repo <host/owner/repo> --json name,state,bucket,link,workflow,startedAt,completedAt
+```
+
+The JSON on stdout counts whatever the exit code (gh exits 8 while checks pend, 1 when one failed).
+"no checks reported" on stderr means no checks. All checks count, required or not. `bucket`
+`pass`/`skipping` is green, `fail`/`cancel` is red, anything else pending; the verdict waits until
+every check finished.
+
+- No checks within 60 s of `ci.started` → pending (checks register late); after that → passed with
+  `checks: 0` ("no CI").
+- A failure that completed before `ci.started` is stale within the 60 s (a rerun not restarted yet).
+- Green → `ci.passed { number, url, checks }`, item `done`.
+- Red → the daemon fetches the end of each failed job's log (`gh run view <run> --repo <r>
+  --log-failed`, last 40 lines per job, timestamps and ANSI stripped) and records `ci.failed { number,
+  url, failed, logs }`; item `needs_you`. The card offers:
+  - **Fix with agent**: resumes the session with the failures and logs as message (`agent.resumed`,
+    reason `ci_failed`). The agent fixes, commits and calls `draft_push`.
+  - **Rerun failed**: `gh run rerun <run> --failed --repo <r>` per failed run; `ci.started` with
+    `reason: "rerun"`; item `checking`.
+  - **Mark done**: `ci.marked_done`, item `done`. Also offered while `checking`.
+
+A failed `gh` call is logged and retried on the next poll; the item stays `checking`.
 
 ## 7. Worktrees
 
@@ -369,7 +403,7 @@ Frontmatter fields:
 | model | yes | passed to `--model` |
 | effort | no | passed to `--effort` |
 | permission_mode | yes | `acceptEdits` \| `plan` \| `bypassPermissions` |
-| drafts | yes | list of allowed draft types; MVP: `[pr]` |
+| drafts | yes | list of allowed draft types: `[pr]`; `pr` also allows `draft_push` |
 | match.source | no | source filter |
 | match.labels | no | any of these labels |
 
@@ -559,6 +593,7 @@ Tools in MVP:
 | tool | input | effect |
 |---|---|---|
 | `draft_pr` | `{ title, body }` | creates Draft `pr`, state `pending`; item → `needs_you`; returns "Draft created, the user will review it." |
+| `draft_push` | `{ summary }` | only after the item's PR exists; the daemon adds the PR, branch and the commits the PR lacks (`git log origin/<branch>..HEAD`); creates Draft `push`, item → `needs_you`. Refused without a PR, or with no commits and nothing uncommitted |
 | `whoami` | – | returns item id, branch, worktree path, repo |
 
 A tool call not allowed by the playbook returns an error result (`isError: true`) with text, not a
@@ -581,6 +616,9 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/drafts/:id/reject` | `{ reason }`; reason is sent to the agent as next message. Without a live process (e.g. after a restart) the session is resumed with `--resume` and the reason as its first message |
 | POST | `/api/items/:id/resume` | after daemon restart |
 | POST | `/api/items/:id/worktree/remove` | only `done` or `failed`; the branch stays |
+| POST | `/api/items/:id/ci/rerun` | red CI only; reruns the failed jobs (6.6) |
+| POST | `/api/items/:id/ci/done` | `checking` or red CI → `done` |
+| POST | `/api/items/:id/ci/fix` | red CI with a session; resumes the agent with the failures |
 | POST | `/api/items/:id/dismiss` | closed upstream, not running → `done` (D32); 409 otherwise |
 | GET | `/api/worktrees/orphaned` | worktrees under the root that no item uses |
 | POST | `/api/worktrees/orphaned/remove` | `{ path }`; only paths from the orphan list |
@@ -609,7 +647,9 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
 - Ready card: dropdown for playbook, button "Start". Cards without local repo: greyed out.
 - Needs You card: shows what is needed: permission question (tool name, input, Allow / Deny) or
   draft (title, body editable, diff of branch vs base, Approve / Reject with reason) or failure
-  (stderr tail, Retry / Remove worktree).
+  (stderr tail, Retry / Remove worktree) or red CI (failed checks with log tails, Fix with agent /
+  Rerun failed / Mark done) or a push draft (commits, Approve and push / Reject).
+- In Progress card of a `checking` item: "waiting for CI", Mark done.
 - Done card: PR link, Remove worktree. With `removeWorktreeOnMerge` on, a quiet note "Worktree is
   removed when PR #45 is merged" (PR linked) until it is; "Not removed: uncommitted changes" when
   the poll kept it (6.5). After the merge: "PR merged".

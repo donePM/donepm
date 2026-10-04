@@ -44,6 +44,8 @@ function execWith(search: () => string, view = () => fixture("gh/issue-view-open
     "claude --version": ok("2.1.288 (Claude Code)\n"),
     "claude auth status": ok(fixture("claude/auth-status-logged-in.json")),
     "gh pr create": ok("https://github.com/acme/widgets/pull/200\n"),
+    "gh pr checks": { code: 1, stdout: fixture("gh/pr-checks-fail.json"), stderr: "" },
+    "gh run view": ok(fixture("gh/run-view-log-failed.txt")),
   });
   return (cmd, args, opts) => {
     // origin points at github.com; the clone already has origin/main, so fetching is skipped.
@@ -584,7 +586,7 @@ describe("daemon", { timeout: 30_000 }, () => {
     expect((await get(d, "/api/asks/nope/answer", { method: "POST", headers: { "content-type": "application/json" }, body: "{\"behavior\":\"allow\"}" })).status).toBe(404);
   });
 
-  it("approving a draft commits leftovers, opens the PR and moves the item to Done", async () => {
+  it("approving a draft commits leftovers, opens the PR and waits for CI", async () => {
     vi.stubEnv("GIT_AUTHOR_NAME", "t");
     vi.stubEnv("GIT_AUTHOR_EMAIL", "t@t");
     vi.stubEnv("GIT_COMMITTER_NAME", "t");
@@ -602,12 +604,21 @@ describe("daemon", { timeout: 30_000 }, () => {
     expect(git(detail.worktreePath, "show", "--name-only", "--format=", "HEAD").trim()).toBe("fix.txt");
     expect(git(detail.worktreePath, "status", "--porcelain").trim()).toBe("?? .env");
     const after = (await get(d, `/api/items/${item.id}`)).body;
-    expect(after).toMatchObject({ state: "done", pr: { number: 200 } });
+    expect(after).toMatchObject({ state: "checking", pr: { number: 200 } });
     expect(after.attention).toBeUndefined();
-    expect(after.events.map((e: any) => e.type).slice(-2)).toEqual(["draft.approved", "draft.executed"]);
-    // The agent's work is published; its process is ended, the item stays done.
+    expect(after.events.map((e: any) => e.type).slice(-3)).toEqual(["draft.approved", "draft.executed", "ci.started"]);
+    // The agent's work is published; its process is ended while CI runs.
     expect(proc.signals).toEqual(["SIGTERM"]);
     expect((await get(d, `/api/drafts/${detail.drafts[0].id}/approve`, { method: "POST" })).status).toBe(409);
+
+    // The next poll reads the PR's checks: red, so the user decides.
+    await d.pollNow();
+    const red = (await get(d, `/api/items/${item.id}`)).body;
+    expect(red).toMatchObject({ state: "needs_you", attention: { kind: "ci_failed", pr: { number: 200 }, runs: ["37149187747"] } });
+    expect(red.attention.failed).toHaveLength(2);
+    expect(red.attention.logs).toHaveLength(2);
+    expect((await get(d, `/api/items/${item.id}/ci/done`, { method: "POST" })).body).toMatchObject({ state: "done" });
+    expect((await get(d, `/api/items/${item.id}/ci/rerun`, { method: "POST" })).status).toBe(409);
     stdin.end();
     await shim;
   });
@@ -658,7 +669,7 @@ describe("daemon", { timeout: 30_000 }, () => {
       get(d, path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const draftId = detail.drafts[0].id;
     // The board card knows what to show without loading the detail.
-    expect(detail.attention).toEqual({ kind: "draft", draftId, title: "Fix search" });
+    expect(detail.attention).toEqual({ kind: "draft", draftId, draftType: "pr", title: "Fix search" });
     writeFileSync(join(detail.worktreePath, "fix.txt"), "fixed\n");
     const diff = (await get(d, `/api/items/${item.id}/diff`)).body;
     expect(diff).toMatchObject({ base: "origin/main", branch: detail.branch, commits: 0 });

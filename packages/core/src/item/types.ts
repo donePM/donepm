@@ -1,6 +1,7 @@
 export type ItemSource = "github-issue";
 
-export type ItemState = "ready" | "running" | "needs_you" | "done" | "failed";
+/** `checking`: the PR is open and its CI runs; no agent runs (decision D35). */
+export type ItemState = "ready" | "running" | "needs_you" | "checking" | "done" | "failed";
 
 export interface WorkItem {
   id: string;

@@ -6,6 +6,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { silentLog } from "../log.js";
 import { draftStores } from "../test-support/draft-stores.js";
+import { fakeExec, ok } from "../test-support/fake-exec.js";
 import { listenBridge, SocketTransport } from "./server.js";
 import { BridgeSessions } from "./sessions.js";
 
@@ -19,7 +20,11 @@ async function bridge(drafts: Array<"pr">) {
   const sessions = new BridgeSessions();
   const token = sessions.mint({ itemId: "item-1", drafts });
   const path = join(await mkdtemp(join(tmpdir(), "dp-br-")), "mcp.sock");
-  const server = await listenBridge({ ...t.deps, sessions, log: silentLog, version: "0.0.0-test" }, path);
+  const exec = fakeExec({
+    "git -C /wt/1 log": ok("a1b2c3\tFix the flaky test\n"),
+    "git -C /wt/1 status": ok(""),
+  });
+  const server = await listenBridge({ ...t.deps, exec, sessions, log: silentLog, version: "0.0.0-test" }, path);
   cleanup.push(server.close);
   return { ...t, sessions, token, path };
 }
@@ -63,7 +68,7 @@ describe("bridge server", () => {
     const a = await bridge(["pr"]);
     const withPr = await client(a.path, a.token);
     expect(withPr.getServerVersion()).toMatchObject({ name: "donepm" });
-    expect((await withPr.listTools()).tools.map((t) => t.name)).toEqual(["whoami", "draft_pr"]);
+    expect((await withPr.listTools()).tools.map((t) => t.name)).toEqual(["whoami", "draft_pr", "draft_push"]);
 
     const b = await bridge([]);
     const noPr = await client(b.path, b.token);
@@ -95,5 +100,27 @@ describe("bridge server", () => {
     expect(again.isError).toBe(true);
     const bad = await c.callTool({ name: "draft_pr", arguments: { body: "no title" } });
     expect(bad.isError).toBe(true);
+  });
+
+  it("draft_push proposes the new commits for the open PR; without one it points to draft_pr", async () => {
+    const b = await bridge(["pr"]);
+    const c = await client(b.path, b.token);
+    expect((await c.callTool({ name: "draft_push", arguments: { summary: "Fix CI" } })).content).toEqual([
+      { type: "text", text: "No draft was created: there is no pull request yet; call draft_pr instead." },
+    ]);
+    b.drafts.insert({ id: "d-pr", itemId: "item-1", type: "pr", payload: { title: "Fix it", body: "", base: "main" }, state: "executed" }, "2026-10-01T00:00:00.000Z");
+    b.drafts.setResult("d-pr", { number: 7, url: "https://github.com/o/r/pull/7" }, "2026-10-01T00:00:00.000Z");
+
+    expect(await c.callTool({ name: "draft_push", arguments: { summary: "Fix CI" } })).toEqual({
+      content: [{ type: "text", text: "Draft created, the user will review it." }],
+    });
+    expect(b.drafts.pending("item-1")).toMatchObject([
+      {
+        type: "push",
+        payload: { summary: "Fix CI", number: 7, branch: "dp/1-fix-it", commits: [{ sha: "a1b2c3", subject: "Fix the flaky test" }], uncommitted: false },
+      },
+    ]);
+    expect(b.state()).toBe("needs_you");
+    expect((await c.callTool({ name: "draft_push", arguments: {} })).isError).toBe(true);
   });
 });
