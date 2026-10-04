@@ -94,9 +94,12 @@ export function refresh(item: WorkItem, issue: SourceIssue, ctx: Ctx): WorkItem 
   return next;
 }
 
-/** The issue is closed upstream. Done items need no badge; already flagged items stay as they are. */
+/**
+ * The issue is closed upstream. Done items on the board need no badge; already flagged items stay as
+ * they are. An archived item is flagged, so a reopened issue is known as such (D37).
+ */
 export function markClosedUpstream(item: WorkItem, ctx: Ctx): WorkItem | undefined {
-  if (item.state === "done" || item.closedUpstream) return undefined;
+  if ((item.state === "done" && item.archivedAt === undefined) || item.closedUpstream) return undefined;
   return { ...item, closedUpstream: true, updatedAt: ctx.now() };
 }
 

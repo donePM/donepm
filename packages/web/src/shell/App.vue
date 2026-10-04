@@ -16,6 +16,7 @@ watchStatus();
         <RouterLink to="/agents" class="tab" active-class="active">
           Agents<span v-if="status?.runningAgents" class="badge" :aria-label="`${status.runningAgents} running`">{{ status.runningAgents }}</span>
         </RouterLink>
+        <RouterLink to="/archive" class="tab" active-class="active">Archive</RouterLink>
         <RouterLink to="/settings" class="tab" active-class="active">Settings</RouterLink>
       </nav>
       <StatusBar />

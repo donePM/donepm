@@ -693,6 +693,26 @@ describe("daemon", { timeout: 30_000 }, () => {
     expect(await shim).toBe(0);
   });
 
+  it("shows a finished item muted, then moves it to the archive on the next poll after archiveAfterHours (D37)", async () => {
+    const d = await start(await home());
+    const json = { "content-type": "application/json" };
+    const externalId = "solo/tool#61";
+    const { id } = d.db.prepare("SELECT id FROM items WHERE external_id = ?").get(externalId) as { id: string };
+    d.db.prepare("UPDATE items SET state = 'done', state_since = ? WHERE id = ?").run("2026-01-01T00:00:00.000Z", id);
+    expect((await get(d, `/api/items/${id}`)).body).toMatchObject({ state: "done", finishedAt: "2026-01-01T00:00:00.000Z" });
+    expect((await get(d, "/api/archive")).body).toEqual([]);
+
+    const saved = await get(d, "/api/settings", { method: "PUT", headers: json, body: JSON.stringify({ archiveAfterHours: 0, deleteAfterDays: null }) });
+    expect(saved.status).toBe(200);
+    await d.pollNow();
+    expect((await get(d, "/api/items")).body.map((i: any) => i.externalId)).not.toContain(externalId);
+    const archive = (await get(d, "/api/archive")).body;
+    expect(archive.map((i: any) => [i.id, i.state])).toEqual([[id, "done"]]);
+    expect(archive[0].archivedAt).toBeDefined();
+    expect((await get(d, `/api/items/${id}`)).status).toBe(200);
+    expect((await get(d, "/api/settings", { method: "PUT", headers: json, body: JSON.stringify({ archiveAfterHours: -1 }) })).status).toBe(400);
+  });
+
   describe("ignored repositories", () => {
     const WIDGETS = "github.com/acme/widgets";
     const json = { "content-type": "application/json" };

@@ -3,6 +3,7 @@ export * from "./item/types.js";
 export * from "./item/transitions.js";
 export * from "./item/collect.js";
 export * from "./item/pr-merge.js";
+export * from "./item/finished.js";
 export * from "./ci/checks.js";
 export * from "./ci/state.js";
 export * from "./pr/conflict.js";

@@ -70,6 +70,7 @@ functions. `daemon` calls them and persists the result.
 | worktreePath | string? | set when agent starts |
 | branch | string? | |
 | agentSessionId | string? | Claude `session_id`, for `--resume` |
+| archivedAt | datetime? | set once by `archived` (6.8); an archived item is off the board and in the Archive (12.5) |
 | createdAt, updatedAt | datetime | |
 
 ### 4.2 Item states
@@ -94,12 +95,14 @@ Transitions are functions in `core`: `start(item)`, `agentAsked(item)`, `answere
 `draftRejected(item)`, `agentFailed(item)`, `interrupted(item)`, `resume(item)`,
 `worktreeRemoved(item)`, `ciPassed(item)`, `ciFailed(item)`, `ciRerun(item)`, `ciMarkedDone(item)`,
 `ciFix(item)`, `prConflicted(item)`, `prConflictResolved(item)`, `prConflictDismissed(item)`,
-`prConflictFix(item)`.
+`prConflictFix(item)`, `archived(item, finishedAt)` (only from `done`, once; sets `archivedAt`, 6.8).
 Invalid transitions throw.
 
 ### 4.3 Event
 
-Append-only. Never updated or deleted.
+Append-only. Never updated. Deleted only together with their whole item, by the retention purge
+(6.8); a trigger refuses any other delete. The purge itself is logged, not recorded as an event:
+nothing would be left to attach it to.
 
 | field | type |
 |---|---|
@@ -120,7 +123,8 @@ see 6.4), `permission.auto_allowed` (the daemon answered a WebFetch ask itself, 
 a started one to Done), both see 6.2, `item.pr_merged` (the item's PR was merged, the worktree
 stays) and `worktree.remove_skipped` (merged, but the worktree has uncommitted changes), both see
 6.5, `ci.started`, `ci.passed`, `ci.failed` and `ci.marked_done` (see 6.6), `pr.conflicted`,
-`pr.conflict_resolved` and `pr.conflict_dismissed` (see 6.7). `agent.resumed` carries
+`pr.conflict_resolved` and `pr.conflict_dismissed` (see 6.7), `item.archived` (actor `system`,
+payload `{ finishedAt }`, see 6.8). `agent.resumed` carries
 `reason: "ci_failed"` when the user let the agent fix a red CI, `reason: "pr_conflict"` when it
 resolves a merge conflict. `worktree.removed` carries `reason: "pr_merged"` and actor `system` when the poll removed it.
 
@@ -223,7 +227,15 @@ On start and on Settings open:
     (actor `user`). Not while the agent runs: the user stops it first. The worktree stays until
     the user removes it.
   An issue seen open again clears the badge; an item already in `done` stays there.
-- Never delete items automatically.
+- Never delete items here. Only the retention purge deletes, and only archived items (6.8).
+- Archived and purged items (D37). An archived item's issue still open in the poll is skipped; one
+  missing from it is checked like any other and flagged closed upstream. An issue whose archived
+  item was flagged closed shows up again → reopened: collected as a **new** item, the archived one
+  stays as it is. A purged item leaves a tombstone (`externalId`, `source`, `originUrl`, `closed`,
+  `deletedAt`). While the tombstone is open the issue is skipped; the poll confirms each open
+  tombstone missing from the results with `gh issue view` and marks it closed. A closed tombstone
+  whose issue shows up again is removed and the issue is collected fresh. External ids are unique
+  among live items only.
 - Repos with a `query` (4.6) are polled in addition, one call each:
   ```
   gh issue list --repo <origin> --search "<query>" --state open --json number,title,body,createdAt,labels,url
@@ -260,8 +272,8 @@ not stop the agent. The daemon runs this, never the agent (decision D28).
 ### 6.5 PR state
 
 Part of each poll, after the CI watch, and only while `gh` is ready (D33, D36). For every item with
-an executed PR draft that is `done` with a worktree and no recorded merge, `checking`, or has a
-recorded conflict that has not ended (6.7):
+an executed PR draft that is `done` with no recorded merge (with or without a worktree: the merge
+decides when the item is finished, 6.8), `checking`, or has a recorded conflict that has not ended (6.7):
 
 ```
 gh pr view <number> --repo <host/owner/repo> --json state,mergedAt,mergeable,baseRefName
@@ -277,6 +289,7 @@ gh pr view <number> --repo <host/owner/repo> --json state,mergedAt,mergeable,bas
 - On, worktree dirty → `item.pr_merged` and `worktree.remove_skipped` with the reason and the files,
   once. Checked again each poll; removed once it is clean.
 - The agent runs → `item.pr_merged`; the worktree is left alone.
+- No worktree (the user removed it) → `item.pr_merged`.
 
 Turning the setting on later removes worktrees of PRs already recorded as merged on the next poll.
 
@@ -328,6 +341,24 @@ The card offers:
   the tests, commits, and calls `draft_push`. After the push the item waits for CI (6.6).
 - **I'll do it myself**: `pr.conflict_dismissed` (actor `user`), item back to `from`. The card shows
   a quiet note "PR #n has merge conflicts with main" until the conflict ends.
+
+### 6.8 Retention
+
+Part of each poll, after the CI watch and the PR state, also while `gh` is not ready (D37). The
+clock is the daemon's `Ctx`, so tests move it.
+
+- **Finished**: `done`, and the PR merged if a draft opened one (`item.pr_merged`, or
+  `worktree.removed` with reason `pr_merged`). A done item without a PR (closed upstream,
+  dismissed, marked done) is finished when it became done. `finishedAt` is the later of the
+  merge and `stateSince`. A PR closed without merge never finishes the item.
+- **Archive**: a finished item with no pending draft or ask, finished for `archiveAfterHours`
+  (14), gets `archived` (4.2): `item.archived`, `archivedAt`. It leaves the board (`item.removed`
+  over the WebSocket) and stays in the Archive (12.5) with its events, drafts and transcript.
+- **Purge**: an archived item archived for `deleteAfterDays` and without a worktree is deleted in
+  one transaction with its events, drafts, asks and transcript, and a tombstone is written (6.2).
+  The daemon log records it. `deleteAfterDays: null` never deletes. An item that still has a
+  worktree is kept until the user (or the merge, 6.5) removes it.
+- A failure on one item is logged; the others go on. Changed settings apply on the next poll.
 
 ## 7. Worktrees
 
@@ -665,8 +696,9 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 
 | method | path | purpose |
 |---|---|---|
-| GET | `/api/items` | all items with state, playbook, repo |
-| GET | `/api/items/:id` | item + events + drafts + asks |
+| GET | `/api/items` | items on the board (archived ones excluded) with state, playbook, repo, `finishedAt` |
+| GET | `/api/archive` | archived items, newest archived first (12.5) |
+| GET | `/api/items/:id` | item + events + drafts + asks; archived items too |
 | POST | `/api/items/:id/start` | create worktree, run setup, start agent |
 | POST | `/api/items/:id/playbook` | `{ name }` |
 | GET | `/api/items/:id/transcript?after=<id>` | paged transcript |
@@ -690,13 +722,14 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/sources/test` | `{ origin, query }`; runs the query once: `{ count, issues }` (first 10) |
 | GET | `/api/status` | CLI detection, daemon version, running agents |
 
-WebSocket `/ws`: server pushes `{ type, payload }` for `item.updated`, `event.appended`,
+WebSocket `/ws`: server pushes `{ type, payload }` for `item.updated`, `item.removed` (`{ id }`: the
+item left the board, e.g. archived), `event.appended`,
 `transcript.appended`, `stream.delta`, `status.changed`. UI reloads the affected item on
 `item.updated`.
 
 ## 12. UI
 
-Vue 3. Three views. Mockups of all four screens are in `docs/screens/` (PNG plus HTML sources, see
+Vue 3. Four views. Mockups of all four screens are in `docs/screens/` (PNG plus HTML sources, see
 its README). Palette: ground `#ECECE8`, card `#FFFFFF`, ink `#141413`,
 secondary text `#3F3F3A` / `#66665F`, borders `#C9C9C3` / `#E3E3DE`, primary blue `#1D4ED8`
 (tint `#DBEAFE`), needs-you amber `#A14A05` (tint `#FFF3DA`), danger `#991B1B`, diff add `#DCFCE7`,
@@ -718,6 +751,8 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
   removed when PR #45 is merged" (PR linked) until it is; "Not removed: uncommitted changes" when
   the poll kept it (6.5). After the merge: "PR merged". A conflict the user took on: quiet note
   "PR #45 has merge conflicts with main" until GitHub reports it mergeable (6.7).
+- Finished card (6.8; the view carries `finishedAt`): muted, lower contrast, no action buttons;
+  only opening it. It leaves the board when archived. The Done column header links to the Archive.
 - Card of an item closed upstream: note "Closed on GitHub"; on a started, not running item a
   Dismiss button next to it (6.2).
 - Sort: one fixed order per column, the same inside every repo lane, so cards do not jump. Ties
@@ -779,8 +814,14 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
 
 ### 12.4 Settings
 
-- Repo root, worktree root, branch prefix, port, poll interval, max agents, and "Remove the
-  worktree once its PR is merged" (`removeWorktreeOnMerge`, 6.5).
+- Repo root, worktree root, branch prefix, port, poll interval, max agents.
+- Group "Finished items" (6.8), whole numbers of 0 or more, applied on the next poll:
+  - `archiveAfterHours`: "Finished items (done and PR merged, or done without a PR) leave the board
+    after this many hours. They stay in the Archive with their agent run. 0 hides them immediately."
+  - `deleteAfterDays`: "Archived items, their timeline and their agent transcript are deleted after
+    this many days. Items that still have a worktree are kept until it is removed. Empty: never delete."
+  - `removeWorktreeOnMerge` (6.5): "When the PR is merged, remove the item's worktree on the next
+    poll. Never removes a worktree with uncommitted changes."
 - CLI status for `gh` and `claude`, with hints and "Check again".
 - Repos list with rescan. Orphaned worktrees.
 - Per repo: what it collects (query or "assigned to you"), and an editor with the query field, a
@@ -788,6 +829,13 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
   refine it there and paste it back) and the assign-on-start checkbox. A failed query shows on its
   row.
 - Web access: the hosts the agent may read with WebFetch without asking (9.4), one per line.
+
+### 12.5 Archive
+
+- Route `/archive`, in the top nav and linked from the Done column header.
+- Archived items, newest archived first: external id, title, PR link, when archived. A search
+  field narrows by title or external id.
+- Opening one shows the normal item detail (12.2) with its timeline and transcript.
 
 ## 13. CLI
 
@@ -812,6 +860,8 @@ and `PATH`, because launchd starts jobs with a bare `PATH` and the daemon needs 
   "pollIntervalSeconds": 60,
   "maxConcurrentAgents": 1,
   "removeWorktreeOnMerge": false,
+  "archiveAfterHours": 24,
+  "deleteAfterDays": 7,
   "sources": {},
   "allowedWebFetchDomains": ["github.com", "raw.githubusercontent.com", "docs.github.com", "nodejs.org", "developer.mozilla.org", "npmjs.com"]
 }
@@ -824,6 +874,9 @@ and `PATH`, because launchd starts jobs with a bare `PATH` and the daemon needs 
   "github.com/spatie/bloom": { "query": "is:issue state:open no:assignee", "assignOnStart": true }
 }
 ```
+
+`archiveAfterHours` and `deleteAfterDays` (6.8): whole numbers of 0 or more; `deleteAfterDays:
+null` never deletes.
 
 Database: `~/.local/share/donepm/donepm.db`.
 

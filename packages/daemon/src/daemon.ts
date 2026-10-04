@@ -1,4 +1,4 @@
-import { executedPr, prConflictOf, prMergeOf, type Ctx, type PrConflict, type WorkItem } from "@donepm/core";
+import { executedPr, finishedAt, prConflictOf, prMergeOf, type Ctx, type PrConflict, type WorkItem } from "@donepm/core";
 import type { FastifyInstance } from "fastify";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -40,6 +40,7 @@ import { ensureDefaultPlaybook } from "./playbooks/load.js";
 import { discoverRepos } from "./repos/discover.js";
 import { hiddenByIgnore, ignoreChanges, isIgnored } from "./repos/ignore.js";
 import { RepoStore } from "./repos/store.js";
+import { applyRetention } from "./retention/retention.js";
 import { StatusStore } from "./status/status.js";
 import { TranscriptStore } from "./transcript/store.js";
 import { failMissingWorktrees, findOrphans } from "./worktrees/reconcile.js";
@@ -116,7 +117,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     const itemEvents = events.forItem(item.id);
     const itemDrafts = drafts.forItem(item.id);
     const pr = executedPr(itemDrafts);
-    return toItemView(
+    const finished = finishedAt(item, itemEvents, pr !== undefined);
+    const v = toItemView(
       item,
       item.repoId ? repos.get(item.repoId) : undefined,
       {
@@ -134,9 +136,14 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       }),
       pr ? { ...pr, ...prMergeOf(itemEvents), ...conflictView(prConflictOf(itemEvents)) } : undefined,
     );
+    return finished ? { ...v, finishedAt: finished } : v;
   };
-  /** Issue #33: items of an ignored repository stay off the board unless they still need attention. */
+  /**
+   * Issue #33: items of an ignored repository stay off the board unless they still need attention.
+   * D37: archived items are only in the Archive.
+   */
   const onBoard = ({ item, originUrl }: StoredItem) =>
+    item.archivedAt === undefined &&
     !hiddenByIgnore({
       ignored: isIgnored(config.sources, originUrl),
       state: item.state,
@@ -218,12 +225,18 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const poller = new Poller(
     async () => {
       await collectIssues({ db, exec: opts.exec, items, events, repos, status, ctx: opts.ctx, log: app.log, sources: () => config.sources, onItemUpdated: pushItem });
-      if (status.get().gh?.state !== "ready") return;
-      await watchCi({ items, events, writer, exec: opts.exec, ctx: opts.ctx, log: app.log });
-      await watchPrs({
-        items, events, drafts, repos, writer, exec: opts.exec, ctx: opts.ctx, log: app.log,
-        removeOnMerge: () => config.removeWorktreeOnMerge,
-        agentActive: (i) => runner.isRunning(i),
+      if (status.get().gh?.state === "ready") {
+        await watchCi({ items, events, writer, exec: opts.exec, ctx: opts.ctx, log: app.log });
+        await watchPrs({
+          items, events, drafts, repos, writer, exec: opts.exec, ctx: opts.ctx, log: app.log,
+          removeOnMerge: () => config.removeWorktreeOnMerge,
+          agentActive: (i) => runner.isRunning(i),
+        });
+      }
+      // Needs no gh: what finished and what is due is in the database (D37).
+      applyRetention({
+        db, items, events, drafts, asks, writer, ctx: opts.ctx, log: app.log,
+        retention: () => ({ archiveAfterHours: config.archiveAfterHours, deleteAfterDays: config.deleteAfterDays }),
       });
     },
     config.pollIntervalSeconds * 1000,

@@ -26,6 +26,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 export const api = {
   items: () => call<ItemView[]>("GET", "/api/items"),
+  archive: () => call<ItemView[]>("GET", "/api/archive"),
   item: (id: string) => call<ItemDetail>("GET", `/api/items/${encodeURIComponent(id)}`),
   diff: (id: string) => call<ItemDiff>("GET", `/api/items/${encodeURIComponent(id)}/diff`),
   open: (id: string, target: OpenTarget) => call<{ ok: true }>("POST", `/api/items/${encodeURIComponent(id)}/open`, { target }),

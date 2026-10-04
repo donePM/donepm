@@ -23,7 +23,8 @@ decisions already made with their reasons; do not reopen them without asking.
   them only after the user approves. If you find a shortcut, it is a bug.
 - **Agents never see credentials.** The daemon calls `gh`. The agent gets a filtered `PATH` and
   deny rules. Do not add token handling to the agent side.
-- **Append-only events.** Rows in `events` are never updated or deleted.
+- **Append-only events.** Rows in `events` are never updated. They are deleted only together with
+  their whole item, by the retention purge of archived items (D37).
 - **State transitions live in `core`** as pure functions that throw on invalid transitions. The
   daemon calls them; it does not decide on its own.
 - **Never fail on unknown stream-json events.** Store the raw line, decode what is known, carry on.

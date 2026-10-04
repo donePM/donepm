@@ -89,6 +89,11 @@ describe("markClosedUpstream", () => {
     expect(markClosedUpstream(existing({ state: "done" }), makeCtx())).toBeUndefined();
     expect(markClosedUpstream(existing({ closedUpstream: true }), makeCtx())).toBeUndefined();
   });
+
+  it("flags an archived done item, so a reopened issue is recognised (D37)", () => {
+    const archived = existing({ state: "done", archivedAt: "2026-10-02T00:00:00.000Z" });
+    expect(markClosedUpstream(archived, makeCtx())).toMatchObject({ closedUpstream: true });
+  });
 });
 
 describe("linkRepo", () => {

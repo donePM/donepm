@@ -26,6 +26,8 @@ export interface ItemView extends WorkItem {
   attention?: Attention;
   /** The pull request an executed draft opened (Done), and whether it was merged (D33). */
   pr?: PrView;
+  /** When the item finished: done, and its PR merged if it has one (D37). Its card is muted. */
+  finishedAt?: string;
 }
 
 export type PrView = PrDraftResult &

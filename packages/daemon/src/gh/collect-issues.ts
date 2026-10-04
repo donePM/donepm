@@ -8,6 +8,7 @@ import type { Log } from "../log.js";
 import type { Exec } from "../process/exec.js";
 import { ignoredOrigins, isIgnored } from "../repos/ignore.js";
 import type { RepoStore } from "../repos/store.js";
+import { TombstoneStore } from "../retention/tombstones.js";
 import type { SourcePollStatus, StatusStore } from "../status/status.js";
 import { detectGh } from "./detect.js";
 import { fetchAssignedIssues, fetchIssueState, fetchQueryIssues, type FetchResult } from "./issues.js";
@@ -91,6 +92,12 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
         if (state !== "CLOSED") continue;
         const flagged = applyClosedUpstream(item.id, deps);
         if (flagged) deps.onItemUpdated(flagged);
+      }
+      // A purged issue seen closed is imported fresh if it ever shows up again (D37).
+      const tombstones = new TombstoneStore(deps.db);
+      for (const t of synced.openTombstones) {
+        const [repository, number] = t.externalId.split("#");
+        if ((await fetchIssueState(exec, repository!, Number(number))) === "CLOSED") tombstones.markClosed(t.externalId);
       }
     }
 
