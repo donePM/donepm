@@ -1,6 +1,7 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { createCommentDraft, createPrDraft, createPushDraft, DraftError, type DraftDeps } from "../drafts/actions.js";
+import { createReviewDraft } from "../drafts/review.js";
 import type { Exec } from "../process/exec.js";
 import type { BridgeSession } from "./sessions.js";
 
@@ -19,6 +20,12 @@ const DraftPrArgs = z.object({ title: z.string().trim().min(1), body: z.string()
 const Reply = z.object({ body: z.string().trim().min(1), inReplyTo: z.number().int().positive().optional() }).strict();
 const DraftPushArgs = z.object({ summary: z.string().trim().min(1), replies: z.array(Reply).optional() });
 const DraftCommentArgs = z.object({ replies: z.array(Reply).min(1) });
+const ReviewComment = z.object({ path: z.string().trim().min(1), line: z.number().int().positive(), body: z.string().trim().min(1) }).strict();
+const DraftReviewArgs = z.object({
+  verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]),
+  body: z.string(),
+  comments: z.array(ReviewComment).optional(),
+});
 
 const REPLIES_SCHEMA = {
   type: "array",
@@ -50,7 +57,7 @@ const TOOLS: ToolDef[] = [
   {
     tool: {
       name: "whoami",
-      description: "What this session works on: the item id, its title, branch, worktree path and repository.",
+      description: "What this session works on: the item id, its title, branch, worktree path, repository and, for a pull request under review, its base branch.",
       inputSchema: { type: "object", properties: {} },
     },
     call: (deps, session) => {
@@ -65,6 +72,7 @@ const TOOLS: ToolDef[] = [
             ticket: item.externalUrl,
             branch: item.branch ?? null,
             worktreePath: item.worktreePath ?? null,
+            ...(item.baseBranch ? { baseBranch: item.baseBranch } : {}),
             repo: repo ? { origin: repo.originUrl, defaultBranch: repo.defaultBranch } : null,
             drafts: session.drafts,
           },
@@ -133,6 +141,43 @@ const TOOLS: ToolDef[] = [
       const parsed = DraftCommentArgs.safeParse(args ?? {});
       if (!parsed.success) return text("draft_comment needs `replies`, each with a non-empty `body`.", true);
       return drafted(() => createCommentDraft(deps, session.itemId, { replies: parsed.data.replies.map(toReply) }));
+    },
+  },
+  {
+    draft: "review",
+    tool: {
+      name: "draft_review",
+      description:
+        "Propose your review of this pull request. The user reads the draft and posts it; you cannot post it yourself. " +
+        "Call it once, at the end. Inline comments go on lines of the new version that are inside the diff's hunks.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          verdict: { type: "string", enum: ["APPROVE", "REQUEST_CHANGES", "COMMENT"], description: "The review's verdict" },
+          body: { type: "string", description: "The review summary in Markdown; required unless the verdict is APPROVE" },
+          comments: {
+            type: "array",
+            description: "Inline comments on the changed lines",
+            items: {
+              type: "object",
+              properties: {
+                path: { type: "string", description: "File path relative to the repository root" },
+                line: { type: "integer", description: "Line number in the new version of the file" },
+                body: { type: "string", description: "The comment in Markdown" },
+              },
+              required: ["path", "line", "body"],
+            },
+          },
+        },
+        required: ["verdict", "body"],
+      },
+    },
+    call: (deps, session, args) => {
+      const parsed = DraftReviewArgs.safeParse(args ?? {});
+      if (!parsed.success) {
+        return text("draft_review needs a `verdict` (APPROVE, REQUEST_CHANGES or COMMENT), a `body`, and comments with `path`, a positive `line` and a non-empty `body`.", true);
+      }
+      return drafted(() => createReviewDraft(deps, session.itemId, { ...parsed.data, comments: parsed.data.comments ?? [] }));
     },
   },
 ];

@@ -1,4 +1,4 @@
-export const PLACEHOLDERS = ["externalId", "title", "body", "labels", "branch", "repoPath"] as const;
+export const PLACEHOLDERS = ["externalId", "title", "body", "labels", "branch", "base", "repoPath"] as const;
 export type PlaceholderName = (typeof PLACEHOLDERS)[number];
 export type PlaceholderValues = Record<PlaceholderName, string>;
 
@@ -24,6 +24,8 @@ export function placeholderValues(input: {
   body: string;
   labels: string[];
   branch: string;
+  /** The branch the work goes into, or a reviewed pull request's base (D41). */
+  base: string;
   repoPath: string;
 }): PlaceholderValues {
   return { ...input, labels: input.labels.join(", ") };

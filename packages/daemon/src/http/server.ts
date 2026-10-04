@@ -295,7 +295,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!repo || !item.worktreePath || !item.branch || !existsSync(item.worktreePath)) {
       return reply.code(409).send({ error: "the item has no worktree" });
     }
-    return deps.diff({ worktreePath: item.worktreePath, branch: item.branch, defaultBranch: repo.defaultBranch });
+    // A pull request under review compares against its own base, not the repo's default (D41).
+    return deps.diff({ worktreePath: item.worktreePath, branch: item.branch, defaultBranch: item.baseBranch ?? repo.defaultBranch });
   });
 
   app.post<{ Params: { id: string } }>("/api/items/:id/open", async (req, reply) => {

@@ -21,6 +21,7 @@ import ConflictPanel from "./ConflictPanel.vue";
 import DraftPanel from "./DraftPanel.vue";
 import FeedbackPanel from "./FeedbackPanel.vue";
 import PushDraftPanel from "./PushDraftPanel.vue";
+import ReviewDraftPanel from "./ReviewDraftPanel.vue";
 import WorktreeBlock from "./WorktreeBlock.vue";
 
 const route = useRoute();
@@ -48,7 +49,7 @@ const STATE_LABEL: Record<string, string> = {
   failed: "Failed",
   done: "Done",
 };
-const DRAFT_LABEL: Record<string, string> = { pr: "PR draft", push: "push draft", comment: "reply draft" };
+const DRAFT_LABEL: Record<string, string> = { pr: "PR draft", push: "push draft", comment: "reply draft", review: "review draft" };
 const badge = computed(() => {
   const d = detail.value;
   if (!d) return "";
@@ -86,7 +87,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
       </nav>
       <h1>{{ detail.title }}</h1>
       <p v-if="detail.branch" class="facts mono">
-        {{ detail.branch }} → {{ detail.repo?.defaultBranch ?? "?" }}
+        <template v-if="detail.source === 'github-pr'">reviewing </template>{{ detail.branch }} → {{ detail.baseBranch ?? detail.repo?.defaultBranch ?? "?" }}
         <template v-if="diff"> · {{ diff.commits }} {{ diff.commits === 1 ? "commit" : "commits" }}</template>
         <template v-if="stats"> · +{{ stats.additions }} −{{ stats.deletions }}</template>
         <template v-if="detail.agent.costUsd !== undefined"> · agent cost {{ money(detail.agent.costUsd) }}</template>
@@ -111,6 +112,15 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
             v-if="(draft?.type === 'push' || draft?.type === 'comment') && detail.state === 'needs_you'"
             :draft="draft"
             :feedback="feedback"
+            :repo="repo"
+            :created-at="draftCreatedAt"
+            :can-reject="detail.agent.running || !!detail.agentSessionId"
+            :publish-error="publishError"
+            @changed="reload"
+          />
+          <ReviewDraftPanel
+            v-else-if="draft?.type === 'review' && detail.state === 'needs_you'"
+            :draft="draft"
             :repo="repo"
             :created-at="draftCreatedAt"
             :can-reject="detail.agent.running || !!detail.agentSessionId"

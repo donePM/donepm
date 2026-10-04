@@ -59,7 +59,7 @@ function answersText(ask: PermissionAsk | undefined, answers: unknown): string |
   return parts.length ? parts.join(" · ") : undefined;
 }
 
-const DRAFT_NAME: Record<string, string> = { pr: "PR draft", push: "push draft", comment: "reply draft" };
+const DRAFT_NAME: Record<string, string> = { pr: "PR draft", push: "push draft", comment: "reply draft", review: "review draft" };
 
 function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: ReadonlyMap<string, string>): Omit<TimelineEntry, "id" | "at"> {
   const p = e.payload;
@@ -160,6 +160,7 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: R
       return { tone: "user", text: `You rejected the ${draftName}`, ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
     case "draft.executed":
       if (type === "comment") return { tone: "system", text: `${replies(p.posted)} posted, done` };
+      if (type === "review") return { tone: "system", text: "Review posted, done", ...(str(p.url) ? { detail: str(p.url) } : {}) };
       if (push) {
         return {
           tone: "system",
@@ -171,7 +172,11 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: R
     case "draft.execution_failed":
       return {
         tone: "danger",
-        text: p.step === "reply" ? "Posting the replies failed" : push ? "Pushing failed" : "Creating the pull request failed",
+        text:
+          p.step === "reply" ? "Posting the replies failed"
+          : p.step === "review" ? "Posting the review failed"
+          : push ? "Pushing failed"
+          : "Creating the pull request failed",
         ...(str(p.error) ? { detail: str(p.error) } : {}),
       };
     case "ci.started":

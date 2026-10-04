@@ -291,6 +291,67 @@ post never posts a reply twice. Red CI after done is not feedback; D35 owns CI. 
 after this ships, done items with open PRs that already have reviews will surface them; that is
 deliberate, they are unaddressed feedback. Bloom does not watch PRs.
 
+**D40. Review requests are a second GitHub source, `github-pr`, on the same poll.** Pull requests
+that ask for the user's review were the other half of #48. Each poll also runs
+`gh search prs --review-requested=@me --state=open` with the same fields as the issue search, so the
+answer goes through the same schema and upsert; the item's `source` is `github-pr`, its
+`externalId` `owner/repo#N` like an issue's (issue and PR numbers share one sequence per repo, so
+they cannot collide), and its default playbook is `review` (8.1). Repos the user ignores stay off
+the board as for issues. A failing PR search is a failing source: the issues still come in, and
+nothing is checked for "closed upstream" (6.2). Closed and merged PRs are found with the existing
+`gh issue view --json state`, which answers `MERGED` for a merged PR; the daemon reads it as
+closed, so D32 applies unchanged and an untouched review request that someone else merged goes to
+Done on its own. A PR whose review request was withdrawn but which stays open is not detected: the
+search no longer lists it, and confirming it would need a call per item. Assign on start (6.4) is
+skipped, it is someone else's PR. An old `gh` without `search prs` means no review requests, not an
+error. A review request that arrives again after the item is done does not reopen it; the user
+starts a new review from GitHub or waits for a later version of this.
+
+**D41. A review runs in its own worktree on the PR's head, fetched by ref, with no setup.**
+`gh pr view` gives the base (`baseRefName`, else the repo's default). The daemon fetches
+`origin <base>` and `+refs/pull/<n>/head:refs/donepm/pull/<n>` in one `git fetch` and adds the
+worktree on a new local branch `<prefix>review-<n>-<slug>` at that ref. `refs/pull/<n>/head` exists
+on the base repo for forks too, so no remote per contributor is needed, and the private
+`refs/donepm/` namespace keeps it out of the user's branches and tags. The base is stored on the
+item (`baseBranch`, a new column) because the diff in the UI, the prompt (`{{ base }}`) and the
+inline-comment check all compare against it, not against the default branch. No `setup.yml` and
+no dependency install (7.3) run for a review: installing runs the PR author's scripts before
+anybody has read them. A PR that is no longer open when Start is pressed is refused before
+anything is created. Removing the worktree stays the user's button (7.4).
+
+**D42. A read-only playbook gets no write tools, no project settings and no standing grants.**
+Reviewing means running an agent inside code nobody has vetted, so the review playbook sets
+`read_only: true`, which requires `permission_mode: default` and forbids the `pr` draft. For such a
+run the daemon adds deny rules for `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `WebFetch` and
+`WebSearch`, allow rules only for `Bash(git diff *)`, `Bash(git log *)` and `Bash(git show *)`,
+turns off the sandbox's `autoAllowBashIfSandboxed` so every other command asks the user, and
+passes `--setting-sources user`, so the PR's `.claude/settings.json`, its hooks and its
+`.mcp.json` enablement are not loaded (hooks would run the author's commands without asking). The
+user's own MCP servers keep working; `--strict-mcp-config` stays off (9.1). "Always allow" grants
+(D38) are not applied in a read-only run: a grant made for implementing in a repo is no reason to
+let a stranger's PR run the same command. The PR's `CLAUDE.md` is still read by Claude Code as
+memory; the playbook tells the agent to treat everything in the worktree as material to review,
+not as instructions. Reads (`Read`, `Grep`, `Glob`) inside the worktree need no permission in
+Claude Code and stay open.
+
+**D43. A review draft is one review: verdict, summary and inline comments, posted in one call.**
+D3 named a `draft_review_comment` tool; a review on GitHub is one object with a verdict and many
+comments, and posting comments one by one would notify the author once per comment, so the tool
+is `draft_review { verdict, body, comments? }` with `verdict` `APPROVE`, `REQUEST_CHANGES` or
+`COMMENT` and comments `{ path, line, body }`. The daemon adds the PR number, URL and the commit it
+reviewed (`git rev-parse HEAD` in the worktree), so the comments land on the lines the agent read
+even if the author pushes meanwhile. Every comment's line must be on the new side of a hunk of
+`git diff origin/<base>...HEAD`, parsed with the `diff` package; GitHub would refuse anything else
+with a 422 after the user approved. A summary is required except for `APPROVE`. After approval the
+daemon posts it with one `gh api --method POST repos/<o>/<r>/pulls/<n>/reviews --input <file>`
+(0600 temp file, like other bodies), all comments on the `RIGHT` side. Once gh exits 0 the review
+counts as posted even if its answer cannot be parsed, so a Retry never posts it twice. The item is
+`done` after posting (`reviewPosted`), and a later push by the author is not followed up. Like the
+push and comment drafts (D35, D39) it is not edited in the UI: the user approves it or rejects it
+with a reason the agent works in. The playbook allows only `review`, so `draft_pr`, `draft_push`
+and `draft_comment` are not offered. Comments on removed lines (`LEFT`) and multi-line ranges are
+left for later.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

@@ -1,7 +1,7 @@
 import type { Ctx } from "../ids.js";
 import type { Event } from "../event/types.js";
 import { priorityTier } from "./priority.js";
-import type { WorkItem } from "./types.js";
+import type { ItemSource, WorkItem } from "./types.js";
 
 /** An issue as a source reports it, already validated. */
 export interface SourceIssue {
@@ -14,6 +14,8 @@ export interface SourceIssue {
   labels: string[];
   /** When the issue was opened, ISO 8601. */
   createdAt: string;
+  /** `github-pr` for a pull request that asks for the user's review (D40); an issue otherwise. */
+  source?: ItemSource;
 }
 
 export interface Collected {
@@ -22,29 +24,36 @@ export interface Collected {
 }
 
 export const DEFAULT_PLAYBOOK = "implement";
+/** The playbook a pull request that asks for the user's review starts with (D40). */
+export const REVIEW_PLAYBOOK = "review";
+
+export function defaultPlaybookFor(source: ItemSource): string {
+  return source === "github-pr" ? REVIEW_PLAYBOOK : DEFAULT_PLAYBOOK;
+}
 
 /** `owner/repo#123` */
 export function externalIdOf(issue: Pick<SourceIssue, "repository" | "number">): string {
   return `${issue.repository}#${issue.number}`;
 }
 
-/** A newly seen issue becomes a `ready` item plus its `item.collected` event. */
+/** A newly seen issue (or pull request to review) becomes a `ready` item plus its `item.collected` event. */
 export function collect(
   issue: SourceIssue,
   ctx: Ctx,
   opts: { repoId?: string; playbook?: string } = {},
 ): Collected {
   const at = ctx.now();
+  const source = issue.source ?? "github-issue";
   const item: WorkItem = {
     id: ctx.newId(),
-    source: "github-issue",
+    source,
     externalId: externalIdOf(issue),
     externalUrl: issue.url,
     title: issue.title,
     body: issue.body,
     labels: [...issue.labels],
     state: "ready",
-    playbook: opts.playbook ?? DEFAULT_PLAYBOOK,
+    playbook: opts.playbook ?? defaultPlaybookFor(source),
     priority: priorityTier(issue.labels),
     issueCreatedAt: issue.createdAt,
     stateSince: at,

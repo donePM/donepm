@@ -1,6 +1,8 @@
-import type { CommentDraftResult, Draft, DraftState, PrDraft, PrDraftPayload, PrDraftResult, PushDraftResult } from "@donepm/core";
+import type {
+  CommentDraftResult, Draft, DraftState, PrDraft, PrDraftPayload, PrDraftResult, PushDraftResult, ReviewDraftResult,
+} from "@donepm/core";
 
-export type DraftResult = PrDraftResult | PushDraftResult | CommentDraftResult;
+export type DraftResult = PrDraftResult | PushDraftResult | CommentDraftResult | ReviewDraftResult;
 import type { Db } from "../db/database.js";
 
 interface DraftRow {
@@ -18,6 +20,9 @@ function fromRow(r: DraftRow): Draft {
   const result: unknown = r.result === null ? undefined : JSON.parse(r.result);
   if (r.type === "comment") {
     return { ...base, type: "comment", payload: JSON.parse(r.payload), ...(result ? { result: result as CommentDraftResult } : {}) };
+  }
+  if (r.type === "review") {
+    return { ...base, type: "review", payload: JSON.parse(r.payload), ...(result ? { result: result as ReviewDraftResult } : {}) };
   }
   if (r.type === "push") {
     return { ...base, type: "push", payload: JSON.parse(r.payload), ...(result ? { result: result as PushDraftResult } : {}) };

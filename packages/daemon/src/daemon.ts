@@ -38,7 +38,7 @@ import { agentHistory, liveHistory } from "./items/agent-info.js";
 import { attentionOf } from "./items/attention.js";
 import { toItemView, type CurrentTool } from "./items/view.js";
 import type { Exec } from "./process/exec.js";
-import { ensureDefaultPlaybook } from "./playbooks/load.js";
+import { ensureDefaultPlaybooks } from "./playbooks/load.js";
 import { discoverRepos } from "./repos/discover.js";
 import { hiddenByIgnore, ignoreChanges, isIgnored } from "./repos/ignore.js";
 import { RepoStore } from "./repos/store.js";
@@ -73,8 +73,8 @@ export interface DaemonOptions {
 /** The stdio shim the agent's CLI starts for donePM's MCP server. */
 const BRIDGE_SCRIPT = fileURLToPath(new URL("./bridge/main.js", import.meta.url));
 
-/** Built-in playbook in the repository root, copied to the global folder on first start. */
-const DEFAULT_PLAYBOOK = fileURLToPath(new URL("../playbooks/implement.md", import.meta.url));
+/** Built-in playbooks in the package root, copied to the global folder when missing (D40). */
+const DEFAULT_PLAYBOOKS = ["implement.md", "review.md"].map((f) => fileURLToPath(new URL(`../playbooks/${f}`, import.meta.url)));
 
 export interface Daemon {
   app: FastifyInstance;
@@ -338,8 +338,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       // No agent survives a restart (spec 7.5, 9.5): settle what the last run left behind.
       failMissingWorktrees({ items, writer, ctx: opts.ctx, log: app.log });
       recoverAfterRestart({ items, asks, writer, ctx: opts.ctx, log: app.log });
-      await ensureDefaultPlaybook(paths.playbooksDir, DEFAULT_PLAYBOOK).catch((e) =>
-        app.log.warn({ err: e }, "could not write the default playbook"),
+      await ensureDefaultPlaybooks(paths.playbooksDir, DEFAULT_PLAYBOOKS).catch((e) =>
+        app.log.warn({ err: e }, "could not write the default playbooks"),
       );
       await app.listen({ host: "127.0.0.1", port });
       bridge = await listenBridge({ ...draftDeps, exec: opts.exec, sessions: bridgeSessions, log: app.log, version: opts.version }, bridgeSocket);

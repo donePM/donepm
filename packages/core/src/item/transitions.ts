@@ -528,6 +528,20 @@ export function repliesPosted(item: WorkItem, ctx: Ctx, draftId: string, payload
 }
 
 /**
+ * The daemon posted the approved review of someone else's pull request (D43). The item's work is
+ * that review, so it is done.
+ */
+export function reviewPosted(item: WorkItem, ctx: Ctx, draftId: string, payload: Record<string, unknown> = {}): Transition {
+  return apply(
+    { name: "reviewPosted", from: ["needs_you"], to: "done", actor: "system", event: "draft.executed" },
+    item,
+    ctx,
+    draftId,
+    payload,
+  );
+}
+
+/**
  * The daemon assigned the issue to the user on start (opt-in per repository, decision D28). Not a
  * state change; the item stays where the agent took it meanwhile.
  */

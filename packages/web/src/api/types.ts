@@ -1,6 +1,6 @@
 import type {
   CheckLog, CiPr, CommentDraft, Draft, DraftReply, DraftType, Event, FailedCheck, FeedbackEntry, PermissionAsk, PermissionRule, PrDraft,
-  PrDraftPayload, PushDraft, PrDraftResult, PrMerge, Repo, TranscriptMessage, WorkItem,
+  PrDraftPayload, PushDraft, PrDraftResult, PrMerge, Repo, ReviewDraft, TranscriptMessage, WorkItem,
 } from "@donepm/core";
 
 // Mirrors of what the daemon's HTTP API returns (packages/daemon/src/http/server.ts).
@@ -156,5 +156,6 @@ export interface SourceTest {
 }
 
 export type {
-  CommentDraft, Draft, DraftReply, Event, FeedbackEntry, PermissionAsk, PermissionRule, PrDraft, PrDraftPayload, PushDraft, Repo, TranscriptMessage,
+  CommentDraft, Draft, DraftReply, Event, FeedbackEntry, PermissionAsk, PermissionRule, PrDraft, PrDraftPayload, PushDraft, Repo, ReviewDraft,
+  TranscriptMessage,
 };

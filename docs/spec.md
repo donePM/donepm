@@ -6,20 +6,23 @@ See `intent.md` for the why. This file says what to build. MVP only.
 
 In scope:
 
-- Source: GitHub issues assigned to the current user, via `gh`.
+- Sources: GitHub issues assigned to the current user, and open pull requests that request the
+  user's review (D40), via `gh`.
 - Repositories: found by scanning one root folder.
 - Board with four columns: Ready, In Progress, Needs You, Done.
 - One agent type: Claude Code, run as a child process, in a git worktree.
-- One playbook: `implement`. Playbooks are Markdown files.
+- Two playbooks: `implement`, and `review` for pull requests under review (D42). Playbooks are
+  Markdown files.
 - One draft type: `pr`. The user approves it. The daemon pushes and creates the PR. Follow-ups on
-  that PR: `push` (6.6, 6.7) and `comment` (replies to review feedback, 6.9).
+  that PR: `push` (6.6, 6.7) and `comment` (replies to review feedback, 6.9). A `review` draft is
+  the review of someone else's pull request (D43).
 - Agent permission questions shown as cards.
 - Live agent transcript in the UI.
 - Settings: repo root, worktree root, port, CLI status.
 - Event log per work item, shown as a timeline on the card.
 - CLI: `donepm start|stop|status`.
 
-Out of scope for the MVP: Jira, GitLab, review playbook, schedules, Dependabot,
+Out of scope for the MVP: Jira, GitLab, schedules, Dependabot,
 log analysis, token login (only `gh` auth), multiple agents per item, agent budget, AI playbook
 selection, server sync.
 
@@ -55,7 +58,7 @@ functions. `daemon` calls them and persists the result.
 | field | type | notes |
 |---|---|---|
 | id | uuid | |
-| source | `github-issue` | more later |
+| source | `github-issue` \| `github-pr` | `github-pr`: a pull request that requests the user's review (D40) |
 | externalId | string | `owner/repo#123` |
 | externalUrl | string | |
 | repoId | uuid | |
@@ -63,13 +66,14 @@ functions. `daemon` calls them and persists the result.
 | body | string | raw issue body |
 | labels | string[] | |
 | state | enum | see 4.2 |
-| playbook | string | playbook name, default `implement` |
+| playbook | string | playbook name, default `implement`; `review` for `github-pr` |
 | priority | int | tier from the labels, 0 most urgent (see 12.1); recomputed on every poll |
 | issueCreatedAt | datetime? | when the issue was opened upstream (6.2) |
 | startedAt | datetime? | first `start`; kept on retry and through Needs You |
 | stateSince | datetime | when the item entered its current state; transitions that keep the state leave it |
 | worktreePath | string? | set when agent starts |
 | branch | string? | |
+| baseBranch | string? | a review's PR base, set when its worktree is created (D41); else the repo's default branch is the base |
 | agentSessionId | string? | Claude `session_id`, for `--resume` |
 | archivedAt | datetime? | set once by `archived` (6.8); an archived item is off the board and in the Archive (12.5) |
 | createdAt, updatedAt | datetime | |
@@ -98,7 +102,7 @@ Transitions are functions in `core`: `start(item)`, `agentAsked(item)`, `answere
 `worktreeRemoved(item)`, `ciPassed(item)`, `ciFailed(item)`, `ciRerun(item)`, `ciMarkedDone(item)`,
 `ciFix(item)`, `prConflicted(item)`, `prConflictResolved(item)`, `prConflictDismissed(item)`,
 `prConflictFix(item)`, `prFeedback(item)`, `prFeedbackFix(item)`, `prFeedbackDismissed(item)`,
-`repliesPosted(item)`, `archived(item, finishedAt)` (only from `done`, once; sets `archivedAt`, 6.8).
+`repliesPosted(item)`, `reviewPosted(item)` (needs_you → done, D43), `archived(item, finishedAt)` (only from `done`, once; sets `archivedAt`, 6.8).
 Invalid transitions throw.
 
 ### 4.3 Event
@@ -140,11 +144,11 @@ resolves a merge conflict, `reason: "pr_feedback"` when it addresses review feed
 |---|---|---|
 | id | uuid | |
 | itemId | uuid | |
-| type | `pr` \| `push` \| `comment` | |
-| payload | JSON | for `pr`: `{ title, body, base }`; for `push`: `{ summary, number, url, branch, commits, uncommitted, replies? }`; for `comment`: `{ number, url, replies }`. A reply is `{ body, inReplyTo? }` (6.9) |
+| type | `pr` \| `push` \| `comment` \| `review` | |
+| payload | JSON | for `pr`: `{ title, body, base }`; for `push`: `{ summary, number, url, branch, commits, uncommitted, replies? }`; for `comment`: `{ number, url, replies }`. A reply is `{ body, inReplyTo? }` (6.9); for `review`: `{ number, url, commitId, verdict, body, comments }`, a comment `{ path, line, body }` (D43) |
 | state | `pending` \| `approved` \| `rejected` \| `executed` \| `failed` | |
 | userEdits | JSON? | the payload after user edits |
-| result | JSON? | for `pr`: `{ url, number }`; for `push`: `{ sha, posted? }`; for `comment`: `{ posted }`. `posted` lists `{ index, url }` per reply out, written after each one so a retry skips them |
+| result | JSON? | for `pr`: `{ url, number }`; for `push`: `{ sha, posted? }`; for `comment`: `{ posted }`; for `review`: `{ id, url }`. `posted` lists `{ index, url }` per reply out, written after each one so a retry skips them |
 
 ### 4.5 PermissionAsk
 
@@ -235,6 +239,13 @@ On start and on Settings open:
   ```
   If `gh search` is not available, fall back to `gh issue list --assignee @me --json ...` per
   known repo.
+- Review requests (D40), same poll, same fields and schema:
+  ```
+  gh search prs --review-requested=@me --state=open --json number,title,body,createdAt,labels,repository,url
+  ```
+  Each becomes a `github-pr` item with playbook `review`. Without `gh search prs` there are no
+  review requests, not an error. A closed or merged PR is found like a closed issue: `gh issue view
+  --json state` answers `MERGED` for a merged PR, which counts as closed.
 - Validate output with a schema (zod). On schema failure: log the raw output, do not crash, show
   an error badge in Settings.
 - Upsert items by `externalId`. New issue → `item.collected` event, state `ready`. Closed issue
@@ -286,12 +297,22 @@ A `comment` draft only posts its replies (6.9): `draft.executed` with `{ posted 
 CI wait since nothing was pushed. A reply that fails stops the draft with step `reply`; approving
 again posts only the ones not out yet.
 
+A `review` draft (D43) posts one review with all its inline comments, pinned to the reviewed commit:
+
+```
+gh api --hostname <host> --method POST repos/<o>/<r>/pulls/<n>/reviews --input <tmp>
+```
+
+`<tmp>` (0600) holds `{ commit_id, event, body, comments: [{ path, line, side: "RIGHT", body }] }`.
+Result `{ id, url }`, `draft.executed`, item `done`. A failure stops the draft with step `review`.
+
 ### 6.4 Assign on start
 
 When the item's repo has `assignOnStart`, `start` also runs
 `gh issue edit <n> --repo <owner/repo> --add-assignee @me` in the background and records
 `item.assigned` or `item.assign_failed` (with the reason). Neither changes the state; a failure does
-not stop the agent. The daemon runs this, never the agent (decision D28).
+not stop the agent. The daemon runs this, never the agent (decision D28). Only for `github-issue`
+items: a PR under review is someone else's.
 
 ### 6.5 PR state
 
@@ -443,6 +464,17 @@ git -C <repo> worktree add -b <branch> -- <path> origin/<defaultBranch>
 Branch name: `<prefix><issue-number>-<slug-of-title>`, prefix configurable, default `dp/`.
 Max 60 chars. If the branch exists: append `-2`, `-3`.
 
+A `github-pr` item (D41) is checked out at the PR's head instead. `gh pr view --json
+state,mergedAt,mergeable,baseRefName` gives the base (stored as `baseBranch`); a PR that is not
+open is refused. Then:
+
+```
+git -C <repo> fetch origin <base> +refs/pull/<n>/head:refs/donepm/pull/<n>
+git -C <repo> worktree add -b <prefix>review-<n>-<slug> -- <path> refs/donepm/pull/<n>
+```
+
+No setup (7.3) runs for it: no dependency install, no `setup.yml`.
+
 ### 7.3 Setup per repo
 
 Setup runs in a new worktree before the agent starts: dependencies first, then the setup file.
@@ -492,8 +524,8 @@ is missing → mark `failed` with reason.
 
 - Global: `~/.config/donepm/playbooks/*.md`
 - Per repo: `<repo>/.donepm/playbooks/*.md`. Same name overrides global.
-- Ship one built-in default `implement.md`, written to the global folder on first start if
-  missing.
+- Ship two built-in defaults, `implement.md` and `review.md`, each written to the global folder on
+  start if a file of that name is missing.
 
 ### 8.2 Format
 
@@ -525,13 +557,15 @@ Frontmatter fields:
 | name | yes | unique |
 | model | yes | passed to `--model` |
 | effort | no | passed to `--effort` |
-| permission_mode | yes | `acceptEdits` \| `plan` \| `bypassPermissions` |
-| drafts | yes | list of allowed draft types: `[pr]`; `pr` also allows `draft_push` and `draft_comment` |
+| permission_mode | yes | `default` \| `acceptEdits` \| `plan` \| `bypassPermissions` |
+| read_only | no | `true`: no edit or web tools, project settings not loaded (9.1, D42); needs `permission_mode: default` and no `pr` draft |
+| drafts | yes | list of allowed draft types: `[pr]`, `[review]`; `pr` also allows `draft_push` and `draft_comment` |
 | match.source | no | source filter |
 | match.labels | no | any of these labels |
 
 Body: the first user message. Placeholders: `{{ externalId }}`, `{{ title }}`, `{{ body }}`,
-`{{ labels }}`, `{{ branch }}`, `{{ repoPath }}`.
+`{{ labels }}`, `{{ branch }}`, `{{ repoPath }}`, `{{ base }}` (the PR's base for a review, else the
+default branch).
 
 ### 8.3 Selection (MVP)
 
@@ -578,6 +612,11 @@ Notes:
   `GH_CONFIG_DIR` and `GLAB_CONFIG_DIR` point at an empty directory under the data dir.
 - The same `--settings` allows `mcp__donepm`: its tools only create drafts, so a permission
   question per call would ask the user twice for the same thing.
+- A `read_only` playbook (D42) adds deny rules for `Edit`, `Write`, `MultiEdit`, `NotebookEdit`,
+  `WebFetch`, `WebSearch`, allows `Bash(git diff *)`, `Bash(git log *)`, `Bash(git show *)`, sets
+  `autoAllowBashIfSandboxed: false`, and passes `--setting-sources user` so the worktree's
+  `.claude/settings*.json` (hooks, permissions, MCP enablement) is not loaded. Still no
+  `--strict-mcp-config`. "Always allow" grants (D38) do not answer its asks.
 
 ### 9.2 First message
 
@@ -773,7 +812,8 @@ Tools in MVP:
 | `draft_pr` | `{ title, body }` | creates Draft `pr`, state `pending`; item → `needs_you`; returns "Draft created, the user will review it." |
 | `draft_push` | `{ summary, replies? }` | only after the item's PR exists; the daemon adds the PR, branch and the commits the PR lacks (`git log origin/<branch>..HEAD`); creates Draft `push`, item → `needs_you`. Refused without a PR, or with no commits and nothing uncommitted. `replies`: `[{ body, inReplyTo? }]`, posted after the push (6.9) |
 | `draft_comment` | `{ replies }` | replies to review feedback without a push; only after the item's PR exists; creates Draft `comment`, item → `needs_you`. Refused without a PR, without replies, or with an `inReplyTo` that is no known thread (6.9) |
-| `whoami` | – | returns item id, branch, worktree path, repo |
+| `draft_review` | `{ verdict, body, comments? }` | only for a `github-pr` item; `verdict` `APPROVE` \| `REQUEST_CHANGES` \| `COMMENT`, a comment `{ path, line, body }`. The daemon adds the PR and the reviewed commit; creates Draft `review`, item → `needs_you`. Refused without a body (except `APPROVE`) or with a line that is not on the new side of `git diff origin/<base>...HEAD` (D43) |
+| `whoami` | – | returns item id, branch, worktree path, repo, and `baseBranch` for a review |
 
 A tool call not allowed by the playbook returns an error result (`isError: true`) with text, not a
 JSON-RPC error.
@@ -838,7 +878,9 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
   Rerun failed / Mark done) or a push draft (commits, Approve and push / Reject) or a merge
   conflict ("PR #45 has merge conflicts with main", the files, Resolve with agent / I'll do it
   myself) or review feedback (flag "Review", "PR #45 has review feedback from @ana", Address with
-  agent / Read / Mark done) or a reply draft (flag "Reply draft").
+  agent / Read / Mark done) or a reply draft (flag "Reply draft") or a review draft (flag "Review
+  draft", "Posting", "Review failed").
+- A `github-pr` card carries the badge "PR review" next to its id (D40).
 - In Progress card of a `checking` item: "waiting for CI", Mark done.
 - Done card: PR link, Remove worktree. With `removeWorktreeOnMerge` on, a quiet note "Worktree is
   removed when PR #45 is merged" (PR linked) until it is; "Not removed: uncommitted changes" when
@@ -878,6 +920,9 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
   changed lines).
 - Drafts list. A push draft with replies, and a reply draft, list each reply with what it answers
   ("Reply to @ana on src/a.ts:12" or "Comment on the pull request") and which are posted already.
+- A review draft (D43): verdict, summary and each inline comment (`path:line`, body) as Markdown,
+  the reviewed commit, Approve and post / Reject with reason. Not editable. The facts line reads
+  "reviewing <branch> → <base>".
 - Review feedback waiting on the user: each review and comment with author, the file and line and
   the end of the diff hunk for inline ones, a link to GitHub, and Address with agent / Mark done.
 - The issue body and the PR draft body render as GitHub-flavoured Markdown (headings, lists, task

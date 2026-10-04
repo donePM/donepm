@@ -116,6 +116,10 @@ describe("fetchIssueState", () => {
     expect(await fetchIssueState(fakeExec({ "gh issue view": ok(fixture("gh/issue-view-open.json")) }), "o/r", 1)).toBe("OPEN");
   });
 
+  it("reads a merged pull request as closed (D40)", async () => {
+    expect(await fetchIssueState(fakeExec({ "gh issue view": ok(fixture("gh/issue-view-merged-pr.json")) }), "o/r", 1)).toBe("CLOSED");
+  });
+
   it("is undefined when gh fails", async () => {
     expect(await fetchIssueState(fakeExec({ "gh issue view": fail("GraphQL: Could not resolve") }), "o/r", 1)).toBeUndefined();
   });

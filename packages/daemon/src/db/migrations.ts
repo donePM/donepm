@@ -212,4 +212,7 @@ export const MIGRATIONS: readonly Migration[] = [
   );
   CREATE INDEX permission_grants_repo ON permission_grants (repo) WHERE revoked_at IS NULL;
   `,
+  // A reviewed pull request's base branch (issue #48, D41): its diff and prompt compare against it
+  // instead of the repository's default branch.
+  `ALTER TABLE items ADD COLUMN base_branch TEXT;`,
 ];

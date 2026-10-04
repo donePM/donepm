@@ -1,4 +1,5 @@
-export type ItemSource = "github-issue";
+/** An issue to work on, or someone else's pull request that asks for the user's review (D40). */
+export type ItemSource = "github-issue" | "github-pr";
 
 /** `checking`: the PR is open and its CI runs; no agent runs (decision D35). */
 export type ItemState = "ready" | "running" | "needs_you" | "checking" | "done" | "failed";
@@ -27,6 +28,11 @@ export interface WorkItem {
   stateSince: string;
   worktreePath?: string;
   branch?: string;
+  /**
+   * The branch the work is compared against when it is not the repository's default: a reviewed
+   * pull request's base (D41). Set when the worktree is made.
+   */
+  baseBranch?: string;
   /** Claude `session_id`, for `--resume`. */
   agentSessionId?: string;
   /** The issue was closed upstream while the item was not done. */

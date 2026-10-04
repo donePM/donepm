@@ -93,7 +93,10 @@ async function listPerRepo(exec: Exec, origins: string[]): Promise<FetchResult> 
   return { ok: true, issues };
 }
 
-/** `OPEN` / `CLOSED`, or undefined when gh fails or the issue cannot be read. */
+/**
+ * `OPEN` / `CLOSED`, or undefined when gh fails or the issue cannot be read. A merged pull request
+ * (an item to review, D40) counts as closed.
+ */
 export async function fetchIssueState(
   exec: Exec,
   repository: string,
@@ -102,7 +105,8 @@ export async function fetchIssueState(
   const r = await exec("gh", ["issue", "view", String(number), "--repo", repository, "--json", "state"]);
   if (r.code !== 0) return undefined;
   const parsed = parseJson(IssueStateSchema, r.stdout);
-  return parsed.ok ? parsed.value.state : undefined;
+  if (!parsed.ok) return undefined;
+  return parsed.value.state === "OPEN" ? "OPEN" : "CLOSED";
 }
 
 /** Assign an issue to the gh user. Only the daemon calls this, on start, when the repo opted in. */

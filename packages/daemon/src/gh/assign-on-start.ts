@@ -23,7 +23,8 @@ export interface AssignDeps {
 export async function assignOnStart(deps: AssignDeps, itemId: string, origin: string): Promise<void> {
   if (!deps.sources()[origin]?.assignOnStart) return;
   const stored = deps.items.get(itemId);
-  if (!stored) return;
+  // A pull request to review is someone else's; there is nothing to assign (D40).
+  if (!stored || stored.item.source !== "github-issue") return;
   const [repository, number] = stored.item.externalId.split("#");
   let result: Awaited<ReturnType<typeof assignIssueToMe>>;
   try {

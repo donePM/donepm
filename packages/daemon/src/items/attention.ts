@@ -83,5 +83,6 @@ function executionError(draft: Draft, events: readonly Event[]): string {
   const e = events.findLast((x) => x.type === "draft.execution_failed" && x.refId === draft.id);
   if (typeof e?.payload.error === "string") return e.payload.error;
   if (draft.type === "pr") return "creating the pull request failed";
+  if (draft.type === "review") return "posting the review failed";
   return draft.type === "push" ? "pushing the commits failed" : "posting the replies failed";
 }

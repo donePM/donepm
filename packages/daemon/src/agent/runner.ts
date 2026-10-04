@@ -70,6 +70,8 @@ interface Session {
   closing?: string;
   /** The item was already marked interrupted for this stop. */
   interruptedNoted?: boolean;
+  /** A read-only playbook (D42): the repository's "Always allow" grants do not apply. */
+  readOnly?: boolean;
   /** Tool calls without a result yet, by tool_use id, in call order. */
   tools: Map<string, CurrentTool>;
   exited?: Promise<void>;
@@ -145,6 +147,7 @@ export class AgentRunner {
     });
     const proc = this.deps.spawn(this.deps.claudePath(), args, { cwd: input.cwd, env });
     session.proc = proc;
+    session.readOnly = input.playbook.readOnly === true;
     if (input.resumeSessionId) session.sessionId = input.resumeSessionId;
 
     session.exited = new Promise((resolve) => {
@@ -421,7 +424,8 @@ export class AgentRunner {
   private allowByGrant(
     session: Session, requestId: string, toolName: string, input: unknown, suggested: PermissionRule[], flags: AskFlags, at: string,
   ): boolean {
-    if (!this.deps.grants || !session.proc || session.closing) return false;
+    // Grants were given for the user's own work; code under review asks every time (D42).
+    if (!this.deps.grants || !session.proc || session.closing || session.readOnly) return false;
     const repo = this.repoOf(session.itemId);
     const grants = matchGrants(toolName, suggested, flags, this.deps.grants.active(repo));
     if (!grants) return false;

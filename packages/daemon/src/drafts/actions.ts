@@ -129,7 +129,7 @@ async function unpushed(exec: Exec, worktree: string, branch: string): Promise<{
   return { commits, uncommitted };
 }
 
-function draftableItem(deps: DraftDeps, itemId: string): WorkItem {
+export function draftableItem(deps: DraftDeps, itemId: string): WorkItem {
   const item = itemOf(deps, itemId);
   if (item.state !== "running") throw new DraftError(409, `the item is ${item.state}, a draft can only be made while the agent is working`);
   if (deps.drafts.pending(itemId).length > 0) {
@@ -185,6 +185,7 @@ const REJECTED: Record<DraftType, { what: string; tool: string }> = {
   pr: { what: "pull request draft", tool: "draft_pr" },
   push: { what: "push draft", tool: "draft_push" },
   comment: { what: "replies", tool: "draft_comment" },
+  review: { what: "review", tool: "draft_review" },
 };
 
 export function rejectionMessage(reason: string | undefined, type: DraftType = "pr"): string {

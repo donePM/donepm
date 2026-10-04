@@ -13,6 +13,7 @@ import type { Exec } from "../process/exec.js";
 import type { RepoStore } from "../repos/store.js";
 import type { TranscriptStore } from "../transcript/store.js";
 import { ensureWorktree, WorktreeError } from "../worktrees/create.js";
+import { ensureReviewWorktree } from "../worktrees/review.js";
 import { runSetup } from "../worktrees/setup.js";
 import type { PushType } from "../ws/hub.js";
 import { AgentBusyError, type AgentRunner } from "./runner.js";
@@ -135,11 +136,12 @@ function reserve(deps: StartDeps, itemId: string): { release: () => void } {
 
 async function prepareAndLaunch(deps: StartDeps, item: WorkItem, playbook: Playbook): Promise<void> {
   const repo = deps.repos.get(item.repoId!)!;
-  const wt = await ensureWorktree({
-    exec: deps.exec, item, repo, worktreeRoot: deps.worktreeRoot(), branchPrefix: deps.branchPrefix(),
-  });
-  if (wt.path !== item.worktreePath || wt.branch !== item.branch) {
-    item = deps.writer.save({ ...item, worktreePath: wt.path, branch: wt.branch });
+  const review = item.source === "github-pr";
+  const wtInput = { exec: deps.exec, item, repo, worktreeRoot: deps.worktreeRoot(), branchPrefix: deps.branchPrefix() };
+  // A pull request to review is checked out at its head and compared against its own base (D41).
+  const wt = review ? await ensureReviewWorktree(wtInput) : { ...(await ensureWorktree(wtInput)), baseBranch: undefined };
+  if (wt.path !== item.worktreePath || wt.branch !== item.branch || wt.baseBranch !== item.baseBranch) {
+    item = deps.writer.save({ ...item, worktreePath: wt.path, branch: wt.branch, ...(wt.baseBranch ? { baseBranch: wt.baseBranch } : {}) });
   }
   // A session belongs to its directory: in a new worktree the agent starts over.
   if (wt.created && item.agentSessionId) {
@@ -147,8 +149,9 @@ async function prepareAndLaunch(deps: StartDeps, item: WorkItem, playbook: Playb
     item = deps.writer.save(fresh);
   }
 
-  // Setup runs until the agent has run once, so a start after a failed setup tries it again.
-  if (wt.created || !item.agentSessionId) {
+  // Setup runs until the agent has run once, so a start after a failed setup tries it again. Never
+  // for a review: `.donepm/setup.yml` and the dependencies come from code nobody vetted yet (D41).
+  if (!review && (wt.created || !item.agentSessionId)) {
     const ok = await runSetup({
       exec: deps.exec,
       repoPath: repo.path,
@@ -164,7 +167,7 @@ async function prepareAndLaunch(deps: StartDeps, item: WorkItem, playbook: Playb
     : renderPlaybookBody(
         playbook.body,
         // `repoPath` is where the agent works: the worktree, not the main clone.
-        placeholderValues({ ...item, branch: wt.branch, repoPath: wt.path }),
+        placeholderValues({ ...item, branch: wt.branch, base: wt.baseBranch ?? repo.defaultBranch, repoPath: wt.path }),
       );
   await deps.runner.launch({
     item, playbook, cwd: wt.path, prompt,

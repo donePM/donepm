@@ -5,7 +5,7 @@ import {
   draftExecutionFailed, draftRejected, interrupted, issueAssignFailed, issueAssigned, resume, start, worktreeRemoved,
   turnEnded, turnStarted, closedUpstream, ciFailed, ciFix, ciMarkedDone, ciPassed, ciRerun, dismissed, wasStarted, prMerged, worktreeRemovedOnMerge, worktreeRemoveSkipped,
   prConflicted, prConflictResolved, prConflictDismissed, prConflictFix, archived, alwaysAllowed, grantRevoked,
-  prFeedback, prFeedbackFix, prFeedbackDismissed, repliesPosted,
+  prFeedback, prFeedbackFix, prFeedbackDismissed, repliesPosted, reviewPosted,
 } from "./transitions.js";
 import type { PrConflict } from "../pr/conflict.js";
 import type { FeedbackEntry, PrFeedback } from "../pr/feedback.js";
@@ -66,6 +66,7 @@ const table: Array<{
   { name: "prFeedbackFix", run: (i) => prFeedbackFix({ ...i, agentSessionId: "sess" }, makeCtx()), from: ["needs_you"], to: "running", type: "agent.resumed", actor: "user" },
   { name: "prFeedbackDismissed", run: (i) => prFeedbackDismissed(i, makeCtx(), feedback), from: ["needs_you"], to: "done", type: "pr.feedback_dismissed", actor: "user" },
   { name: "repliesPosted", run: (i) => repliesPosted(i, makeCtx(), "d-1"), from: ["needs_you"], to: "done", type: "draft.executed", actor: "system" },
+  { name: "reviewPosted", run: (i) => reviewPosted(i, makeCtx(), "d-1"), from: ["needs_you"], to: "done", type: "draft.executed", actor: "system" },
 ];
 
 describe.each(table)("$name", ({ run, from, to, type, actor, name }) => {
@@ -137,6 +138,7 @@ describe("details", () => {
     expect(() => prFeedbackFix(item("needs_you"), makeCtx())).toThrow(InvalidTransitionError);
     expect(() => prFeedbackDismissed(item("needs_you"), makeCtx(), { ...feedback, waiting: false })).toThrow(InvalidTransitionError);
     expect(repliesPosted(item("needs_you"), makeCtx(), "d-9").events[0]?.refId).toBe("d-9");
+    expect(reviewPosted(item("needs_you"), makeCtx(), "d-8", { id: 3, url: "u" }).events[0]).toMatchObject({ refId: "d-8", payload: { id: 3, url: "u" } });
   });
 
   it("prConflictResolved returns a waiting item to where it was and leaves any other where it is", () => {
