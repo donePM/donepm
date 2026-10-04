@@ -5,7 +5,7 @@ import { api } from "../api/client";
 import { errorText } from "../api/errors";
 import type { PermissionRule } from "../api/types";
 import AskInput from "./AskInput.vue";
-import { grantText } from "./grant";
+import { grantText, grantWords } from "./grant";
 import QuestionDialog from "./QuestionDialog.vue";
 import { askReason } from "./view";
 
@@ -29,6 +29,8 @@ const label = computed(() => (network.value ? "Network access" : props.toolName)
 
 /** What "Allow for this run" adds; no button when the CLI suggested nothing we may grant. */
 const grant = computed(() => grantText(props.rules ?? []));
+/** The same rules, shown under the buttons before the user presses (issue #71). */
+const grantShown = computed(() => grantWords(props.rules ?? []));
 
 /** AskUserQuestion: Allow alone is no answer; the user answers in a dialog or declines (spec 9.4). */
 const questions = computed(() => (isQuestionTool(props.toolName) ? questionsOf(props.input) : []));
@@ -96,7 +98,12 @@ async function answer(behavior: "allow" | "deny", scope?: "run", answers?: Answe
       <button class="btn" type="button" :disabled="busy" @click="answer('deny')">Deny</button>
       <button class="btn" type="button" :disabled="busy" @click="denying = true">Deny and say why…</button>
     </div>
-    <p v-if="grant && !denying" class="hint">For this run also allows: <span class="mono">{{ grant }}</span></p>
+    <p v-if="grantShown.length && !denying && !questions.length" class="hint grant">
+      "Allow for this run" also allows
+      <template v-for="(w, i) in grantShown" :key="i"
+        >{{ i ? ", " : " " }}{{ w.text }}<template v-if="w.pattern"> <code class="mono">{{ w.pattern }}</code></template></template
+      > for the rest of this run.
+    </p>
     <p v-if="error && !asking" class="alert" role="alert">{{ error }}</p>
     <QuestionDialog
       v-if="asking"
@@ -120,4 +127,5 @@ async function answer(behavior: "allow" | "deny", scope?: "run", answers?: Answe
 .deny { display: flex; flex-direction: column; gap: 8px; }
 .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
 .hint { margin: 0; font-size: 12px; color: var(--muted, #6b6b63); }
+.grant code { padding: 0 4px; border-radius: 4px; background: var(--card-muted); border: 1px solid var(--border-soft); color: var(--ink-2); overflow-wrap: anywhere; }
 </style>

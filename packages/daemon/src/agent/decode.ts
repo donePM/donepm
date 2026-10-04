@@ -1,4 +1,4 @@
-import { parseRules, type PermissionRule, type TranscriptKind } from "@donepm/core";
+import { askFlags, parseRules, sessionRules, type PermissionRule, type TranscriptKind } from "@donepm/core";
 
 /** One stdout line of `claude -p --output-format stream-json`, decoded as far as donePM needs it. */
 export type Decoded =
@@ -10,7 +10,8 @@ export type Decoded =
   | { type: "stream"; sessionId: string | undefined; event: unknown }
   /**
    * `control_request/can_use_tool`: the CLI holds the turn until it gets an answer. `rules` are the
-   * allow rules the CLI suggested, empty when it suggested none.
+   * suggested allow rules "Allow for this run" may grant (`sessionRules`): only the asked tool's,
+   * none when the request says to suppress them.
    */
   | { type: "ask"; requestId: string; toolName: string; input: unknown; rules: PermissionRule[]; reason?: string; raw: unknown }
   /** Last line of a turn. */
@@ -54,9 +55,10 @@ export function decodeLine(line: string): Decoded {
       const req = msg.request;
       const requestId = str(msg.request_id);
       if (isObject(req) && req.subtype === "can_use_tool" && requestId) {
-        const rules = suggestedRules(req.permission_suggestions);
+        const toolName = str(req.tool_name) ?? "unknown";
+        const rules = sessionRules(toolName, suggestedRules(req.permission_suggestions), askFlags(req));
         const reason = str(req.decision_reason);
-        return { type: "ask", requestId, toolName: str(req.tool_name) ?? "unknown", input: req.input ?? {}, rules, ...(reason ? { reason } : {}), raw };
+        return { type: "ask", requestId, toolName, input: req.input ?? {}, rules, ...(reason ? { reason } : {}), raw };
       }
       break;
     }

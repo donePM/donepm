@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeRule, isRuleOfferable, offerableRules, parseRules } from "./rules.js";
+import { describeRule, isRuleOfferable, offerableRules, parseRules, ruleWords } from "./rules.js";
 
 const bash = (ruleContent?: string) => (ruleContent === undefined ? { toolName: "Bash" } : { toolName: "Bash", ruleContent });
 
@@ -9,13 +9,22 @@ describe("describeRule", () => {
   });
 
   it("names the tool and its content", () => {
-    expect(describeRule(bash("curl *"))).toBe("Bash: curl *");
-    expect(describeRule({ toolName: "WebFetch", ruleContent: "something else" })).toBe("WebFetch: something else");
+    expect(describeRule(bash("curl *"))).toBe("Bash commands matching curl *");
+    expect(describeRule(bash("bin/test:*"))).toBe("Bash commands matching bin/test *");
+    expect(describeRule({ toolName: "WebFetch", ruleContent: "something else" })).toBe("WebFetch calls matching something else");
   });
 
   it("covers every call for a bare tool", () => {
     expect(describeRule({ toolName: "Read" })).toBe("all Read calls");
     expect(describeRule({ toolName: "Read", ruleContent: "  " })).toBe("all Read calls");
+  });
+});
+
+describe("ruleWords", () => {
+  it("splits the words from the pattern", () => {
+    expect(ruleWords(bash("bin/test:*"))).toEqual({ text: "Bash commands matching", pattern: "bin/test *" });
+    expect(ruleWords({ toolName: "WebFetch", ruleContent: "domain:github.com" })).toEqual({ text: "web and network access to", pattern: "github.com" });
+    expect(ruleWords({ toolName: "Read" })).toEqual({ text: "all Read calls" });
   });
 });
 

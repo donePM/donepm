@@ -21,15 +21,29 @@ export function parseRules(value: unknown): PermissionRule[] {
   return rules;
 }
 
-/** Plain words for the UI. */
-export function describeRule(rule: PermissionRule): string {
+/** A rule in plain words: `text`, then `pattern` (shown as code) when the rule has one. */
+export interface RuleWords {
+  text: string;
+  pattern?: string;
+}
+
+/** Plain words for the UI, e.g. "Bash commands matching" `bin/test *`. */
+export function ruleWords(rule: PermissionRule): RuleWords {
   const content = rule.ruleContent?.trim();
-  if (!content) return `all ${rule.toolName} calls`;
+  if (!content) return { text: `all ${rule.toolName} calls` };
   // Claude Code uses WebFetch(domain:…) for the web tool and for the Bash sandbox's connections.
   if (rule.toolName === "WebFetch" && content.startsWith("domain:")) {
-    return `web and network access to ${content.slice("domain:".length)}`;
+    return { text: "web and network access to", pattern: content.slice("domain:".length) };
   }
-  return `${rule.toolName}: ${content}`;
+  // The legacy `cmd:*` form means `cmd *`.
+  if (rule.toolName === "Bash") return { text: "Bash commands matching", pattern: content.replace(/:\*$/, " *") };
+  return { text: `${rule.toolName} calls matching`, pattern: content };
+}
+
+/** `ruleWords` as one line of text. */
+export function describeRule(rule: PermissionRule): string {
+  const { text, pattern } = ruleWords(rule);
+  return pattern ? `${text} ${pattern}` : text;
 }
 
 /** Commands whose Bash rules we never grant, even if a pattern is broad enough to cover them. */

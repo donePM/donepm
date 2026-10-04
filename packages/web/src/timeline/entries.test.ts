@@ -43,7 +43,7 @@ describe("timelineEntries", () => {
     ];
     expect(timelineEntries(events, [ask, web]).map(({ tone, text, code, detail }) => ({ tone, text, code, detail }))).toEqual([
       { tone: "system", text: "Allowed web access on your list", code: "WebFetch: https://nodejs.org/en", detail: "nodejs.org is in Settings → Web access" },
-      { tone: "user", text: "You allowed for this run", code: "Bash: composer test", detail: "Also allowed until the run ends: Bash: curl *" },
+      { tone: "user", text: "You allowed for this run", code: "Bash: composer test", detail: "Also allowed until the run ends: Bash commands matching curl *" },
     ]);
   });
 

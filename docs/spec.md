@@ -547,8 +547,18 @@ can write the next message. A decline of an `AskUserQuestion` has no stop button
 
 "Allow for this run" (D30). The request's `permission_suggestions` holds `addRules` entries, for
 example `{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"curl *"}],"behavior":"allow","destination":"localSettings"}`.
-The daemon keeps the allow rules, drops any that would cover a blocked command or all of Bash, and
-offers a second button when any are left. Answering with it adds them for the session:
+The daemon keeps the allow rules for the asked tool only (Claude Code may attach others, e.g. a
+`Read(/tmp/**)` rule to a Bash ask; a `SandboxNetworkAccess` ask keeps its `WebFetch(domain:…)`
+rule), drops any that would cover a blocked command or all of Bash, and offers a second button when
+any are left. A request with `suppress_always_allow_rule` or `requires_user_interaction` set to
+`true` (undocumented; Bloom hides the wider buttons for them) offers no rules at all, so the panel
+shows only Allow and Deny; missing or any other value means false. `AskUserQuestion` asks carry
+`requires_user_interaction: true` (recorded in `ask-question.jsonl`). The selection is
+`sessionRules` in core. Under the buttons the panel says in plain words what the second button
+grants before it is pressed: "Bash commands matching `bin/test *`" (the legacy `cmd:*` shown as
+`cmd *`), "web and network access to `github.com`", "`<Tool>` calls matching `<pattern>`", or "all
+`<Tool>` calls", followed by "for the rest of this run". Answering with it adds them for the
+session:
 
 ```json
 {"behavior":"allow","updatedInput":<input>,"updatedPermissions":[{"type":"addRules","rules":[…],"behavior":"allow","destination":"session"}]}

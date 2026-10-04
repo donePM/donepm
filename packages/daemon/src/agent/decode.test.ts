@@ -47,14 +47,41 @@ describe("decodeLine against recorded sessions", () => {
       request: {
         subtype: "can_use_tool", tool_name: "Bash", input: {},
         permission_suggestions: [
-          { type: "addRules", behavior: "allow", destination: "localSettings", rules: [{ toolName: "WebFetch", ruleContent: "domain:x.org" }] },
+          { type: "addRules", behavior: "allow", destination: "localSettings", rules: [{ toolName: "Bash", ruleContent: "bin/test:*" }] },
           { type: "addRules", behavior: "deny", rules: [{ toolName: "Bash", ruleContent: "rm *" }] },
           { type: "setMode", mode: "acceptEdits" },
           "junk",
         ],
       },
     }));
-    expect(d).toMatchObject({ type: "ask", rules: [{ toolName: "WebFetch", ruleContent: "domain:x.org" }] });
+    expect(d).toMatchObject({ type: "ask", rules: [{ toolName: "Bash", ruleContent: "bin/test:*" }] });
+  });
+
+  it("keeps only the rules for the asked tool", () => {
+    const d = decodeLine(JSON.stringify({
+      type: "control_request", request_id: "r1",
+      request: {
+        subtype: "can_use_tool", tool_name: "Bash", input: {},
+        permission_suggestions: [
+          { type: "addRules", behavior: "allow", destination: "localSettings", rules: [{ toolName: "Bash", ruleContent: "bin/test:*" }, { toolName: "Read", ruleContent: "//tmp/**" }] },
+          { type: "addRules", behavior: "allow", destination: "session", rules: [{ toolName: "WebFetch", ruleContent: "domain:x.org" }] },
+        ],
+      },
+    }));
+    expect(d).toMatchObject({ type: "ask", rules: [{ toolName: "Bash", ruleContent: "bin/test:*" }] });
+  });
+
+  it("offers no rules when the request suppresses them", () => {
+    for (const flag of ["suppress_always_allow_rule", "requires_user_interaction"]) {
+      const d = decodeLine(JSON.stringify({
+        type: "control_request", request_id: "r1",
+        request: {
+          subtype: "can_use_tool", tool_name: "Bash", input: {}, [flag]: true,
+          permission_suggestions: [{ type: "addRules", behavior: "allow", rules: [{ toolName: "Bash", ruleContent: "pnpm test" }] }],
+        },
+      }));
+      expect(d, flag).toMatchObject({ type: "ask", rules: [] });
+    }
   });
 
   it("has no rules when the CLI suggests none", () => {
@@ -128,6 +155,8 @@ describe("a session with AskUserQuestion", () => {
     const ask = asks[0]!;
     if (ask.type !== "ask") throw new Error("not an ask");
     expect(ask.toolName).toBe("AskUserQuestion");
+    // The recorded request carries `requires_user_interaction: true`.
+    expect(ask.rules).toEqual([]);
     expect(questionsOf(ask.input).map((q) => [q.header, q.multiSelect, q.options.length])).toEqual([
       ["Color", false, 3],
       ["Sizes", true, 3],
