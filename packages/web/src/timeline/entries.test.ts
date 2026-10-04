@@ -165,6 +165,11 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("describes a comment the user posted from the card (D47)", () => {
+    const [entry] = timelineEntries([ev("pr.commented", { body: "@dependabot rebase" }, { actor: "user" })], []);
+    expect(entry).toMatchObject({ tone: "user", text: "You commented on the pull request", detail: "@dependabot rebase" });
+  });
+
   it("describes a review of someone else's pull request (D43)", () => {
     const events = [
       ev("draft.created", { type: "review", title: "Approve PR #7" }, { refId: "r", actor: "agent" }),

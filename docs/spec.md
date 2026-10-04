@@ -75,6 +75,8 @@ functions. `daemon` calls them and persists the result.
 | branch | string? | |
 | baseBranch | string? | a review's PR base, set when its worktree is created (D41); else the repo's default branch is the base |
 | agentSessionId | string? | Claude `session_id`, for `--resume` |
+| author | string? | `github-pr`: the PR author's login, `dependabot[bot]` for Dependabot (D47) |
+| prStatus | object? | `github-pr`: `{ mergeable, base, reviewDecision?, viewerReview?, checks? }` in GitHub's words, read each poll (6.2, D47) |
 | archivedAt | datetime? | set once by `archived` (6.8); an archived item is off the board and in the Archive (12.5) |
 | createdAt, updatedAt | datetime | |
 
@@ -133,7 +135,8 @@ a started one to Done), both see 6.2, `item.pr_merged` (the item's PR was merged
 stays) and `worktree.remove_skipped` (merged, but the worktree has uncommitted changes), both see
 6.5, `ci.started`, `ci.passed`, `ci.failed` and `ci.marked_done` (see 6.6), `pr.conflicted`,
 `pr.conflict_resolved` and `pr.conflict_dismissed` (see 6.7), `pr.feedback` and
-`pr.feedback_dismissed` (see 6.9), `item.archived` (actor `system`,
+`pr.feedback_dismissed` (see 6.9), `pr.commented` (actor `user`, payload `{ body }`: the user posted a
+comment on someone else's PR from its card, 6.2, D47), `item.archived` (actor `system`,
 payload `{ finishedAt }`, see 6.8), `item.refreshed` (actor `system`, payload `{ changed: {
 priority?, title?, labels? } }`, each `{ from, to }` and only the fields that changed, see 6.2). `agent.resumed` carries
 `reason: "ci_failed"` when the user let the agent fix a red CI, `reason: "pr_conflict"` when it
@@ -266,6 +269,18 @@ On start and on Settings open:
   Each becomes a `github-pr` item with playbook `review` and the PR's `author` login; a PR found by
   both searches is one item. Without `gh search prs` there are no pull requests, not an error. A closed or merged PR is found like a closed issue: `gh issue view
   --json state` answers `MERGED` for a merged PR, which counts as closed.
+- PR status (D47). At the end of each poll, for every `github-pr` item that is managed, not
+  archived and not closed upstream (done ones too: a reviewed PR is still open), one call per 50
+  reads where the pull request stands, by repository and number, so PRs that left the searches are
+  still read:
+  ```
+  gh api graphql -f query='query { pr0: repository(owner: "o", name: "r") { pullRequest(number: 88) {
+    number mergeable reviewDecision viewerLatestReview { state } baseRefName
+    commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } } ... }'
+  ```
+  The answer becomes the item's `prStatus`; a changed one is saved and pushed, without an event
+  (it is display). gh exits 1 when one PR does not resolve but answers for the others; those are
+  used. A failure leaves the stored status as it is.
 - Validate output with a schema (zod). On schema failure: log the raw output, do not crash, show
   an error badge in Settings.
 - Priority (D45). After all sources answered, one call per 100 polled issues reads GitHub's
@@ -908,6 +923,7 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/items/:id/conflict/dismiss` | waiting merge conflict → back where it was (6.7) |
 | POST | `/api/items/:id/feedback/address` | waiting review feedback with a worktree and session; fetches the PR branch, resumes the agent with it (6.9). 202 |
 | POST | `/api/items/:id/feedback/dismiss` | waiting review feedback → `done` (6.9) |
+| POST | `/api/items/:id/pr/comment` | `{body}`: `gh pr comment` on a `github-pr` item's PR as the user, `pr.commented`; 502 with gh's message when it fails (D47) |
 | POST | `/api/items/:id/dismiss` | closed upstream, not running → `done` (D32); 409 otherwise |
 | GET | `/api/worktrees/orphaned` | worktrees under the root that no item uses |
 | POST | `/api/worktrees/orphaned/remove` | `{ path }`; only paths from the orphan list |
@@ -964,7 +980,12 @@ you". Amber means "you have something to do"; red stays for daemon problems.
   myself) or review feedback (flag "Review", "PR #45 has review feedback from @ana", Address with
   agent / Read / Mark done) or a reply draft (flag "Reply draft") or a review draft (flag "Review
   draft", "Posting", "Review failed").
-- A `github-pr` card carries the badge "PR review" next to its id (D40).
+- A `github-pr` card carries the badge "PR · <author>" next to its id (D40, D47), and chips for its
+  `prStatus`: "Conflicts", the checks ("CI green", "CI failed", "CI running") and the user's own
+  review ("You approved", "You asked for changes", "Not reviewed by you"). On a conflict, "Ask
+  author" opens a comment prefilled with `@dependabot rebase` for Dependabot, else a request to
+  resolve the conflicts with the base; the user edits it, and "Post comment" is the approval
+  (D47). donePM never pushes to the author's branch.
 - A card whose priority is not the default P2 shows the tier as a badge next to its id: `P0` and
   `P1` in danger colours, `P3` quiet (D45). A priority changed on GitHub moves a Ready card within
   one poll, and its timeline shows the `item.refreshed` event.

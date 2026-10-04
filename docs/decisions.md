@@ -420,8 +420,9 @@ merged with it by `externalId`; Dependabot PRs come in when Dependabot assigns t
 (`assignees` in `dependabot.yml`), with no per-repo call and no `schedules` table, since Dependabot
 already runs on its own schedule. Items keep the PR's `author`, and the card says `PR · dependabot`.
 The playbook stays `review` (D43): comments go out only as drafts the user approves. A merge
-conflict is reported on the card and answered with a comment draft (for Dependabot `@dependabot
-rebase`), not resolved by the agent. Once the user's own review approved the PR, its checks pass
+conflict is reported on the card and answered with a comment to the author (for Dependabot
+`@dependabot rebase`), not resolved by the agent. The card prefills it, the user edits it, and the
+Post click is the approval, like Clone (#37); an agent draft would add a turn for one sentence. Once the user's own review approved the PR, its checks pass
 and it is mergeable, the card offers Merge; the click is the user's approval, like Clone (#37). A
 per-item "merge automatically" checkbox, defaulting to a per-repo setting that is off, lets the
 daemon merge as soon as those three hold; turning it on is the approval given in advance (D2).

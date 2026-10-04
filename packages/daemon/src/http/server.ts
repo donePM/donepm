@@ -87,6 +87,8 @@ export interface ServerDeps {
   addressFeedback: (id: string) => Promise<unknown>;
   /** Throws PrActionError. "Mark done": the item is done again despite the feedback. */
   dismissFeedback: (id: string) => WorkItem;
+  /** Throws PrActionError. Posts the user's comment on someone else's pull request (D47). */
+  commentOnPr: (id: string, body: string) => Promise<WorkItem>;
   /** Throws StopError when no agent process is alive. Resolves once it exited. */
   stopItem: (id: string) => Promise<void>;
   /** The item as the API shows it: clone, badges, agent. */
@@ -164,6 +166,8 @@ async function ciCall<T>(reply: FastifyReply, fn: () => Promise<T>) {
     throw e;
   }
 }
+
+const PrCommentSchema = z.object({ body: z.string() }).strict();
 
 const DraftRejectSchema = z.object({ reason: z.string().optional() }).strict();
 
@@ -292,6 +296,12 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.post<{ Params: { id: string } }>("/api/items/:id/feedback/dismiss", async (req, reply) =>
     ciCall(reply, async () => deps.view(deps.dismissFeedback(req.params.id))),
   );
+
+  app.post<{ Params: { id: string } }>("/api/items/:id/pr/comment", async (req, reply) => {
+    const parsed = PrCommentSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: "body must be {body: string}" });
+    return ciCall(reply, async () => deps.view(await deps.commentOnPr(req.params.id, parsed.data.body)));
+  });
 
   app.post<{ Params: { id: string } }>("/api/items/:id/stop", async (req, reply) => {
     if (!deps.items.get(req.params.id)) return reply.code(404).send({ error: "item not found" });

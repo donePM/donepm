@@ -15,6 +15,7 @@ import { isFinished } from "./finished";
 import { mergeNote } from "./merge-note";
 import { priorityBadge } from "./priority-badge";
 import { prKind } from "./pr-kind";
+import PrStatusPanel from "./PrStatusPanel.vue";
 
 /**
  * `hideRepo`: the lane already names the repo, so the id shows only the number.
@@ -156,6 +157,7 @@ async function act(fn: (id: string) => Promise<void>) {
         @click="act(dismissItem)"
       >Dismiss</button>
     </div>
+    <PrStatusPanel v-if="pr && !finished" :item="item" />
     <div v-if="usage" class="dim tokens mono" :title="usageTitle">{{ usage }}</div>
     <div v-if="item.state === 'running'" class="activity mono">
       <span v-if="item.branch">{{ item.branch }}</span>

@@ -217,4 +217,6 @@ export const MIGRATIONS: readonly Migration[] = [
   `ALTER TABLE items ADD COLUMN base_branch TEXT;`,
   // Who opened a pull request item (D47): Dependabot, a colleague.
   `ALTER TABLE items ADD COLUMN author TEXT;`,
+  // Where someone else's pull request stands, as JSON (D47): mergeable, base, reviews, checks.
+  `ALTER TABLE items ADD COLUMN pr_status TEXT;`,
 ];

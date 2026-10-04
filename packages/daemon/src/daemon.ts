@@ -52,6 +52,7 @@ import { moveWorktrees, worktreesUnder } from "./worktrees/move.js";
 import { sameDir } from "./worktrees/paths.js";
 import { watchPrs } from "./prs/watch.js";
 import { addressFeedback, dismissConflict, dismissFeedback, resolveConflict } from "./prs/actions.js";
+import { commentOnPr } from "./prs/comment.js";
 import { fixCi, markCiDone, rerunCi } from "./ci/actions.js";
 import { watchCi } from "./ci/watch.js";
 import { removeItemWorktree, removeOrphan } from "./worktrees/remove.js";
@@ -350,6 +351,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     addressFeedback: (id) =>
       addressFeedback({ items, events, writer, repos, ctx: opts.ctx, exec: opts.exec, resume: async (itemId, how) => track(await resumeItem(startDeps(), itemId, how)) }, id),
     dismissFeedback: (id) => dismissFeedback({ items, events, writer, ctx: opts.ctx }, id),
+    commentOnPr: (id, body) => commentOnPr({ items, events, writer, ctx: opts.ctx, exec: opts.exec }, id, body),
     view,
     answerAsk: (id, answer) => runner.answer(id, answer),
     grants: () => grants.active(),
