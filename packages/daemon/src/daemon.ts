@@ -316,7 +316,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       ),
     dismissConflict: (id) => dismissConflict({ items, events, writer, ctx: opts.ctx }, id),
     addressFeedback: (id) =>
-      addressFeedback({ items, events, writer, ctx: opts.ctx, resume: async (itemId, how) => track(await resumeItem(startDeps(), itemId, how)) }, id),
+      addressFeedback({ items, events, writer, repos, ctx: opts.ctx, exec: opts.exec, resume: async (itemId, how) => track(await resumeItem(startDeps(), itemId, how)) }, id),
     dismissFeedback: (id) => dismissFeedback({ items, events, writer, ctx: opts.ctx }, id),
     view,
     answerAsk: (id, answer) => runner.answer(id, answer),

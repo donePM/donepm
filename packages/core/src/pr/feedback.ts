@@ -79,7 +79,7 @@ const HUNK_LINES = 12;
  * The message that resumes the agent on review feedback. The agent has no network: everything it
  * needs is in here, and its answers go out as replies on a draft the user approves.
  */
-export function feedbackFixPrompt(f: Pick<PrFeedback, "pr" | "entries">): string {
+export function feedbackFixPrompt(f: Pick<PrFeedback, "pr" | "entries">, branch?: string): string {
   const lines = [`Pull request #${f.pr.number} got review feedback:`];
   for (const e of f.entries) {
     lines.push("");
@@ -94,8 +94,16 @@ export function feedbackFixPrompt(f: Pick<PrFeedback, "pr" | "entries">): string
     }
     if (e.body.trim()) lines.push(e.body.trim());
   }
+  lines.push("");
+  if (branch) {
+    // The daemon fetched it, since the agent has no network. A reviewer's committed suggestion or
+    // GitHub's "Update branch" is only there; merged first, the push stays a fast-forward (#121).
+    lines.push(
+      `\`origin/${branch}\` is fetched and up to date. First merge what the pull request has on GitHub and your branch not yet: \`git merge origin/${branch}\`. Some feedback may already be applied there.`,
+      "",
+    );
+  }
   lines.push(
-    "",
     "Address what you agree with: change the code, commit, run the build and the tests.",
     "Then call draft_push with a summary. Answer reviewers in its `replies`: give `inReplyTo` the thread number to reply on an inline comment, leave it out for a comment on the pull request.",
     "If nothing needs to change, call draft_comment with your replies instead.",

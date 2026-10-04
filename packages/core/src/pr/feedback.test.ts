@@ -51,5 +51,13 @@ describe("feedbackFixPrompt", () => {
     expect(p).toContain("@bo commented\nDoes this cover Windows?");
     expect(p).toContain("draft_push");
     expect(p).toContain("draft_comment");
+    expect(p).not.toContain("git merge");
+  });
+
+  it("merges what only the PR branch on GitHub has first, e.g. a committed suggestion (#121)", () => {
+    const p = feedbackFixPrompt({ pr, entries: [review] }, "dp/7-fix");
+    expect(p).toContain("`origin/dp/7-fix` is fetched");
+    expect(p.indexOf("git merge origin/dp/7-fix")).toBeGreaterThan(-1);
+    expect(p.indexOf("git merge origin/dp/7-fix")).toBeLessThan(p.indexOf("Address what you agree with"));
   });
 });
