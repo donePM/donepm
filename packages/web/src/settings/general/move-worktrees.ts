@@ -1,5 +1,5 @@
-import { ApiError } from "../api/client";
-import type { MoveOutcome, WorktreeAtOldRoot } from "../api/types";
+import { ApiError } from "../../api/client";
+import type { MoveOutcome, WorktreeAtOldRoot } from "../../api/types";
 
 /** The daemon refused to change the worktree root before the user chose what happens to these (#93). */
 export function worktreesAtOldRoot(e: unknown): WorktreeAtOldRoot[] | undefined {

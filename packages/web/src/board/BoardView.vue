@@ -59,7 +59,7 @@ const shownCounts = (lane: Lane) => COLUMNS.filter((c) => lane.counts[c.key] > 0
         </div>
       </div>
       <p v-if="itemsLoaded && !lanes.length" class="empty">
-        Nothing to do in the repositories you manage. Choose them in <RouterLink to="/settings">Settings</RouterLink>.
+        Nothing to do in the repositories you manage. Choose them in <RouterLink to="/settings/repositories">Settings</RouterLink>.
       </p>
       <section v-for="lane in lanes" :key="lane.key" class="lane" :aria-labelledby="`lane-${lane.key}`">
         <h3 class="lane-head">

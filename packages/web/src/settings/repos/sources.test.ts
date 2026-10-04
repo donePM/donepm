@@ -26,6 +26,22 @@ describe("withSource", () => {
       });
     }
   });
+
+  it("sets the managed choice when the form gives one: ignoring a repository is unmanaging it (#127)", () => {
+    expect(withSource(base, "github.com/a/b", { query: "label:x", assignOnStart: false, managed: false })).toEqual({
+      "github.com/a/b": { query: "label:x", assignOnStart: false, managed: false },
+    });
+    expect(withSource({}, "github.com/c/d", { query: "", assignOnStart: false, managed: true })).toEqual({
+      "github.com/c/d": { assignOnStart: false, managed: true },
+    });
+  });
+
+  it("keeps a default playbook, and drops an empty one (#127)", () => {
+    expect(withSource({}, "github.com/a/b", { query: "", assignOnStart: false, playbook: " implement " })).toEqual({
+      "github.com/a/b": { assignOnStart: false, playbook: "implement" },
+    });
+    expect(withSource({ "github.com/a/b": { assignOnStart: false, playbook: "x" } }, "github.com/a/b", { query: "", assignOnStart: false, playbook: "" })).toEqual({});
+  });
 });
 
 describe("issueSearchUrl", () => {

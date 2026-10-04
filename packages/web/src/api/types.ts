@@ -1,5 +1,5 @@
 import type {
-  CheckLog, CiPr, CommentDraft, Draft, DraftReply, DraftType, Event, FailedCheck, FeedbackEntry, MergeMethod, PermissionAsk, PermissionRule, PrDraft,
+  CheckLog, CiPr, CommentDraft, Draft, DraftReply, DraftType, Event, FailedCheck, FeedbackEntry, MergeMethod, PermissionAsk, PermissionRule, Playbook, PrDraft,
   PrDraftPayload, PushDraft, PrDraftResult, PrMerge, Repo, ReviewDraft, TranscriptMessage, WorkItem,
 } from "@donepm/core";
 
@@ -46,6 +46,10 @@ export interface OrphanWorktree {
   repoPath: string;
   path: string;
   branch?: string;
+  /** Disk use, when `du` could read it. */
+  sizeBytes?: number;
+  /** Date of its last commit, when git could read it. */
+  lastCommitAt?: string;
 }
 
 /** `PUT /api/settings` 409: an item's worktree under the old root when the root changes (#93). */
@@ -161,14 +165,24 @@ export interface PollStatus {
   discovered?: Record<string, number>;
 }
 
+/** A failed poll, newest first in `Status.pollErrors`. */
+export interface PollError {
+  at: string;
+  error: string;
+}
+
 export interface Status {
   version: string;
   pid: number;
+  /** When this daemon process started. */
+  startedAt: string;
   gh?: GhStatus;
   claude?: ClaudeStatus;
   lastPoll?: PollStatus;
   lastScan?: string;
   runningAgents: number;
+  /** The last five failed polls, newest first. */
+  pollErrors: PollError[];
 }
 
 export interface Settings {
@@ -202,11 +216,50 @@ export interface SourceSettings {
   autoMerge?: boolean;
   /** How others' pull requests are merged here; absent: squash (D47). */
   mergeMethod?: MergeMethod;
+  /** The playbook its new issues start with; absent: chosen by labels. */
+  playbook?: string;
 }
 
 /** `GET /api/repos`: a clone, and whether its origin is managed. */
 export interface RepoView extends Repo {
   managed: boolean;
+  /** Items of this repository with a worktree. */
+  worktrees: number;
+}
+
+/** `GET /api/playbooks`: one global or repository playbook. */
+export interface PlaybookEntry {
+  name: string;
+  model: string;
+  effort?: string;
+  permissionMode: Playbook["permissionMode"];
+  drafts: Playbook["drafts"];
+  readOnly?: boolean;
+  file: string;
+  scope: { kind: "global" } | { kind: "repo"; repoId: string; origin: string; path: string };
+  /** A repository playbook that replaces the global one of the same name there. */
+  overridesGlobal?: boolean;
+}
+
+export interface PlaybookList {
+  globalDir: string;
+  playbooks: PlaybookEntry[];
+  problems: { file: string; error: string }[];
+}
+
+/** `GET /api/daemon`. */
+export interface DaemonInfo {
+  version: string;
+  pid: number;
+  port: number;
+  startedAt: string;
+  /** Started by launchd (`donepm install-service`), which can restart it, or by hand. */
+  service: "launchd" | "manual";
+  configFile: string;
+  dbFile: string;
+  dbBytes: number;
+  logFile?: string;
+  playbooksDir: string;
 }
 
 /** `POST /api/sources/test`. */

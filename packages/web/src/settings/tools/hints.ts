@@ -1,4 +1,4 @@
-import type { CliState } from "../api/types";
+import type { CliState } from "../../api/types";
 
 export interface CliHint {
   label: string;

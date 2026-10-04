@@ -1,6 +1,6 @@
 import type { MergeMethod, PermissionGrant } from "@donepm/core";
 import type {
-  AskAnswer, CloneResult, Draft, ItemDetail, ItemDiff, ItemView, MoveOutcome, OpenTarget, OrphanWorktree, PrDraftPayload, RepoView, Settings, SourceTest, Status,
+  AskAnswer, CloneResult, DaemonInfo, Draft, ItemDetail, ItemDiff, ItemView, MoveOutcome, OpenTarget, OrphanWorktree, PlaybookList, PrDraftPayload, RepoView, Settings, SourceTest, Status,
   TranscriptMessage,
 } from "./types";
 
@@ -82,5 +82,11 @@ export const api = {
       `/api/settings${worktrees ? `?worktrees=${worktrees}` : ""}`,
       patch,
     ),
+  playbooks: () => call<PlaybookList>("GET", "/api/playbooks"),
+  daemon: () => call<DaemonInfo>("GET", "/api/daemon"),
+  /** Throws ApiError 409 when the daemon was started by hand and cannot be restarted from here. */
+  restartDaemon: () => call<{ ok: true }>("POST", "/api/daemon/restart", {}),
+  /** Shows the log file or the global playbooks folder in Finder. */
+  openDaemon: (what: "logs" | "playbooks") => call<{ ok: true }>("POST", "/api/daemon/open", { what }),
   testSource: (origin: string, query: string) => call<SourceTest>("POST", "/api/sources/test", { origin, query }),
 };

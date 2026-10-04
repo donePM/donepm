@@ -13,23 +13,38 @@ export interface LoadedPlaybooks {
   problems: PlaybookProblem[];
 }
 
-async function readDir(dir: string): Promise<LoadedPlaybooks> {
+/** A parsed playbook and the file it came from. */
+export interface PlaybookFile {
+  playbook: Playbook;
+  file: string;
+}
+
+/** Every `.md` in `dir`, parsed, sorted by file name. A missing folder is empty. */
+export async function readPlaybookDir(dir: string): Promise<{ files: PlaybookFile[]; problems: PlaybookProblem[] }> {
   let names: string[];
   try {
     names = (await readdir(dir)).filter((n) => n.endsWith(".md")).sort();
   } catch {
-    return { playbooks: [], problems: [] };
+    return { files: [], problems: [] };
   }
-  const out: LoadedPlaybooks = { playbooks: [], problems: [] };
+  const out: { files: PlaybookFile[]; problems: PlaybookProblem[] } = { files: [], problems: [] };
   for (const name of names) {
     const file = join(dir, name);
     try {
-      out.playbooks.push(parsePlaybook(await readFile(file, "utf8")));
+      out.files.push({ playbook: parsePlaybook(await readFile(file, "utf8")), file });
     } catch (e) {
       out.problems.push({ file, error: (e as Error).message });
     }
   }
   return out;
+}
+
+/** A repository's own playbooks (spec 8.1). */
+export const repoPlaybookDir = (repoPath: string): string => join(repoPath, ".donepm", "playbooks");
+
+async function readDir(dir: string): Promise<LoadedPlaybooks> {
+  const { files, problems } = await readPlaybookDir(dir);
+  return { playbooks: files.map((f) => f.playbook), problems };
 }
 
 /**
@@ -38,7 +53,7 @@ async function readDir(dir: string): Promise<LoadedPlaybooks> {
  */
 export async function loadPlaybooks(globalDir: string, repoPath?: string): Promise<LoadedPlaybooks> {
   const global = await readDir(globalDir);
-  const repo = repoPath ? await readDir(join(repoPath, ".donepm", "playbooks")) : { playbooks: [], problems: [] };
+  const repo = repoPath ? await readDir(repoPlaybookDir(repoPath)) : { playbooks: [], problems: [] };
   const byName = new Map<string, Playbook>();
   for (const p of [...global.playbooks, ...repo.playbooks]) byName.set(p.name, p);
   return { playbooks: [...byName.values()], problems: [...global.problems, ...repo.problems] };

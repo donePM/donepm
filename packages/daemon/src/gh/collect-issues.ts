@@ -94,7 +94,11 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
     if (!main.ok && main.kind === "command") status.update({ gh: await detectGh(exec) });
 
     // GitHub's "Priority" issue field, one batched call for all issues of the poll (D45).
-    const synced = syncIssues(await withPriorityFields(exec, issues), deps, (origin) => managed.has(origin));
+    const synced = syncIssues(
+      await withPriorityFields(exec, issues),
+      { ...deps, playbookFor: (origin) => sourceConfig[origin]?.playbook },
+      (origin) => managed.has(origin),
+    );
     for (const item of [...synced.collected, ...synced.updated]) deps.onItemUpdated(item);
 
     // An item is only "missing" if every source answered; otherwise it may just not have been asked.

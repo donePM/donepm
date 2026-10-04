@@ -203,6 +203,7 @@ config under `sources`, keyed by `originUrl`, not in `.donepm/` (see 14). Per re
 | managed | boolean | default `false`: donePM collects and starts work only in managed repos (D46) |
 | autoMerge | boolean? | default `false`: default of the card's "Merge automatically" for others' PRs (6.2, D47) |
 | mergeMethod | `squash` \| `merge` \| `rebase`? | default `squash`: how others' PRs are merged here (6.2, D47) |
+| playbook | string? | default playbook of issues newly collected here (8.3); absent: chosen by `match`. Pull requests keep `review` (D40) |
 
 The provider follows from the host. Only `github.com` is supported; GitLab (issue list params via
 `glab api`) and Jira (JQL) can be added without changing the format. Other hosts are rejected.
@@ -669,6 +670,8 @@ default branch).
 - Exactly one candidate → use it.
 - More than one → use the first by name, show dropdown on the card. Later: classifier interface
   `choosePlaybook(item, candidates)` with providers (rules, jev.ai, Claude). Not in MVP.
+- A repo's `sources[origin].playbook` (4.6) wins for its newly collected issues; existing items
+  keep theirs.
 - User changes via dropdown → `item.playbook_changed` event.
 
 ## 9. Agent runner
@@ -945,15 +948,19 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/items/:id/pr/merge` | `{method}`: `gh pr merge` on a `github-pr` item's PR, `pr.merged`; 409 with the blockers, 502 with gh's message (6.2, D47) |
 | PUT | `/api/items/:id/auto-merge` | `{on}`: the item's "Merge automatically", `pr.auto_merge_set` (D47) |
 | POST | `/api/items/:id/dismiss` | closed upstream, not running → `done` (D32); 409 otherwise |
-| GET | `/api/worktrees/orphaned` | worktrees under the root that no item uses |
+| GET | `/api/worktrees/orphaned` | worktrees under the root that no item uses, with `branch`, `sizeBytes` and `lastCommitAt` when known |
 | POST | `/api/worktrees/orphaned/remove` | `{ path }`; only paths from the orphan list |
-| GET | `/api/repos` | |
+| GET | `/api/repos` | each with `managed` (D46) and `worktrees`, the number of items with a worktree there |
 | POST | `/api/repos/rescan` | |
 | POST | `/api/repos/clone` | `{ origin }`; clones into `<repoRoot>/<owner>/<repo>` (5). 202 `{ origin, path, result: "started" }`, the outcome arrives as `repo.*` pushes; 200 with `result: "cloned"` when a clone of the origin was at the target already; 400 for an origin donePM cannot clone; 409 while it clones, when it has a clone, or the target is occupied. A clone makes the origin managed (D46) |
 | PUT | `/api/repos/:id` | `{ managed: boolean }`; manages or stops managing the repo's origin (D46). Managing polls at once |
 | GET/PUT | `/api/settings` | PUT is partial; `sources` is replaced as a whole. A new `worktreeRoot` with item worktrees under the old one needs `?worktrees=move\|leave`, else 409 `{ worktreesAtOldRoot }` and nothing saved; with move the answer has `worktrees: { moved, skipped }` (7.1) |
 | POST | `/api/sources/test` | `{ origin, query }`; runs the query once: `{ count, issues }` (first 10) |
-| GET | `/api/status` | CLI detection, daemon version, running agents |
+| GET | `/api/status` | CLI detection, daemon version, pid, `startedAt`, running agents, last poll and scan, `pollErrors` (the last 5 failed polls, newest first) |
+| GET | `/api/playbooks` | `{ globalDir, playbooks, problems }`: global playbooks, then each repo's own with `scope` and `overridesGlobal`; broken files as problems (12.4) |
+| GET | `/api/daemon` | version, pid, port, `startedAt`, `service` (`launchd` \| `manual`), config, database path and size, log file (launchd only), playbooks folder |
+| POST | `/api/daemon/restart` | 202, then exits with 75 so launchd starts it again (13); 409 when started by hand |
+| POST | `/api/daemon/open` | `{ what: logs\|playbooks }`: opens the log file or the global playbooks folder in Finder; 409 when there is none |
 
 WebSocket `/ws`: server pushes `{ type, payload }` for `item.updated`, `item.removed` (`{ id }`: the
 item left the board, e.g. archived), `event.appended`,
@@ -1102,39 +1109,57 @@ you". Amber means "you have something to do"; red stays for daemon problems.
 
 ### 12.4 Settings
 
-- Repo root, worktree root, branch prefix, port, poll interval, max agents.
-- Saving a new worktree root while item worktrees are under the old one (7.1) opens a dialog:
-  "N worktrees are in the old location. Move them to the new one?", the items listed with their
-  paths, those with a running agent marked and noted as staying where they are. Buttons: Move,
-  "Leave them where they are", Cancel (nothing saved). After a move the form says how many moved and
-  names each one not moved with its reason. The orphan list also covers former roots.
-- Group "Finished items" (6.8), whole numbers of 0 or more, applied on the next poll:
-  - `archiveAfterHours`: "Finished items (done and PR merged, or done without a PR) leave the board
-    after this many hours. They stay in the Archive with their agent run. 0 hides them immediately."
-  - `deleteAfterDays`: "Archived items, their timeline and their agent transcript are deleted after
-    this many days. Items that still have a worktree are kept until it is removed. Empty: never delete."
-  - `removeWorktreeOnMerge` (6.5): "When the PR is merged, remove the item's worktree on the next
-    poll. Never removes a worktree with uncommitted changes."
-- CLI status for `gh` and `claude`, with hints and "Check again".
-- Repos list with rescan. Orphaned worktrees.
-- Per repo a "Manage" checkbox (D46), first column; the header says "N of M managed", unmanaged rows
-  are muted. A fresh install manages nothing and the board stays empty. "Without a clone" lists
-  managed repos that have no local clone ("Stop managing") and repos the poll found on GitHub
-  without a clone, with their item count and "Clone and manage".
-- Per repo: what it collects (query or "assigned to you"), and an editor with the query field, a
-  Test button (count and first titles), "Open in GitHub" (the repo's issue list with this query, to
-  refine it there and paste it back), the assign-on-start checkbox, and for others' PRs the
-  auto-merge checkbox and the merge method (D47). A failed query shows on its
-  row.
-- Web access: the hosts the agent may read with WebFetch without asking (9.4), one per line.
-- Always allowed (D38): the active grants, grouped by repo (`owner/repo`). Each row shows the rule
-  in plain words ("Bash commands matching `pnpm test *`"), the raw rule (`Bash(pnpm test *)`), when
-  it was granted, how often and when it was last used, the call it was granted for, and Remove.
-  Remove hides the row and stops it matching at once, also for running agents.
-- Notifications (per browser, kept in `localStorage`, not in the daemon's config, because the
-  browser's own permission is per browser too): a switch "Notify me about new permission asks"
-  (on by default) and, while the browser's permission is still undecided, an "Allow browser
-  notifications" button (browsers need a user gesture; the page never asks on load).
+Routes `/settings/<section>`, `/settings` opens General. A section nav on the left, grouped
+Workspace (General, Repositories with the number of clones), Agents (Agents & access, Playbooks) and
+System (Tools with a status dot, Daemon); below 820 px it sits above the content. Each section is a
+page with a title, one lead line and panels; each panel saves on its own.
+
+- **General.** "Folders and branches": repo root, worktree root, branch prefix. Saving a new
+  worktree root while item worktrees are under the old one (7.1) opens a dialog: "N worktrees are in
+  the old location. Move them to the new one?", the items listed with their paths, those with a
+  running agent marked and noted as staying where they are. Buttons: Move, "Leave them where they
+  are", Cancel (nothing saved). After a move the form says how many moved and names each one not
+  moved with its reason. "Finished items" (6.8), whole numbers of 0 or more, applied on the next poll:
+  - `archiveAfterHours`: finished items (done and PR merged, or done without a PR) leave the board
+    after this many hours and stay in the Archive. 0 hides them immediately.
+  - `deleteAfterDays`: archived items with their timeline and transcript are deleted after this
+    many days, unless they still have a worktree. Empty: never delete.
+- **Repositories.** The lead names the repo root and when it was last scanned. A table of the
+  managed clones (D46) with a filter, "Show ignored (n)" for the unmanaged ones (muted, badge
+  "ignored"; shown without asking while nothing is managed, so a fresh install can pick) and
+  Rescan. Columns: repository with its path, base branch, source query (or "assigned to you") with
+  the last poll's result or error, options as badges (assigns on start, the default playbook, merges
+  automatically, `setup.yml`), the number of worktrees, Edit. Edit opens a row below with the query
+  field, Test (count) and "Open in GitHub" (the repo's issue list with this query, to refine it
+  there and paste it back), the default playbook (8.3), and switches for assign on start (6.4),
+  "Ignore this repository" (= not managed), and for others' PRs "Merge automatically" with the merge
+  method (D47); Save and Cancel. "Without a clone" lists managed repos that have no local clone
+  ("Stop managing") and repos the poll found on GitHub without a clone, with their item count and
+  "Clone and manage". "Worktrees without an item" (hidden when empty) lists orphaned worktrees,
+  former roots included, with size, branch, last commit and Remove.
+- **Agents & access.** "Running agents": max agents, poll interval, `removeWorktreeOnMerge` (6.5:
+  removes the worktree on the next poll after the merge, never with uncommitted changes), and the
+  notifications switch (below). "Permissions" (D38): the active grants with the rule, its repo
+  (`owner/repo`), when it was granted, how often it was used, and Revoke, which stops it matching at
+  once, also for running agents; below, "Always denied": the blocked CLIs and `git push`, fixed.
+  "Web access": the hosts the agent may read with WebFetch without asking (9.4), as removable chips
+  with an input to add one; a host covers its subdomains. Saved on each change.
+- **Playbooks.** One table of the playbooks (8.1) with name and file, model, effort, permission
+  mode, drafts (and "read only"), and origin: global, "in owner/repo", or "overridden in
+  owner/repo". "Open folder" opens the global folder. Files that fail to load are listed with
+  their error. Editing happens in the files.
+- **Tools.** `gh` and `claude` with path, version, login and hints, and "Check again"; a muted row
+  for Jira (after the MVP). "Polling": what is collected, how often, the last poll's result, and the
+  last failed polls since the daemon started.
+- **Daemon.** Version, service (launchd or by hand), address, pid and uptime, database path and
+  size, config file, log. "Open logs" and "Restart" only under launchd. The port, applied after a
+  restart.
+
+Notifications (per browser, kept in `localStorage`, not in the daemon's config, because the
+browser's own permission is per browser too): a switch "Browser notification and tab badge when an
+agent needs you" (on by default, applies at once) and, while the browser's permission is still
+undecided, an "Allow browser notifications" button (browsers need a user gesture; the page never
+asks on load).
 
 Pending asks outside the board (#74). Whatever view is open, the tab title is `(n) donePM` while
 `n` items wait on a permission ask (the `ask` attention of 12.1) and the favicon gets a red dot;

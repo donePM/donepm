@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import type { WorktreeChoice } from "../api/client";
-import type { WorktreeAtOldRoot } from "../api/types";
+import type { WorktreeChoice } from "../../api/client";
+import type { WorktreeAtOldRoot } from "../../api/types";
 import { moveQuestion } from "./move-worktrees";
 
 const props = defineProps<{ worktrees: WorktreeAtOldRoot[]; busy?: boolean }>();
