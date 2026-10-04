@@ -2,10 +2,11 @@ import { externalIdOf, type Ctx, type SourceIssue, type WorkItem } from "@donepm
 import type { Config } from "../config/config.js";
 import type { Db } from "../db/database.js";
 import type { EventStore } from "../events/store.js";
-import { applyClosedUpstream, syncIssues } from "../items/sync.js";
+import { applyClosedUpstream, issueOrigin, syncIssues } from "../items/sync.js";
 import type { ItemStore } from "../items/store.js";
 import type { Log } from "../log.js";
 import type { Exec } from "../process/exec.js";
+import { ignoredOrigins, isIgnored } from "../repos/ignore.js";
 import type { RepoStore } from "../repos/store.js";
 import type { SourcePollStatus, StatusStore } from "../status/status.js";
 import { detectGh } from "./detect.js";
@@ -30,6 +31,7 @@ const RAW_LOG_LIMIT = 10_000;
 /**
  * One poll cycle (spec 6.2): the default search (assigned to me) plus one query per repository
  * that has its own (issue #32), merged by `externalId`. A failing source does not stop the others.
+ * Ignored repositories (issue #33) are not polled, and their issues are dropped from the default search.
  * Never throws: failures are logged and recorded in the status, so Settings can show them.
  */
 export async function collectIssues(deps: CollectDeps): Promise<void> {
@@ -44,11 +46,17 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
       }
     }
 
+    const sourceConfig = deps.sources();
+    const ignored = ignoredOrigins(sourceConfig);
     const fetched: Array<{ origin?: string; result: FetchResult }> = [
-      { result: await fetchAssignedIssues(exec, () => repos.all().map((r) => r.originUrl)) },
+      {
+        result: await fetchAssignedIssues(exec, () =>
+          repos.all().map((r) => r.originUrl).filter((origin) => !isIgnored(sourceConfig, origin)),
+        ),
+      },
     ];
-    for (const [origin, source] of Object.entries(deps.sources())) {
-      if (source.query) fetched.push({ origin, result: await fetchQueryIssues(exec, origin, source.query) });
+    for (const [origin, source] of Object.entries(sourceConfig)) {
+      if (source.query && !ignored.has(origin)) fetched.push({ origin, result: await fetchQueryIssues(exec, origin, source.query) });
     }
 
     const issues: SourceIssue[] = [];
@@ -56,7 +64,7 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
     const sources: Record<string, SourcePollStatus> = {};
     for (const { origin, result } of fetched) {
       if (result.ok) {
-        issues.push(...result.issues);
+        issues.push(...result.issues.filter((i) => !ignored.has(issueOrigin(i))));
         if (origin) sources[origin] = { ok: true, issues: result.issues.length };
         continue;
       }
@@ -72,7 +80,7 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
     const main = fetched[0]!.result;
     if (!main.ok && main.kind === "command") status.update({ gh: await detectGh(exec) });
 
-    const synced = syncIssues(issues, deps);
+    const synced = syncIssues(issues, deps, ignored);
     for (const item of [...synced.collected, ...synced.updated]) deps.onItemUpdated(item);
 
     // An item is only "missing" if every source answered; otherwise it may just not have been asked.

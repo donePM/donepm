@@ -29,9 +29,10 @@ export interface SyncResult {
 
 /**
  * Upsert the polled issues by `externalId` (spec 6.2). New issues become `ready` items with an
- * `item.collected` event. Known items get the latest content. Nothing is deleted.
+ * `item.collected` event. Known items get the latest content. Nothing is deleted. Items of
+ * `ignored` origins were not asked for, so they are never reported missing.
  */
-export function syncIssues(issues: readonly SourceIssue[], deps: SyncDeps): SyncResult {
+export function syncIssues(issues: readonly SourceIssue[], deps: SyncDeps, ignored: ReadonlySet<string> = new Set()): SyncResult {
   const { db, items, events, repos, ctx } = deps;
   return transaction(db, () => {
     const collected: WorkItem[] = [];
@@ -63,6 +64,7 @@ export function syncIssues(issues: readonly SourceIssue[], deps: SyncDeps): Sync
 
     const missing = items
       .all()
+      .filter((s) => !ignored.has(s.originUrl))
       .map((s) => s.item)
       .filter((i) => !seen.has(i.externalId) && i.state !== "done" && !i.closedUpstream);
     return { collected, updated, missing };
