@@ -280,7 +280,7 @@ export class AgentRunner {
         return;
       case "ask":
         this.store(session, "raw", d.raw);
-        this.onAsk(session, d.requestId, d.toolName, d.input, d.rules);
+        this.onAsk(session, d.requestId, d.toolName, d.input, d.rules, d.reason);
         return;
       case "result":
         this.store(session, "result", d.raw);
@@ -305,10 +305,12 @@ export class AgentRunner {
     }
   }
 
-  private onAsk(session: Session, requestId: string, toolName: string, input: unknown, rules: PermissionRule[]): void {
+  private onAsk(session: Session, requestId: string, toolName: string, input: unknown, rules: PermissionRule[], reason?: string): void {
     const at = this.deps.ctx.now();
     if (this.autoAllow(session, requestId, toolName, input, at)) return;
-    const ask = { id: this.deps.ctx.newId(), itemId: session.itemId, requestId, toolName, input, state: "pending" as const, rules };
+    const ask = {
+      id: this.deps.ctx.newId(), itemId: session.itemId, requestId, toolName, input, state: "pending" as const, rules, ...(reason ? { reason } : {}),
+    };
     this.deps.asks.insert(ask, at);
     const item = this.item(session.itemId);
     if (item.state === "running" || item.state === "needs_you") {

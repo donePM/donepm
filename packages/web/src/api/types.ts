@@ -18,7 +18,7 @@ export interface AgentView {
 
 /** What a Needs You card shows. */
 export type Attention =
-  | { kind: "ask"; askId: string; toolName: string; input: unknown; rules: PermissionRule[] }
+  | { kind: "ask"; askId: string; toolName: string; input: unknown; rules: PermissionRule[]; reason?: string }
   | { kind: "draft"; draftId: string; title: string; executing?: true; error?: string }
   | { kind: "failed"; reason: string; stderrTail?: string }
   | { kind: "resume"; reason: string };

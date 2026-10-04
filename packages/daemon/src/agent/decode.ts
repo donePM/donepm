@@ -12,7 +12,7 @@ export type Decoded =
    * `control_request/can_use_tool`: the CLI holds the turn until it gets an answer. `rules` are the
    * allow rules the CLI suggested, empty when it suggested none.
    */
-  | { type: "ask"; requestId: string; toolName: string; input: unknown; rules: PermissionRule[]; raw: unknown }
+  | { type: "ask"; requestId: string; toolName: string; input: unknown; rules: PermissionRule[]; reason?: string; raw: unknown }
   /** Last line of a turn. */
   | { type: "result"; sessionId: string | undefined; isError: boolean; subtype: string | undefined; raw: unknown }
   /** Not JSON, e.g. a line cut off by a crash. Skipped. */
@@ -55,7 +55,8 @@ export function decodeLine(line: string): Decoded {
       const requestId = str(msg.request_id);
       if (isObject(req) && req.subtype === "can_use_tool" && requestId) {
         const rules = suggestedRules(req.permission_suggestions);
-        return { type: "ask", requestId, toolName: str(req.tool_name) ?? "unknown", input: req.input ?? {}, rules, raw };
+        const reason = str(req.decision_reason);
+        return { type: "ask", requestId, toolName: str(req.tool_name) ?? "unknown", input: req.input ?? {}, rules, ...(reason ? { reason } : {}), raw };
       }
       break;
     }

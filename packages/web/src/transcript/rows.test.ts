@@ -1,7 +1,8 @@
 import type { TranscriptKind } from "@donepm/core";
 import { describe, expect, it } from "vitest";
 import type { TranscriptMessage } from "../api/types";
-import { agentNote, applyDelta, resultNote, toolDiff, toRows, type Row } from "./rows";
+import type { PermissionAsk } from "../api/types";
+import { agentNote, applyDelta, askOutcomeText, hasPendingAsk, resultNote, toolDiff, toRows, type Row } from "./rows";
 
 let n = 0;
 const msg = (kind: TranscriptKind, raw: unknown): TranscriptMessage => ({
@@ -79,6 +80,69 @@ describe("toRows", () => {
       { type: "result", ok: true, label: "Turn ended · 3 steps · $0.03" },
       { type: "result", ok: false, label: "Turn failed (error_max_turns)" },
     ]);
+  });
+
+  describe("ask state", () => {
+    const asked = (id: string, toolName = "Bash", extra: object = {}) =>
+      msg("raw", { type: "control_request", request_id: id, request: { subtype: "can_use_tool", tool_name: toolName, input: { command: "ls\npwd" }, ...extra } });
+    const answer = (id: string, response: object) =>
+      msg("raw", { type: "control_response", response: { request_id: id, subtype: "success", response } });
+    const stored = (requestId: string, state: PermissionAsk["state"]): PermissionAsk => ({
+      id: `ask-${requestId}`, itemId: "i1", requestId, toolName: "Bash", input: {}, state, rules: [],
+    });
+    type AskRow = Extract<Row, { type: "ask" }>;
+
+    it("carries the full input and the CLI's reason", () => {
+      const [row] = toRows([asked("r1", "Bash", { decision_reason: "This command requires approval" })]);
+      expect(row).toMatchObject({ type: "ask", summary: "ls", input: { command: "ls\npwd" }, reason: "This command requires approval" });
+    });
+
+    it("hands out the stored ask only while it waits", () => {
+      const asks = [stored("r1", "pending"), stored("r2", "expired")];
+      const [pending, expired] = toRows([asked("r1"), asked("r2")], asks) as AskRow[];
+      expect(pending).toMatchObject({ ask: { id: "ask-r1" }, outcome: "pending" });
+      expect(expired!.ask).toBeUndefined();
+      expect(expired!.outcome).toBe("expired");
+    });
+
+    it("reads how it was answered from the transcript", () => {
+      const rows = toRows(
+        [
+          asked("r1"), answer("r1", { behavior: "allow", updatedInput: {} }),
+          asked("r2"), answer("r2", { behavior: "allow", updatedInput: {}, updatedPermissions: [{ type: "addRules" }] }),
+          asked("r3"), answer("r3", { behavior: "deny", message: "no" }),
+        ],
+        // The store may not have caught up yet; the answer in the transcript wins.
+        [stored("r1", "pending")],
+      ) as AskRow[];
+      expect(rows.map((r) => [r.outcome, askOutcomeText(r), r.ask])).toEqual([
+        ["allowed", "allowed", undefined],
+        ["allowed_run", "allowed for this run", undefined],
+        ["denied", "denied", undefined],
+      ]);
+    });
+
+    it("words questions as answered or declined, and leaves unknown outcomes blank", () => {
+      const rows = toRows([asked("q1", "AskUserQuestion"), answer("q1", { behavior: "deny" }), asked("q2")]) as AskRow[];
+      expect(rows.map(askOutcomeText)).toEqual(["declined", ""]);
+    });
+
+    it("finds a pending ask inside a subagent", () => {
+      const rows = toRows(
+        [
+          toolUse("a1", "Agent", { description: "Look" }),
+          msg("raw", { type: "system", subtype: "task_started", task_id: "k1", tool_use_id: "a1" }),
+          msg("raw", {
+            type: "control_request", request_id: "r1", agent_id: "k1",
+            request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" }, agent_id: "k1" },
+          }),
+        ],
+        [stored("r1", "pending")],
+      );
+      expect(rows).toHaveLength(1);
+      expect(hasPendingAsk(rows[0]!)).toBe(true);
+      expect(hasPendingAsk(toRows([toolUse("a2", "Agent", { description: "Look" })])[0]!)).toBe(false);
+    });
   });
 
   it("leaves out messages it does not know", () => {

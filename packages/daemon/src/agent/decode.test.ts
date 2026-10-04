@@ -60,6 +60,15 @@ describe("decodeLine against recorded sessions", () => {
   it("has no rules when the CLI suggests none", () => {
     const d = decodeLine(JSON.stringify({ type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "Bash", input: {} } }));
     expect(d).toMatchObject({ type: "ask", rules: [] });
+    expect(d).not.toHaveProperty("reason");
+  });
+
+  it("carries the CLI's decision_reason", () => {
+    const d = decodeLine(JSON.stringify({
+      type: "control_request", request_id: "r1",
+      request: { subtype: "can_use_tool", tool_name: "Bash", input: {}, decision_reason: "This command requires approval" },
+    }));
+    expect(d).toMatchObject({ type: "ask", reason: "This command requires approval" });
   });
 
   it("keeps the denial a tool result after a deny answer", () => {

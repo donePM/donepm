@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useAsks } from "../asks/live";
 import { displayId } from "../board/columns";
 import { items, itemsLoaded, watchItems } from "../board/items";
 import type { ItemView } from "../api/types";
@@ -34,14 +35,19 @@ watch(
 );
 
 const { messages, live, error } = useTranscript(selectedId);
-const rows = computed(() => toRows(messages.value));
+const asks = useAsks(selectedId);
+const rows = computed(() => toRows(messages.value, asks.value));
+
+/** The agent waits on a permission question (spec 9.4). */
+const asking = (item: ItemView) => item.attention?.kind === "ask";
 
 function status(item: ItemView): string {
   const parts: string[] = [];
   if (item.state === "running") {
     parts.push("running");
     if (item.agent.startedAt) parts.push(clock(now.value - Date.parse(item.agent.startedAt)));
-  } else if (item.state === "needs_you") parts.push(item.agent.running ? "waiting for you" : "needs you");
+  } else if (asking(item)) parts.push("asks permission");
+  else if (item.state === "needs_you") parts.push(item.agent.running ? "waiting for you" : "needs you");
   else parts.push(item.state);
   if (item.agent.costUsd !== undefined) parts.push(money(item.agent.costUsd));
   return parts.join(" · ");
@@ -91,7 +97,7 @@ watch([() => rows.value.length, live], async () => {
           >
             <span class="id mono">{{ displayId(item.externalId) }}</span>
             <span class="title">{{ item.title }}</span>
-            <span class="state">
+            <span class="state" :class="{ asking: asking(item) }">
               <span v-if="g.key === 'running'" class="dot dot-ok" aria-hidden="true"></span>{{ status(item) }}
             </span>
           </RouterLink>
@@ -124,7 +130,14 @@ watch([() => rows.value.length, live], async () => {
       <p v-if="stopError" class="error" role="alert">{{ stopError }}</p>
       <p v-if="error" class="error" role="alert">Could not load the transcript: {{ error }}</p>
       <div ref="scroller" class="scroll">
-        <TranscriptRows :rows="rows" :live="live" :now="now" :running="selected.agent.running" :repo="repoOf(selected.externalId)" />
+        <TranscriptRows
+          :rows="rows"
+          :live="live"
+          :now="now"
+          :running="selected.agent.running"
+          :repo="repoOf(selected.externalId)"
+          :worktree="selected.worktreePath"
+        />
         <p v-if="!rows.length && !live" class="empty">Nothing yet.</p>
       </div>
     </section>
@@ -169,6 +182,7 @@ h2 {
 .entry .state { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); }
 .g-running .state { color: var(--blue); }
 .g-waiting .state { color: var(--amber); }
+.entry .state.asking { color: var(--amber); font-weight: 600; }
 .g-finished { color: var(--ink-2); }
 .g-finished .title { font-weight: 400; }
 .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }

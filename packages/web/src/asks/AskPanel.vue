@@ -1,17 +1,27 @@
 <script setup lang="ts">
-import { isQuestionTool, questionsOf, toolSummary, type Answers } from "@donepm/core";
+import { isQuestionTool, questionsOf, type Answers } from "@donepm/core";
 import { computed, ref } from "vue";
 import { api } from "../api/client";
 import { errorText } from "../api/errors";
 import type { PermissionRule } from "../api/types";
+import AskInput from "./AskInput.vue";
 import { grantText } from "./grant";
 import QuestionDialog from "./QuestionDialog.vue";
+import { askReason } from "./view";
 
-const props = defineProps<{ askId: string; toolName: string; input: unknown; rules?: PermissionRule[] }>();
+const props = defineProps<{
+  askId: string;
+  toolName: string;
+  input: unknown;
+  rules?: PermissionRule[];
+  /** The CLI's `decision_reason`. */
+  reason?: string;
+  /** The item's worktree: a Bash cwd there goes without saying. */
+  worktree?: string;
+}>();
 const emit = defineEmits<{ answered: [] }>();
 
-/** The command or path when the tool has one, else the input as JSON. */
-const shown = computed(() => toolSummary(props.toolName, props.input) || JSON.stringify(props.input, null, 2));
+const reasonText = computed(() => askReason(props.reason));
 
 /** The Bash sandbox asks before any connection (D27); say so in words. */
 const network = computed(() => props.toolName === "SandboxNetworkAccess");
@@ -58,7 +68,10 @@ async function answer(behavior: "allow" | "deny", scope?: "run", answers?: Answe
         {{ q.question }}
       </li>
     </ul>
-    <div v-else class="code mono"><span class="tool">{{ label }}</span><pre>{{ shown }}</pre></div>
+    <template v-else>
+      <p class="head"><span class="tool mono">{{ label }}</span><span v-if="reasonText" class="reason">{{ reasonText }}</span></p>
+      <AskInput :tool-name="toolName" :input="input" :worktree="worktree" />
+    </template>
     <p v-if="network" class="hint">
       A command wants to connect to this host. Publishing goes through drafts; allow only what the work needs.
     </p>
@@ -97,9 +110,9 @@ async function answer(behavior: "allow" | "deny", scope?: "run", answers?: Answe
 
 <style scoped>
 .ask { display: flex; flex-direction: column; gap: 10px; }
-.code { background: var(--code-bg); color: var(--code-ink); border-radius: 6px; padding: 10px 12px; font-size: 12px; }
-.tool { display: block; color: #9a9a92; margin-bottom: 4px; }
-pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; font: inherit; }
+.head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0; }
+.tool { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.reason { font-size: 12px; color: var(--muted, #6b6b63); }
 .questions { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; line-height: 1.4; }
 .chip { margin-right: 6px; padding: 1px 7px; border-radius: 999px; background: var(--blue-tint); color: var(--blue); font-size: 12px; font-weight: 500; }
 .deny { display: flex; flex-direction: column; gap: 8px; }

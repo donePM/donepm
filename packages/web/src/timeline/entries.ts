@@ -1,5 +1,6 @@
 import { isQuestionTool, parseRules, questionsOf, toolSummary, type Event, type PermissionAsk } from "@donepm/core";
 import { grantText } from "../asks/grant";
+import { askCopyText, askView } from "../asks/view";
 
 export type Tone = "attention" | "danger" | "user" | "system";
 
@@ -12,6 +13,8 @@ export interface TimelineEntry {
   code?: string;
   /** Second line, e.g. a reason or the cost. */
   detail?: string;
+  /** The whole tool input when `code` shows only its first line; the code's tooltip. */
+  full?: string;
 }
 
 const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v : undefined);
@@ -20,6 +23,13 @@ function askCode(ask: PermissionAsk | undefined, fallbackTool: unknown): string 
   if (!ask) return str(fallbackTool);
   const summary = toolSummary(ask.toolName, ask.input);
   return summary ? `${ask.toolName}: ${summary}` : ask.toolName;
+}
+
+/** The ask's whole input for the tooltip, only when the one-line summary leaves something out. */
+function askFull(ask: PermissionAsk | undefined): { full?: string } {
+  if (!ask) return {};
+  const full = askCopyText(askView(ask.toolName, ask.input));
+  return full && full !== toolSummary(ask.toolName, ask.input) ? { full } : {};
 }
 
 function isQuestion(ask: PermissionAsk | undefined, fallbackTool: unknown): boolean {
@@ -75,7 +85,7 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>): Omit<Timelin
       return { tone: "danger", text: "Agent failed", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
     case "permission.asked":
       if (isQuestion(ask, p.toolName)) return { tone: "attention", text: "Agent asked you", ...withCode(questionCode(ask)) };
-      return { tone: "attention", text: "Agent asked permission", ...withCode(askCode(ask, p.toolName)) };
+      return { tone: "attention", text: "Agent asked permission", ...withCode(askCode(ask, p.toolName)), ...askFull(ask) };
     case "permission.answered": {
       if (isQuestion(ask, undefined)) {
         const detail = answersText(ask, p.answers);
@@ -91,6 +101,7 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>): Omit<Timelin
         tone: "user",
         text: p.behavior === "allow" ? (grant ? "You allowed for this run" : "You allowed") : "You denied",
         ...withCode(askCode(ask, undefined)),
+        ...askFull(ask),
         ...(grant ? { detail: `Also allowed until the run ends: ${grant}` } : {}),
       };
     }

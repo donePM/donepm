@@ -9,6 +9,7 @@ interface AskRow {
   input: string;
   state: string;
   rules: string;
+  reason: string | null;
 }
 
 function fromRow(r: AskRow): PermissionAsk {
@@ -20,6 +21,7 @@ function fromRow(r: AskRow): PermissionAsk {
     input: JSON.parse(r.input) as unknown,
     state: r.state as PermissionAskState,
     rules: parseRules(JSON.parse(r.rules) as unknown),
+    ...(r.reason ? { reason: r.reason } : {}),
   };
 }
 
@@ -49,9 +51,12 @@ export class AskStore {
   insert(ask: PermissionAsk, at: string): void {
     this.db
       .prepare(
-        "INSERT INTO asks (id, item_id, request_id, tool_name, input, state, rules, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO asks (id, item_id, request_id, tool_name, input, state, rules, reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
-      .run(ask.id, ask.itemId, ask.requestId, ask.toolName, JSON.stringify(ask.input), ask.state, JSON.stringify(offerableRules(ask.rules)), at, at);
+      .run(
+        ask.id, ask.itemId, ask.requestId, ask.toolName, JSON.stringify(ask.input), ask.state, JSON.stringify(offerableRules(ask.rules)),
+        ask.reason ?? null, at, at,
+      );
   }
 
   setState(id: string, state: PermissionAskState, at: string): void {

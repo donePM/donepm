@@ -47,6 +47,14 @@ describe("timelineEntries", () => {
     ]);
   });
 
+  it("keeps a multi-line command whole in the tooltip", () => {
+    const long: PermissionAsk = { ...ask, input: { command: "pnpm build \\\n  && pnpm test" } };
+    const [asked] = timelineEntries([ev("permission.asked", { toolName: "Bash" }, { refId: "a1", actor: "agent" })], [long]);
+    expect(asked).toMatchObject({ code: "Bash: pnpm build \\", full: "pnpm build \\\n  && pnpm test" });
+    const [short] = timelineEntries([ev("permission.asked", { toolName: "Bash" }, { refId: "a1", actor: "agent" })], [ask]);
+    expect(short!.full).toBeUndefined();
+  });
+
   it("shows questions and the user's answers", () => {
     const q: PermissionAsk = {
       id: "q1", itemId: "i", requestId: "r3", toolName: "AskUserQuestion", state: "allowed", rules: [],

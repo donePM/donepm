@@ -15,7 +15,7 @@ const nowDate = computed(() => new Date(props.now));
       <li v-for="e in entries" :key="e.id">
         <span class="dot" :class="`tone-${e.tone}`" aria-hidden="true"></span>
         <div>
-          <div class="text">{{ e.text }}<template v-if="e.code">{{ " " }}<code>{{ e.code }}</code></template></div>
+          <div class="text">{{ e.text }}<template v-if="e.code">{{ " " }}<code :title="e.full">{{ e.code }}</code></template></div>
           <div class="sub"><time :datetime="e.at">{{ timeLabel(e.at, nowDate) }}</time><template v-if="e.detail"> · {{ e.detail }}</template></div>
         </div>
       </li>
