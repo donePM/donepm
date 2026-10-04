@@ -35,7 +35,7 @@ describe.skipIf(!process.env.DONEPM_LIVE)("AgentRunner (live)", () => {
     const playbook: Playbook = { name: "live", model: "haiku", permissionMode: "acceptEdits", drafts: [], body: "" };
     const item: WorkItem = {
       id: "live-1", source: "github-issue", externalId: "o/r#1", externalUrl: "", title: "T", body: "", labels: [],
-      state: "ready", playbook: "live", priority: 1, createdAt: ctx.now(), updatedAt: ctx.now(),
+      state: "ready", playbook: "live", priority: 1, stateSince: ctx.now(), createdAt: ctx.now(), updatedAt: ctx.now(),
     };
     items.insert(item, "github.com/o/r");
     const running = writer.commit(start(item, ctx));

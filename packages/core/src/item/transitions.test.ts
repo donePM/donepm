@@ -16,7 +16,8 @@ function item(state: ItemState, extra: Partial<WorkItem> = {}): WorkItem {
   return {
     id: "item-1", source: "github-issue", externalId: "o/r#1", externalUrl: "https://github.com/o/r/issues/1",
     repoId: "repo-1", title: "T", body: "", labels: [], state, playbook: "implement", priority: 0,
-    createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z", ...extra,
+    stateSince: "2026-10-01T00:00:00.000Z", createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z",
+    ...extra,
   };
 }
 
@@ -52,6 +53,7 @@ describe.each(table)("$name", ({ run, from, to, type, actor, name }) => {
     const { item: after, events } = run(before);
     expect(after.state).toBe(to);
     expect(after.updatedAt).toBe("2026-10-03T12:00:00.000Z");
+    expect(after.stateSince).toBe(state === to ? "2026-10-01T00:00:00.000Z" : "2026-10-03T12:00:00.000Z");
     expect(before.state).toBe(state); // input not mutated
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ itemId: "item-1", type, actor, id: "evt-1", at: "2026-10-03T12:00:00.000Z" });
@@ -95,6 +97,44 @@ describe("details", () => {
 
   it("resume needs a session", () => {
     expect(() => resume(item("needs_you"), makeCtx())).toThrow(InvalidTransitionError);
+  });
+});
+
+describe("startedAt and stateSince", () => {
+  const at = (now: string): Ctx => ({ now: () => now, newId: () => "evt" });
+
+  it("start sets startedAt on the first start only", () => {
+    const first = start(item("ready"), at("2026-10-03T10:00:00.000Z")).item;
+    expect(first).toMatchObject({ startedAt: "2026-10-03T10:00:00.000Z", stateSince: "2026-10-03T10:00:00.000Z" });
+    const failed = agentFailed(first, at("2026-10-03T11:00:00.000Z")).item;
+    const retried = start(failed, at("2026-10-03T12:00:00.000Z")).item;
+    expect(retried).toMatchObject({ startedAt: "2026-10-03T10:00:00.000Z", stateSince: "2026-10-03T12:00:00.000Z" });
+  });
+
+  it("keeps startedAt through a Needs You round trip and moves stateSince on each state change", () => {
+    const running = start(item("ready"), at("2026-10-03T10:00:00.000Z")).item;
+    const waiting = agentAsked(running, at("2026-10-03T10:05:00.000Z"), "ask-1").item;
+    expect(waiting).toMatchObject({ state: "needs_you", stateSince: "2026-10-03T10:05:00.000Z" });
+    const back = answered(waiting, at("2026-10-03T10:06:00.000Z"), "ask-1").item;
+    expect(back).toMatchObject({ state: "running", startedAt: "2026-10-03T10:00:00.000Z", stateSince: "2026-10-03T10:06:00.000Z" });
+  });
+
+  it("keeps stateSince while the item stays in Needs You", () => {
+    const waiting = agentAsked(item("running"), at("2026-10-03T10:05:00.000Z"), "ask-1").item;
+    const second = agentAsked(waiting, at("2026-10-03T10:07:00.000Z"), "ask-2").item;
+    const edited = draftEdited(second, at("2026-10-03T10:09:00.000Z"), "d-1").item;
+    expect(edited.stateSince).toBe("2026-10-03T10:05:00.000Z");
+  });
+
+  it("sets stateSince when the item enters done and keeps it on later updates", () => {
+    const done = draftExecuted(item("needs_you"), at("2026-10-03T10:00:00.000Z"), "d-1").item;
+    expect(done.stateSince).toBe("2026-10-03T10:00:00.000Z");
+    const removed = worktreeRemoved({ ...done, worktreePath: "/wt/1" }, at("2026-10-04T09:00:00.000Z")).item;
+    expect(removed).toMatchObject({ stateSince: "2026-10-03T10:00:00.000Z", updatedAt: "2026-10-04T09:00:00.000Z" });
+  });
+
+  it("only start sets startedAt", () => {
+    expect(resume(item("needs_you", { agentSessionId: "sess" }), makeCtx()).item).not.toHaveProperty("startedAt");
   });
 });
 

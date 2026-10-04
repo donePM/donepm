@@ -63,7 +63,10 @@ functions. `daemon` calls them and persists the result.
 | labels | string[] | |
 | state | enum | see 4.2 |
 | playbook | string | playbook name, default `implement` |
-| priority | int | from labels or manual; MVP: manual sort order |
+| priority | int | tier from the labels, 0 most urgent (see 12.1); recomputed on every poll |
+| issueCreatedAt | datetime? | when the issue was opened upstream (6.2) |
+| startedAt | datetime? | first `start`; kept on retry and through Needs You |
+| stateSince | datetime | when the item entered its current state; transitions that keep the state leave it |
 | worktreePath | string? | set when agent starts |
 | branch | string? | |
 | agentSessionId | string? | Claude `session_id`, for `--resume` |
@@ -196,7 +199,7 @@ On start and on Settings open:
 - Every 60 seconds (configurable).
 - Command:
   ```
-  gh search issues --assignee=@me --state=open --json number,title,body,labels,repository,url
+  gh search issues --assignee=@me --state=open --json number,title,body,createdAt,labels,repository,url
   ```
   If `gh search` is not available, fall back to `gh issue list --assignee @me --json ...` per
   known repo.
@@ -214,7 +217,7 @@ On start and on Settings open:
 - Never delete items automatically.
 - Repos with a `query` (4.6) are polled in addition, one call each:
   ```
-  gh issue list --repo <origin> --search "<query>" --state open --json number,title,body,labels,url
+  gh issue list --repo <origin> --search "<query>" --state open --json number,title,body,createdAt,labels,url
   ```
   `--repo` pins the repository, so a pasted query cannot reach into others, and pull requests are
   excluded. GitHub's search syntax including `OR` and parentheses passes through unchanged.
@@ -562,7 +565,21 @@ diff remove `#FBDDDD`. Fonts: IBM Plex Sans, JetBrains Mono.
 - Done card: PR link, Remove worktree.
 - Card of an item closed upstream: note "Closed on GitHub"; on a started, not running item a
   Dismiss button next to it (6.2).
-- Sort: manual drag within a column (priority). Persist order.
+- Sort: one fixed order per column, the same inside every repo lane, so cards do not jump. Ties
+  break by external id (numbers in numeric order), so the order is total and stable.
+
+  | column | order | key |
+  |---|---|---|
+  | Ready | most urgent first, then oldest issue; items without a local clone last | `priority`, then `issueCreatedAt` |
+  | In Progress | first started on top; never changes while items run | `startedAt` |
+  | Needs You | longest waiting on top | `stateSince` |
+  | Done | newest finished on top | `stateSince` |
+
+  Priority tier from the labels (`priorityTier` in `core`, case-insensitive): `P0` / `priority:
+  critical` → 0, `P1` / `priority: high` → 1, `P2` / `priority: medium` / no priority label → 2,
+  `P3` / `priority: low` → 3. `priority:high`, `priority/high` and `prio: high` match too; with
+  several, the most urgent wins. Manual reordering is not supported; it may come back later as an
+  override in Ready.
 
 ### 12.2 Item detail (drawer or route)
 

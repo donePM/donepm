@@ -40,7 +40,7 @@ function setup(maxConcurrent = 1, webFetchDomains: string[] = []) {
     const item: WorkItem = {
       id: `item-${n}`, source: "github-issue", externalId: `o/r#${n}`, externalUrl: `https://github.com/o/r/issues/${n}`,
       title: "T", body: "", labels: [], state: "ready", playbook: "implement", priority: n,
-      createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z",
+      stateSince: "2026-10-01T00:00:00.000Z", createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z",
     };
     items.insert(item, "github.com/o/r");
     return writer.commit(start(item, ctx));
