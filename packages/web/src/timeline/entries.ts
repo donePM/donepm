@@ -73,6 +73,7 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
       return { tone: e.actor === "user" ? "user" : "system", text: "Agent started" };
     case "agent.resumed":
       if (p.reason === "ci_failed") return { tone: "user", text: "You let the agent fix the failed CI" };
+      if (p.reason === "pr_conflict") return { tone: "user", text: "You let the agent resolve the merge conflict" };
       return { tone: e.actor === "user" ? "user" : "system", text: e.actor === "user" ? "You resumed the agent" : "Agent resumed" };
     case "agent.interrupted":
       return { tone: "attention", text: "Agent interrupted", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
@@ -139,6 +140,15 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, pushDrafts: R
     }
     case "ci.marked_done":
       return { tone: "user", text: "You marked it done without green CI" };
+    case "pr.conflicted": {
+      const files = Array.isArray(p.files) ? p.files.filter((f) => typeof f === "string") : [];
+      const base = str(p.base) ?? "its base";
+      return { tone: "attention", text: `${prName(p.number)} has merge conflicts with ${base}`, ...(files.length ? { detail: files.join(", ") } : {}) };
+    }
+    case "pr.conflict_resolved":
+      return { tone: "system", text: `${prName(p.number)} can be merged again` };
+    case "pr.conflict_dismissed":
+      return { tone: "user", text: "You'll resolve the merge conflict yourself" };
     case "item.pr_merged":
       return { tone: "system", text: `${prName(p.number)} merged` };
     case "worktree.removed": {

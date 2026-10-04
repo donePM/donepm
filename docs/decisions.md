@@ -216,6 +216,18 @@ commits to the PR the user already approved; the daemon fills in the commits fro
 gives a summary. Pushing stays a daemon action after approval, as every outward effect. Bloom does
 not watch CI.
 
+**D36. donePM watches its open PRs for merge conflicts; the user picks who resolves one.** PR #75
+sat green but unmergeable after main moved, and only the user's look at GitHub found it (#77). The
+PR poll (D33) now also asks for `mergeable` on `done` and `checking` items. Only `CONFLICTING`
+counts: `UNKNOWN` means GitHub has not computed it yet and comes after every push to the base, so
+acting on it would flap. A conflict moves the item to `needs_you` once, with the files from `git
+merge-tree` against the fetched base, since GitHub does not list them. The user picks: the agent
+resolves it (the daemon fetches the base first, the agent has no network; it merges instead of
+rebasing, so the fix leaves as a plain `draft_push` (D35) without force-pushing over what the user
+approved), or "I'll do it myself", which returns the item and leaves a quiet note. Either way the
+conflict ends when GitHub reports the PR mergeable, merged or closed, and a still-waiting item goes
+back where it was. Bloom does not watch PRs.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

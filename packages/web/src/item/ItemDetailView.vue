@@ -15,6 +15,7 @@ import { timeLabel } from "../timeline/entries";
 import TimelineList from "../timeline/TimelineList.vue";
 import { useItemDetail } from "./detail";
 import CiPanel from "./CiPanel.vue";
+import ConflictPanel from "./ConflictPanel.vue";
 import DraftPanel from "./DraftPanel.vue";
 import PushDraftPanel from "./PushDraftPanel.vue";
 import WorktreeBlock from "./WorktreeBlock.vue";
@@ -49,6 +50,7 @@ const badge = computed(() => {
   const label = STATE_LABEL[d.state] ?? d.state;
   if (d.attention?.kind === "draft") return `${label} · ${d.attention.draftType === "push" ? "push" : "PR"} draft`;
   if (d.attention?.kind === "ci_failed") return `${label} · CI failed`;
+  if (d.attention?.kind === "pr_conflict") return `${label} · merge conflict`;
   if (d.attention?.kind === "ask") return `${label} · permission`;
   if (d.attention?.kind === "resume") return `${label} · interrupted`;
   return label;
@@ -115,6 +117,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
             :repo="repo"
             @changed="reload"
           />
+          <ConflictPanel :item="detail" @changed="reload" />
           <CiPanel :item="detail" @changed="reload" />
           <section v-if="detail.pr" class="panel" aria-labelledby="pr-h">
             <h2 id="pr-h">Pull request</h2>

@@ -21,6 +21,7 @@ export type Attention =
   | { kind: "ask"; askId: string; toolName: string; input: unknown; rules: PermissionRule[]; reason?: string }
   | { kind: "draft"; draftId: string; draftType: DraftType; title: string; executing?: true; error?: string }
   | { kind: "ci_failed"; pr?: CiPr; failed: FailedCheck[]; logs: CheckLog[]; runs: string[] }
+  | { kind: "pr_conflict"; pr: CiPr; base: string; files: string[] }
   | { kind: "failed"; reason: string; stderrTail?: string }
   | { kind: "resume"; reason: string };
 
@@ -38,8 +39,11 @@ export interface ItemView extends WorkItem {
   agent: AgentView;
   attention?: Attention;
   /** The pull request an approved draft opened, and whether it was merged since (D33). */
-  pr?: PrDraftResult & PrMerge;
+  pr?: PrView;
 }
+
+/** `waiting`: the item sits in Needs You on the conflict; otherwise the user took it on (D36). */
+export type PrView = PrDraftResult & PrMerge & { conflict?: { base: string; files: string[]; waiting: boolean } };
 
 /** `GET /api/items/:id`. */
 export interface ItemDetail extends ItemView {

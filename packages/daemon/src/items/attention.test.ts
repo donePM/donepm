@@ -87,6 +87,13 @@ describe("attentionOf", () => {
       });
     });
 
+    it("shows a merge conflict the item waits on, before a red CI", () => {
+      const conflicted = ev("pr.conflicted", { ...pr, base: "main", files: ["a.ts"], from: "checking" });
+      expect(attentionOf({ ...waiting, events: [red, conflicted] })).toEqual({ kind: "pr_conflict", pr, base: "main", files: ["a.ts"] });
+      expect(attentionOf({ ...waiting, events: [conflicted, ev("agent.resumed", { reason: "pr_conflict" }), ev("agent.turn_ended")] })).toMatchObject({ kind: "resume" });
+      expect(attentionOf({ ...waiting, agentAlive: true, events: [conflicted] })).toBeUndefined();
+    });
+
     it("comes before Resume and gives way once the agent works on it", () => {
       expect(attentionOf({ ...waiting, events: [red, ev("agent.resumed", { reason: "ci_failed" }), ev("agent.turn_ended")] })).toMatchObject({ kind: "resume" });
       expect(attentionOf({ ...waiting, agentAlive: true, events: [red] })).toBeUndefined();

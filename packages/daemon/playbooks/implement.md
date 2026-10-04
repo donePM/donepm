@@ -29,6 +29,9 @@ Labels: {{ labels }}
 7. After the PR is open, donePM waits for its CI. If a check fails and the user asks you to fix
    it, you get the failed checks and the ends of their logs. Fix the cause, commit, and call the
    `draft_push` tool so the user can push the commits to the same PR.
+8. If the PR gets merge conflicts with its base and the user asks you to resolve them, donePM has
+   fetched the base already. Merge it (`git merge origin/<base>`, no rebase), resolve the
+   conflicts, run the tests, commit, and call `draft_push`.
 
 ## Rules
 

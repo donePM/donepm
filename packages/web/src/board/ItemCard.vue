@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { dismissItem, fixCi, markCiDone, pending, removeWorktree, rerunCi, resumeAgent, startAgent, stopAgent } from "../agents/actions";
+import { dismissConflict, dismissItem, fixCi, markCiDone, pending, removeWorktree, rerunCi, resolveConflict, resumeAgent, startAgent, stopAgent } from "../agents/actions";
 import { api } from "../api/client";
 import { errorText, isPublishFailure } from "../api/errors";
 import type { ItemView } from "../api/types";
@@ -38,6 +38,7 @@ const flag = computed(() => {
   if (a.kind === "draft" && a.draftType === "push") return a.error ? "Push failed" : a.executing ? "Pushing" : "Push draft";
   if (a.kind === "draft") return a.error ? "PR failed" : a.executing ? "Publishing" : "PR draft";
   if (a.kind === "ci_failed") return "CI failed";
+  if (a.kind === "pr_conflict") return "Conflict";
   if (a.kind === "resume") return "Interrupted";
   return a.kind === "ask" ? "Permission" : "Failed";
 });
@@ -170,6 +171,19 @@ async function act(fn: (id: string) => Promise<void>) {
         <button class="btn subtle" type="button" :disabled="busy" @click="act(markCiDone)">Mark done</button>
       </div>
     </template>
+    <template v-else-if="attention?.kind === 'pr_conflict'">
+      <p class="reason">
+        <a :href="attention.pr.url" target="_blank" rel="noreferrer" class="pr mono">PR #{{ attention.pr.number }}</a> has merge conflicts with
+        <span class="mono">{{ attention.base }}</span>
+      </p>
+      <ul v-if="attention.files.length" class="checks mono">
+        <li v-for="f in attention.files" :key="f">{{ f }}</li>
+      </ul>
+      <div class="actions">
+        <button class="btn btn-primary" type="button" :disabled="busy || !item.agentSessionId" title="Fetch the base and let the agent merge it; it proposes a push draft" @click="act(resolveConflict)">Resolve with agent</button>
+        <button class="btn subtle" type="button" :disabled="busy" @click="act(dismissConflict)">I'll do it myself</button>
+      </div>
+    </template>
     <template v-else-if="attention?.kind === 'failed'">
       <p class="reason">{{ attention.reason }}</p>
       <pre v-if="stderrTail" class="stderr mono">{{ stderrTail }}</pre>
@@ -181,10 +195,14 @@ async function act(fn: (id: string) => Promise<void>) {
         <RouterLink :to="{ name: 'agent', params: { id: item.id } }" class="btn">Transcript</RouterLink>
       </div>
     </template>
-    <p v-if="item.pr && merge?.kind === 'pending'" class="note quiet">
+    <p v-if="item.pr?.conflict && !item.pr.conflict.waiting" class="note quiet">
+      <a :href="item.pr.url" target="_blank" rel="noreferrer" class="pr mono">PR #{{ item.pr.number }}</a> has merge conflicts with
+      <span class="mono">{{ item.pr.conflict.base }}</span>
+    </p>
+    <p v-else-if="item.pr && merge?.kind === 'pending'" class="note quiet">
       Worktree is removed when <a :href="item.pr.url" target="_blank" rel="noreferrer" class="pr mono">PR #{{ item.pr.number }}</a> is merged
     </p>
-    <div v-else-if="item.pr" class="pr-line">
+    <div v-else-if="item.pr && attention?.kind !== 'pr_conflict'" class="pr-line">
       <a :href="item.pr.url" target="_blank" rel="noreferrer" class="pr mono">PR #{{ item.pr.number }}</a>
       <span v-if="merge?.kind === 'merged'" class="merged">PR merged</span>
       <span v-else-if="merge?.kind === 'skipped'" class="note warn">Not removed: {{ merge.reason }}</span>

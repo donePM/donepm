@@ -1,5 +1,6 @@
 import type { Ctx } from "../ids.js";
 import type { Event, EventActor, EventType } from "../event/types.js";
+import type { PrConflict } from "../pr/conflict.js";
 import type { ItemState, WorkItem } from "./types.js";
 
 export interface Transition {
@@ -405,6 +406,59 @@ export function worktreeRemoveSkipped(
 }
 
 const ALL_STATES: ItemState[] = ["ready", "running", "needs_you", "checking", "done", "failed"];
+
+/**
+ * GitHub reports the item's open PR as conflicting with its base (decision D36). A finished item or
+ * one waiting for CI comes back to the user; `from` is where it returns once the conflict is gone.
+ */
+export function prConflicted(item: WorkItem, ctx: Ctx, payload: CiPr & { base: string; files: string[] }): Transition {
+  return apply(
+    { name: "prConflicted", from: ["done", "checking"], to: "needs_you", actor: "system", event: "pr.conflicted" },
+    item,
+    ctx,
+    undefined,
+    { ...payload, from: item.state },
+  );
+}
+
+/**
+ * GitHub reports the PR mergeable again, or it was merged or closed. An item still waiting on the
+ * conflict returns to where it was; any other keeps its state and only loses the note.
+ */
+export function prConflictResolved(item: WorkItem, ctx: Ctx, conflict: PrConflict): Transition {
+  const to = conflict.waiting && item.state === "needs_you" ? conflict.from : item.state;
+  return apply(
+    { name: "prConflictResolved", from: ALL_STATES, to, actor: "system", event: "pr.conflict_resolved" },
+    item,
+    ctx,
+    undefined,
+    { ...conflict.pr },
+  );
+}
+
+/** "I'll do it myself": the item returns to where it was; the card keeps a note until it is resolved. */
+export function prConflictDismissed(item: WorkItem, ctx: Ctx, conflict: PrConflict): Transition {
+  if (!conflict.waiting) throw new InvalidTransitionError("prConflictDismissed", item.state);
+  return apply(
+    { name: "prConflictDismissed", from: ["needs_you"], to: conflict.from, actor: "user", event: "pr.conflict_dismissed" },
+    item,
+    ctx,
+    undefined,
+    { ...conflict.pr },
+  );
+}
+
+/** The user let the agent resolve the conflict: `--resume` with the conflict as the message. */
+export function prConflictFix(item: WorkItem, ctx: Ctx): Transition {
+  if (!item.agentSessionId) throw new InvalidTransitionError("prConflictFix", item.state);
+  return apply(
+    { name: "prConflictFix", from: ["needs_you"], to: "running", actor: "user", event: "agent.resumed" },
+    item,
+    ctx,
+    undefined,
+    { reason: "pr_conflict" },
+  );
+}
 
 /**
  * The daemon assigned the issue to the user on start (opt-in per repository, decision D28). Not a

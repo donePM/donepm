@@ -43,6 +43,8 @@ export const api = {
   rerunCi: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/ci/rerun`),
   markCiDone: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/ci/done`),
   fixCi: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/ci/fix`),
+  resolveConflict: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/conflict/resolve`),
+  dismissConflict: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/conflict/dismiss`),
   dismiss: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/dismiss`),
   transcript: (id: string, after?: string) =>
     call<TranscriptMessage[]>(

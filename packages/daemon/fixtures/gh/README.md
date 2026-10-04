@@ -8,8 +8,10 @@ Recorded with `gh` 2.102.0 on 2026-10-03.
 - `issue-list.json`: `gh issue list --assignee @me --state open --json number,title,body,createdAt,labels,url` (fallback path), redacted the same way.
 - `createdAt` was added to both later (issue #64) with made-up timestamps in the recorded format.
 - `issue-view-*.json`: `gh issue view <n> --repo <r> --json state`.
-- `pr-view-*.json`: `gh pr view <n> --repo <r> --json state,mergedAt`. Written by hand in gh's
-  shape (sorted keys, `mergedAt` null while open); re-record with a real PR when convenient.
+- `pr-view-*.json`: `gh pr view <n> --repo <r> --json state,mergedAt,mergeable,baseRefName`.
+  `pr-view-merged.json` is PR #81 of this repository (2026-10-04); a merged PR reports `UNKNOWN`.
+  `open`, `conflicting` and `unknown` are written by hand in the same shape, since no open PR
+  conflicted when recording.
 - `auth-status-*`: `gh auth status` output; account name replaced.
 - `search-unknown-command.stderr`: what an old `gh` without `search issues` prints.
 - `pr-checks-pass.json`: `gh pr checks 80 --json name,state,bucket,link,workflow,startedAt,completedAt`
