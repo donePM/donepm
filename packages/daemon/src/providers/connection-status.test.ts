@@ -54,6 +54,13 @@ describe("connectionStatuses", () => {
       tokenSet: true, state: "unauthorized", detail: "Jira answered 401",
     });
   });
+
+  it("is what its own health check says for a cli connection gh does not cover (issue #141)", async () => {
+    const ado: Connection = { id: "ado", kind: "azure-devops", backend: "cli", host: "dev.azure.com", organization: "acme", health: async () => ({ state: "not_logged_in", detail: "run az login" }) };
+    expect(await connectionStatuses([ado], statusWith(), tokens([]))).toEqual([
+      { id: "ado", kind: "azure-devops", backend: "cli", host: "dev.azure.com", state: "not_logged_in", detail: "run az login" },
+    ]);
+  });
 });
 
 describe("readyProviders", () => {
@@ -65,5 +72,12 @@ describe("readyProviders", () => {
     expect(ready.connections.map((c) => c.id)).toEqual(["github"]);
     expect(ready.codeHost("https://github.com/acme/widgets/pull/7")).toBe(github.codeHost);
     expect(ready.codeHost("https://github.acme.com/team/api/pull/3")).toBeUndefined();
+  });
+
+  it("keeps an az connection only once its last health check was ready", () => {
+    const ado: Connection = { id: "ado", kind: "azure-devops", backend: "cli", host: "dev.azure.com", organization: "acme", health: async () => ({ state: "ready" }) };
+    const status = statusWith();
+    expect(isReady(status, ado)).toBe(false);
+    expect(isReady({ ...status, connections: [{ id: "ado", kind: "azure-devops", backend: "cli", state: "ready" }] }, ado)).toBe(true);
   });
 });

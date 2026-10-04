@@ -1,3 +1,4 @@
+import { azureDevOpsConnection } from "../azure/connection.js";
 import type { ConnectionConfig } from "../config/connections.js";
 import { gitHubCliConnection } from "../gh/adapter.js";
 import { jiraConnection } from "../jira/connection.js";
@@ -20,6 +21,8 @@ function connectionOf(config: ConnectionConfig, deps: ProviderDeps): Connection 
       return gitHubCliConnection(deps.exec, config.host, config.id);
     case "jira":
       return jiraConnection(config, deps.http, deps.tokens);
+    case "azure-devops":
+      return azureDevOpsConnection({ ...deps, id: config.id, organization: config.organization, backend: config.backend });
   }
 }
 

@@ -540,6 +540,25 @@ endpoint accepts the token once, writes it to the Keychain (D50) and answers onl
 `cli` connection refuses a token. `JIRA_TOKEN`, `JIRA_PAT`, `JIRA_PERSONAL_TOKEN` and
 `ATLASSIAN_TOKEN` join the variables dropped from the agent's environment.
 
+**D52. Azure Repos: one organization per connection, `az rest` or a PAT, clones below the host.**
+Issue #141. An `azure-devops` connection serves one organization on `dev.azure.com`, because
+organizations share the host and a PAT belongs to one organization. It is matched to an origin by
+host and organization.
+
+- Both backends speak the same REST API. `cli` goes through `az rest` with the Azure DevOps
+  resource id, signed in with `az login`, rather than `az repos pr create` or `az devops invoke`:
+  one request mapping and one set of fixtures serve both backends, and `az repos` would need the
+  `azure-devops` extension and its own login. `api` sends a personal access token from the
+  Keychain (D50) as Basic auth. The token is read at call time and never logged or answered.
+- Clones off github.com go to `<repoRoot>/<host>/<path…>`, GitHub Enterprise included, because an
+  Azure origin has four segments and `owner/repo` on two hosts can collide. github.com keeps
+  `<repoRoot>/<owner>/<repo>`; earlier GitHub Enterprise clones at that path are still recognised.
+- A PR description longer than Azure DevOps' 4000 characters is shortened with a note rather than
+  refused, so an approved draft is not lost to the limit.
+- What Azure DevOps has no adapter for yet (feedback, replies, reviews, merging others' PRs,
+  updating a branch, CI until #143) answers "not supported on Azure DevOps yet" instead of
+  pretending to succeed. The contract tests list these parts per adapter.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

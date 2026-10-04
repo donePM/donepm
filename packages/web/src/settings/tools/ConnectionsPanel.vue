@@ -6,7 +6,7 @@ import IconGitHub from "../../icons/IconGitHub.vue";
 import { status } from "../../status/status";
 import { saveErrorText, saveSettings, settings } from "../store";
 import ApiTokenField from "./ApiTokenField.vue";
-import { configuredConnections, connectionRows, offeredHosts, restartPending, STATE_LABEL, withGitHubHost, withJira, withoutConnection, type JiraForm } from "./connections";
+import { configuredConnections, connectionRows, offeredHosts, restartPending, STATE_LABEL, withAzureDevOps, withGitHubHost, withJira, withoutConnection, type AzureDevOpsForm, type JiraForm } from "./connections";
 
 const rows = computed(() => connectionRows(status.value, settings.value));
 const offered = computed(() => offeredHosts(status.value, settings.value));
@@ -53,17 +53,26 @@ function testText(t: ConnectionTest | { error: string }): string {
 }
 
 function tokenHint(c: ConnectionConfig): string | undefined {
+  if (c.kind === "azure-devops") return `A personal access token of the ${c.organization} organization, with Code (read & write). Or from a terminal: donepm token set ${c.id}`;
   if (c.kind !== "jira") return undefined;
   const what = c.deployment === "cloud" ? `An Atlassian API token of ${c.email ?? "the account"}.` : "A personal access token from your Jira profile.";
   return `${what} Or from a terminal: donepm token set ${c.id}`;
 }
 
-const adding = ref(false);
+const adding = ref<"jira" | "ado">();
+const ado = reactive<AzureDevOpsForm>({ organization: "", backend: "cli" });
+
+async function addAzureDevOps() {
+  if (await save("ado", withAzureDevOps(configuredConnections(settings.value), ado))) {
+    adding.value = undefined;
+    Object.assign(ado, { organization: "", backend: "cli" });
+  }
+}
 const jira = reactive<JiraForm>({ baseUrl: "https://", deployment: "cloud", email: "" });
 
 async function addJira() {
   if (await save("jira", withJira(configuredConnections(settings.value), jira))) {
-    adding.value = false;
+    adding.value = undefined;
     Object.assign(jira, { baseUrl: "https://", deployment: "cloud", email: "" });
   }
 }
@@ -101,7 +110,28 @@ async function addJira() {
       </div>
     </template>
     <div class="sep"></div>
-    <button v-if="!adding" class="btn sm" type="button" @click="adding = true">Add Jira</button>
+    <div v-if="!adding" class="row">
+      <button class="btn sm" type="button" @click="adding = 'jira'">Add Jira</button>
+      <button class="btn sm" type="button" @click="adding = 'ado'">Add Azure DevOps</button>
+    </div>
+    <form v-else-if="adding === 'ado'" class="jira" @submit.prevent="addAzureDevOps">
+      <label class="field">
+        <span>Organization</span>
+        <input v-model="ado.organization" class="input mono" placeholder="acme, as in dev.azure.com/acme" required pattern="[A-Za-z0-9]([A-Za-z0-9\-]*[A-Za-z0-9])?" />
+      </label>
+      <label class="field">
+        <span>Sign in through</span>
+        <select v-model="ado.backend" class="select">
+          <option value="cli">az (az login)</option>
+          <option value="api">REST API (personal access token)</option>
+        </select>
+      </label>
+      <span class="help">Test checks who az or the token signs in as.</span>
+      <div class="row">
+        <button class="btn sm primary" type="submit" :disabled="busy !== undefined">{{ busy === "ado" ? "Saving…" : "Save" }}</button>
+        <button class="btn sm" type="button" @click="adding = undefined">Cancel</button>
+      </div>
+    </form>
     <form v-else class="jira" @submit.prevent="addJira">
       <label class="field">
         <span>Base URL</span>
@@ -121,7 +151,7 @@ async function addJira() {
       <span class="help">Set the token once the connection is saved. Test checks the URL, the deployment and the token.</span>
       <div class="row">
         <button class="btn sm primary" type="submit" :disabled="busy !== undefined">{{ busy === "jira" ? "Saving…" : "Save" }}</button>
-        <button class="btn sm" type="button" @click="adding = false">Cancel</button>
+        <button class="btn sm" type="button" @click="adding = undefined">Cancel</button>
       </div>
     </form>
   </section>

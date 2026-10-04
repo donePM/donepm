@@ -1,6 +1,7 @@
+import { AZURE_DEVOPS_HOST, azureOrganizationOf, isAzureDevOpsHost } from "@donepm/core";
+import type { ConnectionState } from "../status/status.js";
 import type { CiSource } from "./ci-source.js";
 import type { CodeHost } from "./code-host.js";
-import type { ConnectionState } from "../status/status.js";
 import type { TicketSource } from "./ticket-source.js";
 
 export type Backend = "cli" | "api";
@@ -15,10 +16,15 @@ export interface Connection {
   backend: Backend;
   /** The host its repositories and pull requests live on, for a code host. */
   host?: string;
+  /** The one organization it serves on dev.azure.com, where many share the host (issue #141). */
+  organization?: string;
   ticketSource?: TicketSource;
   codeHost?: CodeHost;
   ciSource?: CiSource;
-  /** Where an `api` connection stands, asked of the provider (`/myself` for Jira). Never reads out the token. */
+  /**
+   * Where the connection stands, asked of the provider (`/myself` for Jira, `az account show` or
+   * `connectionData` for Azure DevOps) where `gh` detection does not cover it. Never reads out the token.
+   */
   health?: () => Promise<{ state: ConnectionState; detail?: string }>;
 }
 
@@ -44,12 +50,21 @@ export function hostOf(where: string): string {
   return (where.split("/")[0] ?? "").toLowerCase();
 }
 
+/**
+ * The connection serves the origin or URL: same host, and on Azure DevOps the same organization,
+ * whichever of its host names (`dev.azure.com`, `<org>.visualstudio.com`) the URL uses.
+ */
+export function serves(c: Connection, where: string): boolean {
+  const host = hostOf(where);
+  if (c.organization !== undefined) return isAzureDevOpsHost(host) && c.host === AZURE_DEVOPS_HOST && azureOrganizationOf(where) === c.organization;
+  return c.host === host;
+}
+
 export function providerRegistry(connections: readonly Connection[]): Providers {
   const byHost = <R>(role: (c: Connection) => R | undefined) => (where: string): R | undefined => {
-    const host = hostOf(where);
     for (const c of connections) {
       const adapter = role(c);
-      if (adapter && c.host === host) return adapter;
+      if (adapter && serves(c, where)) return adapter;
     }
     return undefined;
   };
@@ -72,5 +87,7 @@ export class NoConnectionError extends Error {
 
 /** The error of a call to a host no connection serves. */
 export function noConnection(where: string): string {
-  return `no connection for ${hostOf(where) || where}`;
+  const host = hostOf(where);
+  const organization = isAzureDevOpsHost(host) ? azureOrganizationOf(where) : undefined;
+  return organization ? `no connection for the Azure DevOps organization ${organization}` : `no connection for ${host || where}`;
 }

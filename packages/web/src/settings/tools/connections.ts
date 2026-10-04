@@ -15,9 +15,9 @@ export const STATE_LABEL: Record<ConnectionState, string> = {
   unauthorized: "no access",
 };
 
-/** The host a connection talks to: its own for GitHub, its base URL's for Jira. */
+/** The host a connection talks to: its own for GitHub and Azure DevOps, its base URL's for Jira. */
 export function hostOfConnection(c: ConnectionConfig): string {
-  if (c.kind === "github") return c.host;
+  if (c.kind !== "jira") return c.host;
   try {
     return new URL(c.baseUrl).host.toLowerCase();
   } catch {
@@ -66,6 +66,18 @@ export function withJira(connections: readonly ConnectionConfig[], form: JiraFor
   return [...connections, jira];
 }
 
+export interface AzureDevOpsForm {
+  organization: string;
+  backend: "cli" | "api";
+}
+
+/** The connections with one more Azure DevOps organization; the first is `ado`. */
+export function withAzureDevOps(connections: readonly ConnectionConfig[], form: AzureDevOpsForm): ConnectionConfig[] {
+  const id = connectionId("ado", connections.map((c) => c.id));
+  const organization = form.organization.trim().toLowerCase();
+  return [...connections, { id, kind: "azure-devops", backend: form.backend, host: "dev.azure.com", organization }];
+}
+
 /** The connections without one; the daemon refuses removing the last one or one a source needs. */
 export function withoutConnection(connections: readonly ConnectionConfig[], id: string): ConnectionConfig[] {
   return connections.filter((c) => c.id !== id);
@@ -82,7 +94,8 @@ export function connectionRows(status: Status | undefined, settings: Settings | 
   const running = status?.connections ?? [];
   return configuredConnections(settings).map((config) => {
     const s = running.find((c) => c.id === config.id);
-    return { config, host: hostOfConnection(config), ...(s ? { status: s } : {}) };
+    const host = config.kind === "azure-devops" ? `${config.host}/${config.organization}` : hostOfConnection(config);
+    return { config, host, ...(s ? { status: s } : {}) };
   });
 }
 

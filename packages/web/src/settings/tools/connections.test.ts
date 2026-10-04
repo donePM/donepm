@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Settings, Status } from "../../api/types";
-import { connectionId, connectionRows, offeredHosts, restartPending, withGitHubHost, withJira, withoutConnection, DEFAULT_CONNECTIONS } from "./connections";
+import { connectionId, connectionRows, offeredHosts, restartPending, withAzureDevOps, withGitHubHost, withJira, withoutConnection, DEFAULT_CONNECTIONS } from "./connections";
 
 const status = (patch: Partial<Status>): Status => ({ version: "0", pid: 1, startedAt: "", runningAgents: 0, pollErrors: [], ...patch });
 const settings = (patch: Partial<Settings>): Settings => ({ ...({} as Settings), ...patch });
@@ -46,5 +46,19 @@ describe("connections", () => {
     expect(restartPending(running, saved)).toBe(true);
     const both = status({ connections: [...running.connections!, { id: "jira", kind: "jira", backend: "api", host: "acme.atlassian.net", state: "unauthorized", tokenSet: false }] });
     expect(restartPending(both, saved)).toBe(false);
+  });
+
+  it("adds an Azure DevOps organization as `ado`, shown with its organization (issue #141)", () => {
+    const saved = withAzureDevOps(DEFAULT_CONNECTIONS, { organization: " Acme ", backend: "api" });
+    expect(saved[1]).toEqual({ id: "ado", kind: "azure-devops", backend: "api", host: "dev.azure.com", organization: "acme" });
+    expect(withAzureDevOps(saved, { organization: "contoso", backend: "cli" })[2]!.id).toBe("ado-2");
+    const running = status({
+      connections: [
+        { id: "github", kind: "github", backend: "cli", host: "github.com", state: "ready" },
+        { id: "ado", kind: "azure-devops", backend: "api", host: "dev.azure.com", state: "unauthorized", tokenSet: false },
+      ],
+    });
+    expect(connectionRows(running, settings({ connections: saved }))[1]!.host).toBe("dev.azure.com/acme");
+    expect(restartPending(running, settings({ connections: saved }))).toBe(false);
   });
 });

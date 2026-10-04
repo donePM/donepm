@@ -1,6 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { gitHubCliConnection, githubProviders } from "../gh/adapter.js";
+import { azureDevOpsConnection } from "../azure/connection.js";
 import { providerRegistry } from "../providers/registry.js";
+import { fakeHttp } from "../test-support/fake-http.js";
+import { memoryTokens } from "../test-support/fake-tokens.js";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -147,10 +150,13 @@ describe("RepoCloner", () => {
 
   it("clones from every host a connection serves, and only from those", async () => {
     const repos = new RepoStore(openDb(":memory:"));
-    const providers = providerRegistry([gitHubCliConnection(ghFails), gitHubCliConnection(ghFails, "github.acme.com", "acme")]);
+    const ado = azureDevOpsConnection({ id: "ado", organization: "acme", backend: "cli", exec: ghFails, http: fakeHttp({}), tokens: memoryTokens() });
+    const providers = providerRegistry([gitHubCliConnection(ghFails), gitHubCliConnection(ghFails, "github.acme.com", "acme"), ado]);
     const cloner = new RepoCloner({ exec: ghFails, providers, repos, ctx: testCtx(), log: silentLog, root: () => "/r", push: () => {}, changed: () => {} });
-    expect(cloner.state("github.acme.com/team/api")).toMatchObject({ target: "/r/team/api" });
-    expect(cloner.state("github.com/acme/widgets")).toBeDefined();
+    expect(cloner.state("github.com/acme/widgets")).toMatchObject({ target: "/r/acme/widgets" });
+    expect(cloner.state("github.acme.com/team/api")).toMatchObject({ target: "/r/github.acme.com/team/api" });
+    expect(cloner.state("dev.azure.com/acme/my project/legacy")).toMatchObject({ target: "/r/dev.azure.com/acme/my project/legacy" });
+    expect(cloner.state("dev.azure.com/contoso/web/site")).toBeUndefined();
     expect(cloner.state("gitlab.com/acme/widgets")).toBeUndefined();
   });
 

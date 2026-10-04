@@ -225,7 +225,16 @@ export interface JiraConnectionConfig {
   email?: string;
 }
 
-export type ConnectionConfig = GitHubConnectionConfig | JiraConnectionConfig;
+/** One Azure DevOps organization on dev.azure.com (D52), through az or its API with a token in the Keychain. */
+export interface AzureDevOpsConnectionConfig {
+  id: string;
+  kind: "azure-devops";
+  backend: "cli" | "api";
+  host: "dev.azure.com";
+  organization: string;
+}
+
+export type ConnectionConfig = GitHubConnectionConfig | JiraConnectionConfig | AzureDevOpsConnectionConfig;
 
 /** The Test button of a connection. */
 export interface ConnectionTest {

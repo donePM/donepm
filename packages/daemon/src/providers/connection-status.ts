@@ -6,7 +6,8 @@ import { providerRegistry, type Connection, type Providers } from "./registry.js
 /**
  * Where each connection stands (D50). A `cli` GitHub connection is where `gh` stands for its host;
  * an `api` connection is unauthorized until its token is in the Keychain, then what its provider
- * says of the token. The status says only whether a token is set, never the token.
+ * says of the token. A `cli` connection with a health check of its own (Azure DevOps through `az`,
+ * D52) answers it. The status says only whether a token is set, never the token.
  */
 export async function connectionStatuses(connections: readonly Connection[], status: Status, tokens: TokenStore): Promise<ConnectionStatus[]> {
   return Promise.all(connections.map(async (c): Promise<ConnectionStatus> => {
@@ -16,6 +17,7 @@ export async function connectionStatuses(connections: readonly Connection[], sta
       const health = c.health ? await c.health() : { state: "ready" as const };
       return { ...base, tokenSet: true, ...health };
     }
+    if (c.health) return { ...base, ...(await c.health()) };
     const gh = c.host ? ghStatusOf(status, c.host) : undefined;
     if (!gh) return { ...base, state: "not_installed" };
     return gh.account ? { ...base, state: gh.state, detail: gh.account } : { ...base, state: gh.state };
@@ -24,10 +26,12 @@ export async function connectionStatuses(connections: readonly Connection[], sta
 
 /**
  * Whether donePM can call a connection now. A `cli` GitHub connection needs `gh` logged in to its
- * host, as last detected; an `api` connection is tried and its failures reported at call time.
+ * host, as last detected; any other `cli` connection (`az`) needs its last health check ready. An
+ * `api` connection is tried and its failures reported at call time.
  */
 export function isReady(status: Status, c: Connection): boolean {
   if (c.backend === "api") return true;
+  if (c.health) return status.connections?.find((s) => s.id === c.id)?.state === "ready";
   return c.host !== undefined && ghStatusOf(status, c.host)?.state === "ready";
 }
 

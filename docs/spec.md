@@ -192,7 +192,7 @@ resolves a merge conflict, `reason: "pr_feedback"` when it addresses review feed
 |---|---|---|
 | id | uuid | |
 | path | string | local clone |
-| originUrl | string | normalised: `github.com/owner/repo` |
+| originUrl | string | normalised: `github.com/owner/repo`; Azure Repos: `dev.azure.com/org/project/repo`, lower case, blanks kept (6.11) |
 | defaultBranch | string | from `git symbolic-ref refs/remotes/origin/HEAD` |
 | setup | JSON? | from `.donepm/setup.yml`, see 7.3 |
 
@@ -211,7 +211,7 @@ config under `sources`, keyed by `originUrl`, not in `.donepm/` (see 14). Per re
 | playbooks | `{ issue?: string[], pr?: string[] }`? | the playbooks each ingest may run here (8.3, D48). Absent `issue`: every playbook that is not read-only. Absent `pr`: `["review"]`. `pr` only ever takes read-only playbooks (D47) |
 
 The provider follows from the host: a `sources` key is accepted only when a connection (14, D50)
-serves its host. Without a `connections` config that is `github.com` alone. GitLab (issue list
+serves its host, and for `dev.azure.com` its organization. Without a `connections` config that is `github.com` alone. GitLab (issue list
 params via `glab api`) and Jira (JQL) can be added without changing the format.
 
 ### 4.7 Transcript message
@@ -242,12 +242,17 @@ Keep the raw line always. Decode what is known. Never fail on unknown event type
 - Clone (issue #37): for a `github.com` origin, the daemon (never the agent)
   runs `gh repo clone <owner>/<repo> <repoRoot>/<owner>/<repo>`. Read-only towards GitHub and the
   user's click, so no draft. `gh` uses the user's auth and protocol and sets `upstream` for forks.
+  Every other host clones below its host name, so equal names on two hosts never meet:
+  `gh repo clone <host>/<owner>/<repo> <repoRoot>/<host>/<owner>/<repo>` for GitHub Enterprise,
+  `git clone https://dev.azure.com/<org>/<project>/_git/<repo> <repoRoot>/dev.azure.com/<org>/<project>/<repo>`
+  for Azure Repos (6.11, D52). A GitHub Enterprise clone made before #141 at
+  `<repoRoot>/<owner>/<repo>` is still recognised as its origin's clone.
   - Target exists: a clone of the same origin is registered without cloning; an empty folder is
     cloned into; anything else (a clone of another origin, a repo without origin, a folder with
     files, a file) is refused with 409 and never touched.
   - Success: the clone is registered directly in `repos`, independent of the scan rules, and every
     item of the origin is relinked. A rescan keeps a stored clone that sits at
-    `<repoRoot>/<owner>/<repo>` of its own origin even where the scan does not look (an owner
+    its clone path (above) of its own origin even where the scan does not look (an owner
     named `vendor` or starting with `.`).
   - Failure: nothing is registered; the stderr tail stays on the items until the next try.
   - One clone per origin at a time. `.donepm/setup.yml` (7.3) applies per worktree, not here.
@@ -598,6 +603,39 @@ configured with connections (issue #138).
 - The agent's environment drops `GH_HOST` and the tokens, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` included, and `gh` stays
   behind the same shim and empty config directory as on github.com: GitHub Enterprise is no way
   out either.
+
+### 6.11 Azure DevOps Repos
+
+Azure Repos on Azure DevOps Services is a code host (issue #141, D52). One `azure-devops`
+connection serves one organization on `dev.azure.com`; several organizations are several
+connections. Azure DevOps Server (on premises) is out of scope.
+
+- Origins: `https://dev.azure.com/org/project/_git/repo`, `https://org@dev.azure.com/...`,
+  `git@ssh.dev.azure.com:v3/org/project/repo` and `https://org.visualstudio.com/project/_git/repo`
+  all normalise to `dev.azure.com/org/project/repo`, lower case, `%20` decoded to a blank. A PR's
+  web URL is `https://dev.azure.com/org/project/_git/repo/pullrequest/<id>`.
+- Backends: `cli` calls the REST API through `az rest --resource 499b84ac-…` with the user's
+  `az login`; `api` calls it with a personal access token from the Keychain (D50) as Basic auth.
+  The REST calls are the same either way, `api-version=7.1`. A 401 or a 203 sign-in page is
+  `unauthorized`, no answer is `unreachable`.
+- Health: `cli` runs `az --version` (else `not_installed`) and `az account show` (else
+  `not_logged_in`, "run az login"); `api` reads `_apis/connectionData` and shows the token's user.
+  The watchers skip a `cli` connection whose last health check was not ready.
+- Clone (5): `git clone` of the https URL by the daemon, `GIT_TERMINAL_PROMPT=0`, with the user's
+  git credential helper.
+- PR draft (6.3): the daemon pushes the branch, then `POST
+  {project}/_apis/git/repositories/{repo}/pullrequests` with `refs/heads/` source and target, the
+  title, and the body as `description`, shortened to Azure DevOps' 4000 characters with a note.
+  The result is `{url, number}` from `pullRequestId`.
+- PR state (6.5): `GET .../pullrequests/{id}`. `status` `active` → `OPEN`, `completed` →
+  `MERGED` (`closedDate` as `mergedAt`), `abandoned` → `CLOSED`; `mergeStatus` `conflicts` →
+  `CONFLICTING`, `succeeded` → `MERGEABLE`, anything else `UNKNOWN`. An unknown `status` throws.
+- Not yet: review feedback (6.9), replies, posting reviews, merging others' PRs and updating a
+  branch say "not supported on Azure DevOps yet"; others' PRs (D47) are not read there. CI comes
+  with #143: until then an ADO PR item waits in checking.
+- The agent never reaches it: `az` is filtered from `PATH` and denied (`Bash(az *)`), `git push`
+  is denied whatever the remote, `AZURE_DEVOPS_EXT_PAT` is dropped and `AZURE_CONFIG_DIR` points at
+  an empty directory.
 
 ## 7. Worktrees
 
@@ -1385,13 +1423,17 @@ Absent, it means one connection, github.com through `gh`:
 "connections": [
   { "id": "github", "kind": "github", "backend": "cli", "host": "github.com" },
   { "id": "acme", "kind": "github", "backend": "cli", "host": "github.acme.com" },
-  { "id": "jira", "kind": "jira", "backend": "api", "baseUrl": "https://acme.atlassian.net", "deployment": "cloud", "email": "dana@acme.com" }
+  { "id": "jira", "kind": "jira", "backend": "api", "baseUrl": "https://acme.atlassian.net", "deployment": "cloud", "email": "dana@acme.com" },
+  { "id": "ado", "kind": "azure-devops", "backend": "cli", "organization": "acme" }
 ]
 ```
 
 `id` is lower case letters, digits and dashes, and unique. The host (`host`, or the host of
-`baseUrl`) is unique. `kind` is `github` or `jira`. `backend` is `cli` or `api`, and each kind
-takes only the backends it has: for `github`, only `cli`; for `jira`, only `api`. A `jira`
+`baseUrl`) is unique, except that `azure-devops` connections share `dev.azure.com` and their
+`organization` is unique instead. `kind` is `github`, `jira` or `azure-devops`. `backend` is `cli`
+or `api`, and each kind takes only the backends it has: for `github`, only `cli`; for `jira`, only
+`api`; for `azure-devops`, both (D52). An `azure-devops` connection has an `organization` (lower
+cased) and `host` `dev.azure.com`, which is its default. A `jira`
 connection has an https `baseUrl` (a context path is fine), `deployment` `cloud` or `datacenter`,
 and for `cloud` the `email` the API token belongs to (D51). An `api` connection's token is in the macOS Keychain, service `donepm`, account `id`.
 It is never in this file.

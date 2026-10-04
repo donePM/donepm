@@ -1,0 +1,33 @@
+{
+  "repository": {
+    "id": "3411ebc1-d5aa-464f-9615-0b527bc66719",
+    "name": "legacy",
+    "url": "https://dev.azure.com/acme/0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11/_apis/git/repositories/3411ebc1-d5aa-464f-9615-0b527bc66719",
+    "project": {
+      "id": "0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11",
+      "name": "Platform",
+      "state": "wellFormed",
+      "visibility": "private"
+    },
+    "remoteUrl": "https://acme@dev.azure.com/acme/Platform/_git/legacy"
+  },
+  "pullRequestId": 123,
+  "codeReviewId": 123,
+  "status": "active",
+  "createdBy": {
+    "displayName": "Jamal Hartnett",
+    "uniqueName": "jamal@acme.example",
+    "id": "d6245f20-2af8-44f4-9451-8107cb2767db"
+  },
+  "creationDate": "2026-09-30T10:12:44.123Z",
+  "title": "Fix the build on main",
+  "description": "Closes AB#7",
+  "sourceRefName": "refs/heads/dp/7-fix-the-build",
+  "targetRefName": "refs/heads/main",
+  "mergeStatus": "queued",
+  "isDraft": false,
+  "mergeId": "f5fc8381-3fb2-49fe-8a0d-27dcc2d6ef82",
+  "reviewers": [],
+  "url": "https://dev.azure.com/acme/0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11/_apis/git/repositories/3411ebc1-d5aa-464f-9615-0b527bc66719/pullRequests/123",
+  "supportsIterations": true
+}
