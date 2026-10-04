@@ -5,10 +5,9 @@ import AskPanel from "../asks/AskPanel.vue";
 import AnsiText from "../ansi/AnsiText.vue";
 import MarkdownView from "../markdown/MarkdownView.vue";
 import type { RepoRef } from "../markdown/render";
-import { clock } from "../time/duration";
 import { rendersMarkdown } from "./markdown";
-import DiffView from "./DiffView.vue";
-import { agentNote, askOutcomeText, hasPendingAsk, resultNote, type Row } from "./rows";
+import { agentNote, askOutcomeText, groupNote, hasPendingAsk, lastTool, type Row } from "./rows";
+import ToolStep from "./ToolStep.vue";
 import TranscriptRows from "./TranscriptRows.vue";
 
 const props = defineProps<{
@@ -30,13 +29,13 @@ const isOpen = (row: Row) => open.has(row.id) || hasPendingAsk(row);
 /** Only the latest tool call without a result counts as running, and only while the agent runs. */
 const runningTool = computed(() => {
   if (!props.running) return undefined;
-  const last = [...props.rows].reverse().find((r) => r.type === "tool");
-  return last?.type === "tool" && !last.result ? last.id : undefined;
+  const last = lastTool(props.rows);
+  return last && !last.result ? last.id : undefined;
 });
+const groupRunning = (row: Extract<Row, { type: "group" }>) => row.children.some((c) => c.id === runningTool.value);
 
 const TASK_PREVIEW = 220;
 const preview = (text: string) => (text.length > TASK_PREVIEW ? `${text.slice(0, TASK_PREVIEW).trimEnd()} …` : text);
-const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
 </script>
 
 <template>
@@ -83,23 +82,26 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
         <div v-else class="text pre">{{ row.text }}</div>
       </div>
 
-      <div v-else-if="row.type === 'tool'" class="row">
+      <div v-else-if="row.type === 'tool'" class="row step-row">
         <span class="who"></span>
-        <div class="tool" :class="{ running: runningTool === row.id, failed: row.result?.isError }">
-          <button class="tool-head" type="button" @click="toggle(row.id)">
-            <span v-if="runningTool === row.id" class="dot dot-ok" aria-hidden="true"></span>
-            <span class="dim">{{ runningTool === row.id ? "" : open.has(row.id) ? "▾" : "▸" }} {{ row.name }}</span>
+        <ToolStep :row="row" :open="open.has(row.id)" :running="runningTool === row.id" :now="now" @toggle="toggle(row.id)" />
+      </div>
+
+      <div v-else-if="row.type === 'group'" class="row step-row">
+        <span class="who"></span>
+        <div class="group" :class="{ running: groupRunning(row) }">
+          <button class="tool-head" type="button" :aria-expanded="open.has(row.id)" @click="toggle(row.id)">
+            <span v-if="groupRunning(row)" class="dot dot-ok" aria-hidden="true"></span>
+            <span v-else class="dim">{{ open.has(row.id) ? "▾" : "▸" }}</span>
+            <span class="dim">{{ row.label }}</span>
             <span class="summary">{{ row.summary }}</span>
-            <span class="note dim">
-              <template v-if="runningTool === row.id">running · {{ clock(now - Date.parse(row.at)) }}</template>
-              <template v-else-if="row.result">{{ resultNote(row.result) }}</template>
-            </span>
+            <span class="note dim" :class="{ bad: groupNote(row) }">{{ groupRunning(row) ? "running" : groupNote(row) }}</span>
           </button>
-          <template v-if="open.has(row.id)">
-            <DiffView v-if="row.diff" class="diff" :lines="row.diff" />
-            <pre v-else class="body">{{ formatInput(row.input) }}</pre>
-            <pre v-if="row.result" class="body result"><AnsiText :text="row.result.text || '(no output)'" /></pre>
-          </template>
+          <div v-if="open.has(row.id)" class="group-steps">
+            <ToolStep
+              v-for="c in row.children" :key="c.id" :row="c" :open="open.has(c.id)" :running="runningTool === c.id" :now="now" @toggle="toggle(c.id)"
+            />
+          </div>
         </div>
       </div>
 
@@ -209,6 +211,22 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
   font-size: 12px;
 }
 .tool.running { border-color: var(--blue); }
+/* Steps follow each other closely; text and turns keep their distance. */
+.step-row + .step-row { margin-top: -10px; }
+.group {
+  flex: 1;
+  min-width: 0;
+  border-left: 2px solid transparent;
+  border-radius: 6px;
+  background: var(--card);
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.group.running { border-left-color: var(--blue); }
+.group > .tool-head:hover { background: var(--card-muted); }
+.group-steps { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 4px 14px; border-top: 1px solid var(--border-soft); }
+.note.bad { color: var(--danger); }
 .tool.failed { border-color: var(--danger); }
 .tool-head {
   display: flex;
@@ -226,7 +244,7 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
 .tool-head:disabled { cursor: default; }
 .summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .note { margin-left: auto; flex: none; padding-left: 8px; }
-.body, .diff {
+.body {
   margin: 0;
   padding: 8px 12px;
   border-top: 1px solid var(--border-soft);
@@ -236,7 +254,6 @@ const formatInput = (input: unknown) => JSON.stringify(input, null, 2);
   white-space: pre;
 }
 .body.result { color: var(--ink-2); }
-.diff { padding: 8px 0; }
 .tool.sub { font-family: inherit; font-size: 13px; }
 .tool.sub > .tool-head { font-family: var(--mono); font-size: 12px; }
 .children { padding: 10px 12px 12px; border-top: 1px solid var(--border-soft); }

@@ -8,7 +8,7 @@ import {
   taskEvent,
   type SubagentStatus,
 } from "@donepm/core/subagent";
-import { toolSummary } from "@donepm/core/tool-summary";
+import { resultNote as coreResultNote, stepSummary, todosOf, toolSummary } from "@donepm/core/tool-summary";
 import { diffLines } from "diff";
 import type { PermissionAsk, TranscriptMessage } from "../api/types";
 import { clock } from "../time/duration";
@@ -21,6 +21,37 @@ export interface DiffLine {
 export interface ToolResult {
   text: string;
   isError: boolean;
+  /** When it arrived. Missing for subagent reports from a task notification. */
+  at?: string;
+}
+
+export interface Todo {
+  content: string;
+  status: string;
+}
+
+/** Lines an edit adds and removes. */
+export interface DiffStat {
+  added: number;
+  removed: number;
+}
+
+/**
+ * A tool call and, once it arrived, its result. No result means it is still running. `summary` is
+ * the headline; `command` is the full Bash command when the headline does not show all of it.
+ */
+export interface ToolRow {
+  type: "tool";
+  id: string;
+  at: string;
+  name: string;
+  summary: string;
+  input: unknown;
+  command?: string;
+  diff?: DiffLine[];
+  diffStat?: DiffStat;
+  todos?: Todo[];
+  result?: ToolResult;
 }
 
 /** One block in the Agents view. Built from stored transcript messages by `toRows`. */
@@ -34,7 +65,9 @@ export type Row =
   | { type: "thinking"; id: string; text: string }
   | { type: "text"; id: string; text: string }
   /** A tool call and, once it arrived, its result. No result means it is still running. */
-  | { type: "tool"; id: string; at: string; name: string; summary: string; input: unknown; diff?: DiffLine[]; result?: ToolResult }
+  | ToolRow
+  /** Consecutive read-only calls (Read, Grep, Glob), shown as one line that expands. */
+  | { type: "group"; id: string; label: string; summary: string; children: ToolRow[] }
   /**
    * A subagent: the `Agent` call, what it is doing, and the rows of its own messages. `result` is
    * its report once it handed back.
@@ -151,7 +184,7 @@ function resultRow(m: TranscriptMessage): Row {
 }
 
 type AgentRow = Extract<Row, { type: "agent" }>;
-type ToolRow = Extract<Row, { type: "tool" }>;
+type GroupRow = Extract<Row, { type: "group" }>;
 
 /** Where rows go: the main flow, or the rows of one subagent. */
 interface Flow {
@@ -239,7 +272,8 @@ const endStatus = (status: string | undefined): SubagentStatus =>
  * a subagent's messages go under its `Agent` call; messages it does not know (raw, init, answers)
  * are left out, never an error.
  */
-export function toRows(messages: readonly TranscriptMessage[], asks: readonly PermissionAsk[] = []): Row[] {
+export function toRows(messages: readonly TranscriptMessage[], asks: readonly PermissionAsk[] = [], opts: { cwd?: string } = {}): Row[] {
+  const { cwd } = opts;
   const main: Flow = { rows: [], sawUser: false };
   const answers = answersOf(messages);
   const stored = new Map(asks.map((a) => [a.requestId, a]));
@@ -284,10 +318,16 @@ export function toRows(messages: readonly TranscriptMessage[], asks: readonly Pe
             continue;
           }
           const row: ToolRow = {
-            type: "tool", id, at: m.at, name: b.name, summary: toolSummary(b.name, b.input), input: b.input,
+            type: "tool", id, at: m.at, name: b.name, summary: stepSummary(b.name, b.input, cwd), input: b.input,
           };
+          const command = fullCommand(b.name, b.input, row.summary);
+          if (command) row.command = command;
           const diff = toolDiff(b.name, b.input);
-          if (diff) row.diff = diff;
+          if (diff) {
+            row.diff = diff;
+            row.diffStat = diffStat(diff);
+          }
+          if (b.name === "TodoWrite") row.todos = todosOf(b.input).map(({ content, status }) => ({ content, status }));
           tools.set(id, row);
           flow.rows.push(row);
         }
@@ -301,7 +341,7 @@ export function toRows(messages: readonly TranscriptMessage[], asks: readonly Pe
           const agent = agents.get(b.tool_use_id)?.row;
           if (agent) finishAgent(agent, m, text, isError);
           const call = tools.get(b.tool_use_id);
-          if (call) call.result = { text, isError };
+          if (call) call.result = { text, isError, at: m.at };
         }
         break;
       case "result":
@@ -318,7 +358,7 @@ export function toRows(messages: readonly TranscriptMessage[], asks: readonly Pe
           const ask = requestId ? stored.get(requestId) : undefined;
           const outcome = (requestId && answers.get(requestId)) || ask?.state;
           const row: AskRow = {
-            type: "ask", id: m.id, name: req.tool_name, summary: toolSummary(req.tool_name, req.input), input: req.input,
+            type: "ask", id: m.id, name: req.tool_name, summary: toolSummary(req.tool_name, req.input, cwd), input: req.input,
           };
           if (typeof req.decision_reason === "string") row.reason = req.decision_reason;
           if (ask?.state === "pending" && outcome === "pending") row.ask = ask;
@@ -352,7 +392,101 @@ export function toRows(messages: readonly TranscriptMessage[], asks: readonly Pe
       }
     }
   }
-  return main.rows;
+  return groupReads(main.rows);
+}
+
+/** Calls that only look: several in a row read as one line. */
+const READ_ONLY = new Set(["Read", "Grep", "Glob"]);
+
+const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
+
+function groupRow(children: ToolRow[]): GroupRow {
+  const reads = children.filter((c) => c.name === "Read");
+  const files = new Set(reads.map((r) => r.summary.replace(/:\d+-\d*$/, ""))).size;
+  const searches = children.length - reads.length;
+  const label = [reads.length ? `read ${plural(files, "file")}` : "", searches ? plural(searches, "search", "searches") : ""]
+    .filter(Boolean)
+    .join(", ");
+  return {
+    type: "group",
+    id: `group:${children[0]!.id}`,
+    label: label.charAt(0).toUpperCase() + label.slice(1),
+    summary: children.map((c) => (c.name === "Read" ? (c.summary.split("/").at(-1) ?? c.summary) : c.summary)).join(", "),
+    children,
+  };
+}
+
+/** Collapse runs of two or more read-only calls into a group, here and inside subagents. */
+export function groupReads(rows: Row[]): Row[] {
+  const out: Row[] = [];
+  let run: ToolRow[] = [];
+  const flush = () => {
+    if (run.length > 1) out.push(groupRow(run));
+    else out.push(...run);
+    run = [];
+  };
+  for (const row of rows) {
+    if (row.type === "tool" && READ_ONLY.has(row.name)) {
+      run.push(row);
+      continue;
+    }
+    flush();
+    if (row.type === "agent") row.children = groupReads(row.children);
+    out.push(row);
+  }
+  flush();
+  return out;
+}
+
+/** The latest tool call in these rows, looking into groups. */
+export function lastTool(rows: readonly Row[]): ToolRow | undefined {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const r = rows[i]!;
+    if (r.type === "tool") return r;
+    if (r.type === "group") return r.children.at(-1);
+  }
+  return undefined;
+}
+
+/** The full Bash command, when the headline is its description or leaves parts of it out. */
+function fullCommand(name: string, input: unknown, summary: string): string | undefined {
+  if (name !== "Bash" || !isObject(input) || typeof input.command !== "string") return undefined;
+  const command = input.command.trim();
+  return command && command !== summary ? command : undefined;
+}
+
+export function diffStat(lines: readonly DiffLine[]): DiffStat {
+  return {
+    added: lines.filter((l) => l.op === "+").length,
+    removed: lines.filter((l) => l.op === "-").length,
+  };
+}
+
+/** The first lines of a diff to show without opening the step: from just before the first change. */
+export function diffPreview(lines: readonly DiffLine[], max = 6): DiffLine[] {
+  const first = lines.findIndex((l) => l.op !== " ");
+  const start = Math.max(0, first - 1);
+  return lines.slice(start, start + max);
+}
+
+/** The last lines of a failed command's output. */
+export function outputTail(text: string, max = 6): string {
+  return linesOf(text.trimEnd()).slice(-max).join("\n");
+}
+
+/** The first lines of a command, and whether there is more. */
+export function commandPreview(command: string, max = 3): { text: string; more: boolean } {
+  const lines = command.split("\n");
+  return { text: lines.slice(0, max).join("\n"), more: lines.length > max };
+}
+
+/** When a step started and how long it took, for the tooltip. */
+export function stepTime(row: ToolRow): string {
+  const start = Date.parse(row.at);
+  if (Number.isNaN(start)) return "";
+  const time = new Date(start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const end = row.result?.at ? Date.parse(row.result.at) : NaN;
+  return Number.isNaN(end) ? time : `${time} · took ${clock(end - start)}`;
 }
 
 /**
@@ -369,13 +503,21 @@ export function agentNote(row: AgentRow, agentRunning: boolean, now: number): st
   return [row.status === "failed" ? "failed" : "done", tools, took].filter(Boolean).join(" · ");
 }
 
-/** A short note for a finished tool: line count, or the first line of an error. */
-export function resultNote(result: ToolResult): string {
-  const lines = linesOf(result.text);
-  if (result.isError) return "error";
-  if (lines.length === 0) return "done";
-  if (lines.length === 1) return lines[0]!.length > 40 ? `${lines[0]!.slice(0, 39)}…` : lines[0]!;
-  return `${lines.length} lines`;
+/**
+ * The note on the right of a finished step: exit status, test counts, lines. An edit shows the
+ * lines it adds and removes instead, a todo list nothing.
+ */
+export function resultNote(row: Pick<ToolRow, "name" | "result" | "diffStat">): string {
+  if (!row.result) return "";
+  if (!row.result.isError && row.diffStat) return `+${row.diffStat.added} −${row.diffStat.removed}`;
+  if (!row.result.isError && row.name === "TodoWrite") return "";
+  return coreResultNote(row.name, row.result.text, row.result.isError);
+}
+
+/** A group's note: running, or how many of its calls failed. */
+export function groupNote(row: GroupRow): string {
+  const failed = row.children.filter((c) => c.result?.isError).length;
+  return failed ? plural(failed, "error") : "";
 }
 
 /**
