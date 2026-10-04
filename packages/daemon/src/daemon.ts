@@ -26,6 +26,7 @@ import { itemDiff } from "./diff/item-diff.js";
 import { EventStore } from "./events/store.js";
 import { collectIssues } from "./gh/collect-issues.js";
 import { detectGh } from "./gh/detect.js";
+import { detectHelpers } from "./helpers/detect.js";
 import { fetchQueryIssues } from "./gh/issues.js";
 import { Poller } from "./gh/poller.js";
 import { buildServer, type WorktreeChoice } from "./http/server.js";
@@ -292,8 +293,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   };
 
   const recheck = async () => {
-    const [gh, claude] = await Promise.all([detectGh(opts.exec), detectClaude(opts.exec)]);
-    status.update({ gh, claude });
+    const [gh, claude, helpers] = await Promise.all([detectGh(opts.exec), detectClaude(opts.exec), detectHelpers(opts.exec)]);
+    status.update({ gh, claude, helpers });
   };
 
   const poller = new Poller(

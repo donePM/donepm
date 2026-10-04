@@ -1,5 +1,6 @@
 import type { ClaudeStatus } from "../claude/detect.js";
 import type { GhStatus } from "../gh/detect.js";
+import type { HelperStatus } from "../helpers/detect.js";
 
 /** How one repository's own query fared in the last poll. */
 export interface SourcePollStatus {
@@ -41,6 +42,8 @@ export interface Status {
   startedAt: string;
   gh: GhStatus | undefined;
   claude: ClaudeStatus | undefined;
+  /** Optional helper CLIs by id (issue #152); undefined until first detected. */
+  helpers: Record<string, HelperStatus> | undefined;
   lastPoll: PollStatus | undefined;
   /** When the repo root was last scanned. */
   lastScan: string | undefined;
@@ -58,7 +61,7 @@ export class StatusStore {
 
   constructor(version: string, startedAt: string, pid = process.pid) {
     this.status = {
-      version, pid, startedAt, gh: undefined, claude: undefined, lastPoll: undefined, lastScan: undefined, runningAgents: 0, pollErrors: [],
+      version, pid, startedAt, gh: undefined, claude: undefined, helpers: undefined, lastPoll: undefined, lastScan: undefined, runningAgents: 0, pollErrors: [],
     };
   }
 

@@ -259,6 +259,8 @@ On start and on Settings open:
 - `gh auth status` → logged in or not.
 - Show state in Settings: `not installed` / `not logged in` / `ready`. Show `brew install gh`
   and `gh auth login` as copyable hints. Button: "Check again".
+- Alongside, `claude` (`which`, `--version`, `auth status`) and the optional helpers (`which <cmd>`,
+  `<cmd> --version`; today `playwright-cli`). A missing helper only shows as such (12.4).
 
 ### 6.2 Polling
 
@@ -983,7 +985,7 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | PUT | `/api/repos/:id` | `{ managed: boolean }`; manages or stops managing the repo's origin (D46). Managing polls at once |
 | GET/PUT | `/api/settings` | PUT is partial; `sources` is replaced as a whole. A new `worktreeRoot` with item worktrees under the old one needs `?worktrees=move\|leave`, else 409 `{ worktreesAtOldRoot }` and nothing saved; with move the answer has `worktrees: { moved, skipped }` (7.1) |
 | POST | `/api/sources/test` | `{ origin, query }`; runs the query once: `{ count, issues }` (first 10) |
-| GET | `/api/status` | CLI detection, daemon version, pid, `startedAt`, running agents, last poll and scan, `pollErrors` (the last 5 failed polls, newest first) |
+| GET | `/api/status` | CLI detection (`gh`, `claude`, and `helpers` by id: installed, path, version), daemon version, pid, `startedAt`, running agents, last poll and scan, `pollErrors` (the last 5 failed polls, newest first) |
 | GET | `/api/playbooks` | `{ globalDir, playbooks, problems }`: global playbooks, then each repo's own with `scope` and `overridesGlobal`; broken files as problems (12.4) |
 | GET | `/api/daemon` | version, pid, port, `startedAt`, `service` (`launchd` \| `manual`), config, database path and size, log file (launchd only), playbooks folder |
 | POST | `/api/daemon/restart` | 202, then exits with 75 so launchd starts it again (13); 409 when started by hand |
@@ -1186,7 +1188,7 @@ for the whole view on a phone). Every scroll container is positioned, so visuall
 
 Routes `/settings/<section>`, `/settings` opens General. A section nav on the left, grouped
 Workspace (General, Repositories with the number of clones), Agents (Agents & access, Playbooks) and
-System (Tools with a status dot, Daemon); below 820 px it sits above the content. Each section is a
+System (Tools, Daemon); Agents & access and Tools each carry a status dot; below 820 px it sits above the content. Each section is a
 page with a title, one lead line and panels; each panel saves on its own.
 
 - **General.** "Folders and branches": repo root, worktree root, branch prefix. Saving a new
@@ -1212,7 +1214,9 @@ page with a title, one lead line and panels; each panel saves on its own.
   ("Stop managing") and repos the poll found on GitHub without a clone, with their item count and
   "Clone and manage". "Worktrees without an item" (hidden when empty) lists orphaned worktrees,
   former roots included, with size, branch, last commit and Remove.
-- **Agents & access.** "Running agents": max agents, poll interval, `removeWorktreeOnMerge` (6.5:
+- **Agents & access.** "Coding agents": `claude` with path, version, login and hints, and "Check
+  again"; a muted row for Codex (#137). Its dot is amber while a coding agent is not ready.
+  "Running agents": max agents, poll interval, `removeWorktreeOnMerge` (6.5:
   removes the worktree on the next poll after the merge, never with uncommitted changes), and the
   notifications switch (below). "Permissions" (D38): the active grants with the rule, its repo
   (`owner/repo`), when it was granted, how often it was used, and Revoke, which stops it matching at
@@ -1223,9 +1227,13 @@ page with a title, one lead line and panels; each panel saves on its own.
   mode, drafts (and "read only"), and origin: global, "in owner/repo", or "overridden in
   owner/repo". "Open folder" opens the global folder. Files that fail to load are listed with
   their error. Editing happens in the files.
-- **Tools.** `gh` and `claude` with path, version, login and hints, and "Check again"; a muted row
-  for Jira (after the MVP). "Polling": what is collected, how often, the last poll's result, and the
-  last failed polls since the daemon started.
+- **Tools.** One panel with "Check again", grouped: "Source clients", the CLIs work is collected and
+  drafts are executed with (`gh` with path, login and hints; muted rows for Jira, #139, and Azure
+  DevOps, #141), and "Helpers", optional CLIs an agent may use (`playwright-cli` with path and
+  version; missing is muted, with its install command, never a problem). Every tool has one
+  category (coding agent, source client, helper) and is shown on one page only: coding agents under
+  Agents & access (#152). "Polling": what is collected, how often, the last poll's result, and the
+  last failed polls since the daemon started. Its dot covers the source clients and the last poll.
 - **Daemon.** Version, service (launchd or by hand), address, pid and uptime, database path and
   size, config file, log. "Open logs" and "Restart" only under launchd. The port, applied after a
   restart.

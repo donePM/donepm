@@ -45,6 +45,8 @@ function execWith(search: () => string, view = () => fixture("gh/issue-view-open
     "which claude": ok("/usr/local/bin/claude\n"),
     "claude --version": ok("2.1.288 (Claude Code)\n"),
     "claude auth status": ok(fixture("claude/auth-status-logged-in.json")),
+    "which playwright-cli": ok("/opt/homebrew/bin/playwright-cli\n"),
+    "playwright-cli --version": ok("0.1.1\n"),
     "gh pr create": ok("https://github.com/acme/widgets/pull/200\n"),
     "gh pr checks": { code: 1, stdout: fixture("gh/pr-checks-fail.json"), stderr: "" },
     "gh run view": ok(fixture("gh/run-view-log-failed.txt")),
@@ -306,7 +308,11 @@ describe("daemon", { timeout: 30_000 }, () => {
     const d = await start(await home());
     const { status, body } = await get(d, "/api/status/recheck", { method: "POST" });
     expect(status).toBe(200);
-    expect(body).toMatchObject({ gh: { state: "ready" }, claude: { state: "ready" } });
+    expect(body).toMatchObject({
+      gh: { state: "ready" },
+      claude: { state: "ready" },
+      helpers: { "playwright-cli": { installed: true, path: "/opt/homebrew/bin/playwright-cli", version: "0.1.1" } },
+    });
   });
 
   it("serves the web UI with a fallback to index.html for client routes", async () => {

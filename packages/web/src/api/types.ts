@@ -157,6 +157,13 @@ export interface ClaudeStatus {
   version?: string;
 }
 
+/** An optional helper CLI (issue #152). */
+export interface HelperStatus {
+  installed: boolean;
+  path?: string;
+  version?: string;
+}
+
 export interface SourcePollStatus {
   ok: boolean;
   error?: string;
@@ -187,6 +194,8 @@ export interface Status {
   startedAt: string;
   gh?: GhStatus;
   claude?: ClaudeStatus;
+  /** Optional helper CLIs by id, e.g. `playwright-cli`. */
+  helpers?: Record<string, HelperStatus>;
   lastPoll?: PollStatus;
   lastScan?: string;
   runningAgents: number;
