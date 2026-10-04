@@ -17,6 +17,13 @@ describe("withSource", () => {
   it("drops an entry that only holds defaults", () => {
     expect(withSource(base, "github.com/a/b", { query: "  ", assignOnStart: false })).toEqual({});
   });
+
+  it("keeps the ignored flag, and the entry that holds only it", () => {
+    const ignored = { "github.com/a/b": { query: "label:x", assignOnStart: false, ignored: true } };
+    expect(withSource(ignored, "github.com/a/b", { query: "", assignOnStart: false })).toEqual({
+      "github.com/a/b": { assignOnStart: false, ignored: true },
+    });
+  });
 });
 
 describe("issueSearchUrl", () => {

@@ -45,6 +45,11 @@ export function upsert(item: ItemView): void {
   else items.value = items.value.map((x, j) => (j === i ? item : x));
 }
 
+/** The daemon took the item off the board (its repository is ignored); it is not deleted. */
+export function remove(id: string): void {
+  if (items.value.some((x) => x.id === id)) items.value = items.value.filter((x) => x.id !== id);
+}
+
 let started = false;
 export function watchItems(): void {
   if (started) return;
@@ -52,6 +57,7 @@ export function watchItems(): void {
   void reloadItems();
   onPush((msg) => {
     if (msg.type === "item.updated") upsert(msg.payload as ItemView);
+    if (msg.type === "item.removed") remove((msg.payload as { id: string }).id);
   });
   onReconnect(() => void reloadItems());
 }

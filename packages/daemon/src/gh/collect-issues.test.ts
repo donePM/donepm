@@ -137,4 +137,75 @@ describe("collectIssues", () => {
       sources: { "github.com/solo/tool": { ok: false, error: "invalid search query" } },
     });
   });
+
+  describe("ignored repositories", () => {
+    const ignored = { "github.com/acme/widgets": { assignOnStart: false, ignored: true } };
+
+    it("drops the default search results of an ignored repository, whatever the spelling of its owner", async () => {
+      const exec = fakeExec({ ...ready, "gh search issues": ok(fixture("gh/search-issues.json")) });
+      const { deps, pushed } = setup(exec, silentLog, { "github.com/acme/api": { assignOnStart: false, ignored: true } });
+      await collectIssues(deps);
+      expect(deps.items.all().map((s) => s.item.externalId).sort()).toEqual(["acme/widgets#157", "acme/widgets#161", "solo/tool#61"]);
+      expect(pushed).toHaveLength(3);
+      expect(deps.status.get().lastPoll).toMatchObject({ ok: true, issues: 3 });
+    });
+
+    it("does not run the query of an ignored repository", async () => {
+      const exec = fakeExec({
+        ...ready,
+        "gh search issues": ok(fixture("gh/search-issues-empty.json")),
+        "gh issue list": ok(fixture("gh/issue-list.json")),
+      });
+      const { deps } = setup(exec, silentLog, {
+        "github.com/acme/widgets": { query: "no:assignee", assignOnStart: false, ignored: true },
+        "github.com/solo/tool": { query: "no:assignee", assignOnStart: false },
+      });
+      await collectIssues(deps);
+      const lists = exec.calls.filter((c) => c.args[0] === "issue" && c.args[1] === "list");
+      expect(lists.map((c) => c.args[c.args.indexOf("--repo") + 1])).toEqual(["github.com/solo/tool"]);
+      expect(deps.status.get().lastPoll?.sources).not.toHaveProperty(["github.com/acme/widgets"]);
+    });
+
+    it("skips an ignored repository in the per-repository fallback", async () => {
+      const exec = fakeExec({
+        ...ready,
+        "gh search issues": fail("unknown command \"search\" for \"gh\""),
+        "gh issue list": ok(fixture("gh/issue-list.json")),
+      });
+      const { deps } = setup(exec, silentLog, ignored);
+      deps.repos.upsert({ id: "r1", path: "/c/widgets", originUrl: "github.com/acme/widgets", defaultBranch: "main" }, "t");
+      deps.repos.upsert({ id: "r2", path: "/c/tool", originUrl: "github.com/solo/tool", defaultBranch: "main" }, "t");
+      await collectIssues(deps);
+      expect(exec.calls.filter((c) => c.args[1] === "list").map((c) => c.args[c.args.indexOf("--repo") + 1])).toEqual(["github.com/solo/tool"]);
+    });
+
+    it("keeps what it has: nothing is deleted, flagged closed upstream or asked about, and un-ignoring brings the same items back", async () => {
+      const sources: Config["sources"] = {};
+      const exec = fakeExec({
+        ...ready,
+        "gh search issues": ok(fixture("gh/search-issues.json")),
+        "gh issue view": ok(fixture("gh/issue-view-closed.json")),
+      });
+      const { deps, pushed } = setup(exec, silentLog);
+      deps.sources = () => sources;
+      await collectIssues(deps);
+      const ids = Object.fromEntries(deps.items.all().map((s) => [s.item.externalId, s.item.id]));
+      const eventsBefore = deps.items.all().map((s) => deps.events.forItem(s.item.id).length);
+
+      sources["github.com/acme/widgets"] = { assignOnStart: false, ignored: true };
+      pushed.length = 0;
+      exec.calls.length = 0;
+      await collectIssues(deps);
+      expect(deps.items.all()).toHaveLength(4);
+      expect(deps.items.all().every((s) => s.item.state === "ready" && !s.item.closedUpstream)).toBe(true);
+      expect(deps.items.all().map((s) => deps.events.forItem(s.item.id).length)).toEqual(eventsBefore);
+      expect(exec.calls.some((c) => c.args[1] === "view")).toBe(false);
+      expect(pushed).toEqual([]);
+
+      delete sources["github.com/acme/widgets"];
+      await collectIssues(deps);
+      expect(Object.fromEntries(deps.items.all().map((s) => [s.item.externalId, s.item.id]))).toEqual(ids);
+      expect(deps.items.all().map((s) => deps.events.forItem(s.item.id).length)).toEqual(eventsBefore);
+    });
+  });
 });

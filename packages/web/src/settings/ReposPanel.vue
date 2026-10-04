@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { api } from "../api/client";
-import type { Repo, Settings, SourceTest } from "../api/types";
+import type { RepoView, Settings, SourceTest } from "../api/types";
 import { status } from "../status/status";
 import { useNow } from "../time/now";
 import { ago } from "../time/relative";
@@ -10,13 +10,14 @@ import { DEFAULT_QUERY, issueSearchUrl, withSource } from "./sources";
 const props = defineProps<{ repoRoot?: string; sources?: Settings["sources"] }>();
 const emit = defineEmits<{ saved: [settings: Settings] }>();
 
-const repos = ref<Repo[]>([]);
+const repos = ref<RepoView[]>([]);
+const ignoredCount = computed(() => repos.value.filter((r) => r.ignored).length);
 const loaded = ref(false);
 const busy = ref(false);
 const error = ref<string>();
 const now = useNow();
 
-async function run(fn: () => Promise<Repo[]>) {
+async function run(fn: () => Promise<RepoView[]>) {
   busy.value = true;
   error.value = undefined;
   try {
@@ -32,6 +33,22 @@ async function run(fn: () => Promise<Repo[]>) {
 onMounted(() => run(api.repos));
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** `owner/repo` of a `host/owner/repo` origin. */
+const slug = (origin: string) => origin.split("/").slice(1).join("/");
+
+/** Ignoring only hides: the daemon stops polling the repository and keeps what it has. */
+async function toggleIgnored(r: RepoView, box: HTMLInputElement) {
+  error.value = undefined;
+  try {
+    const out = await api.setIgnored(r.id, box.checked);
+    repos.value = out.repos;
+    emit("saved", out.settings);
+  } catch (e) {
+    box.checked = r.ignored;
+    error.value = message(e);
+  }
+}
 
 /** The repository whose source is being edited, with the form's state. */
 const editing = ref<{
@@ -90,6 +107,7 @@ const pollOf = (origin: string) => status.value?.lastPoll?.sources?.[origin];
         <p class="sub">
           Found under <span class="mono">{{ repoRoot ?? "…" }}</span>, depth 4
           <template v-if="status?.lastScan"> · scanned {{ ago(status.lastScan, now) }}</template>
+          <template v-if="ignoredCount"> · <span class="ignored-count">{{ ignoredCount }} ignored</span></template>
         </p>
       </div>
       <button class="btn" :disabled="busy" @click="run(api.rescan)">{{ busy ? "Scanning…" : "Rescan" }}</button>
@@ -98,12 +116,15 @@ const pollOf = (origin: string) => status.value?.lastPoll?.sources?.[origin];
     <div class="scroll">
       <table v-if="repos.length">
         <thead>
-          <tr><th>Origin</th><th>Path</th><th>Base</th><th>Setup</th><th>Collects</th></tr>
+          <tr><th>Origin</th><th>Path</th><th>Base</th><th>Setup</th><th>Collects</th><th>Ignore</th></tr>
         </thead>
         <tbody>
           <template v-for="r in repos" :key="r.id">
-            <tr>
-              <td class="mono">{{ r.originUrl }}</td>
+            <tr :class="{ ignored: r.ignored }">
+              <td class="mono">
+                {{ r.originUrl }}
+                <span v-if="r.ignored" class="tag">Ignored</span>
+              </td>
               <td class="mono">{{ r.path }}</td>
               <td class="mono nowrap">{{ r.defaultBranch }}</td>
               <td :class="r.setup ? 'mono' : 'none'">{{ r.setup ? ".donepm/setup.yml" : "none" }}</td>
@@ -114,9 +135,18 @@ const pollOf = (origin: string) => status.value?.lastPoll?.sources?.[origin];
                 <span v-if="pollOf(r.originUrl)?.ok === false" class="failed" :title="pollOf(r.originUrl)!.error">query failed</span>
                 <button v-if="editing?.origin !== r.originUrl" class="link" @click="edit(r.originUrl)">Edit</button>
               </td>
+              <td class="toggle">
+                <input
+                  type="checkbox"
+                  :checked="r.ignored"
+                  :aria-label="`Ignore ${slug(r.originUrl)}`"
+                  :title="r.ignored ? 'Show its items on the board again' : 'Keep its items off the board'"
+                  @change="toggleIgnored(r, $event.target as HTMLInputElement)"
+                />
+              </td>
             </tr>
             <tr v-if="editing?.origin === r.originUrl" class="editor">
-              <td colspan="5">
+              <td colspan="6">
                 <form @submit.prevent="save">
                   <label :for="`query-${r.id}`">GitHub issue search</label>
                   <p class="sub">
@@ -178,6 +208,10 @@ tbody tr:last-child td { border-bottom: 0; }
 .collects { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 .collects .mono { font-size: 12px; }
 .tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--border-soft); color: var(--ink-2); white-space: nowrap; }
+tr.ignored td:not(.toggle) { color: var(--ink-3); }
+tr.ignored .collects .mono { color: inherit; }
+.ignored-count { font-weight: 500; }
+.toggle { text-align: center; }
 .failed { color: var(--danger); white-space: nowrap; }
 .link { border: 0; background: none; padding: 0; color: var(--ink-2); text-decoration: underline; cursor: pointer; font: inherit; }
 .editor td { background: var(--card); }

@@ -692,4 +692,110 @@ describe("daemon", { timeout: 30_000 }, () => {
     stdin.end();
     expect(await shim).toBe(0);
   });
+
+  describe("ignored repositories", () => {
+    const WIDGETS = "github.com/acme/widgets";
+    const json = { "content-type": "application/json" };
+    const put = (d: Daemon, path: string, body: unknown) => get(d, path, { method: "PUT", headers: json, body: JSON.stringify(body) });
+    const ignore = async (d: Daemon, ignored: boolean) => {
+      const repo = (await get(d, "/api/repos")).body.find((r: any) => r.originUrl === WIDGETS);
+      return put(d, `/api/repos/${repo.id}`, { ignored });
+    };
+    const externalIds = async (d: Daemon) => (await get(d, "/api/items")).body.map((i: any) => i.externalId);
+
+    it("hides the idle items of an ignored repository, stops polling it and brings the same items back", async () => {
+      const h = await home();
+      const d = await start(h);
+      const before = (await get(d, "/api/items")).body.map((i: any) => [i.externalId, i.id]);
+      expect((await get(d, "/api/repos")).body.map((r: any) => [r.originUrl, r.ignored])).toEqual([[WIDGETS, false]]);
+
+      const hidden = await ignore(d, true);
+      expect(hidden.status).toBe(200);
+      expect(hidden.body.repos.map((r: any) => [r.originUrl, r.ignored])).toEqual([[WIDGETS, true]]);
+      expect(hidden.body.settings.sources).toEqual({ [WIDGETS]: { assignOnStart: false, ignored: true } });
+      expect(JSON.parse(await readFile(join(h, ".config/donepm/config.json"), "utf8")).sources).toEqual(hidden.body.settings.sources);
+      expect(await externalIds(d)).toEqual(["solo/tool#61", "Acme/API#12"]);
+      expect((await get(d, "/api/repos")).body[0].ignored).toBe(true);
+
+      // Nothing is deleted: the item is still there by id, and the next poll leaves it alone.
+      const [hiddenId] = before[0]!.slice(1);
+      expect((await get(d, `/api/items/${hiddenId}`)).status).toBe(200);
+      await d.pollNow();
+      expect(await externalIds(d)).toEqual(["solo/tool#61", "Acme/API#12"]);
+      expect((await get(d, "/api/status")).body.lastPoll).toMatchObject({ ok: true, issues: 2 });
+      expect(d.db.prepare("SELECT COUNT(*) AS n FROM items").get()).toEqual({ n: 4 });
+
+      const shown = await ignore(d, false);
+      expect(shown.body.settings.sources).toEqual({});
+      await d.pollNow();
+      expect((await get(d, "/api/items")).body.map((i: any) => [i.externalId, i.id])).toEqual(before);
+      expect((await get(d, "/api/status")).body.lastPoll).toMatchObject({ ok: true, issues: 4 });
+    });
+
+    it("keeps an ignored repository's running items and items with a pending draft on the board", async () => {
+      const d = await start(await home());
+      const [pendingDraft, running] = ["acme/widgets#161", "acme/widgets#157"];
+      const at = "2026-10-03T12:00:00.000Z";
+      const id = (externalId: string) => (d.db.prepare("SELECT id FROM items WHERE external_id = ?").get(externalId) as { id: string }).id;
+      d.db
+        .prepare("INSERT INTO drafts (id, item_id, type, payload, state, created_at, updated_at) VALUES (?, ?, 'pr', ?, 'pending', ?, ?)")
+        .run("d1", id(pendingDraft!), JSON.stringify({ title: "Fix", body: "", base: "main" }), at, at);
+      d.db.prepare("UPDATE items SET state = 'running' WHERE id = ?").run(id(running!));
+
+      await ignore(d, true);
+      expect(await externalIds(d)).toEqual(["acme/widgets#161", "acme/widgets#157", "solo/tool#61", "Acme/API#12"]);
+
+      // Once the draft is settled and the agent is done, nothing needs the user and the items go.
+      d.db.prepare("UPDATE drafts SET state = 'rejected' WHERE id = 'd1'").run();
+      d.db.prepare("UPDATE items SET state = 'done' WHERE id = ?").run(id(running!));
+      expect(await externalIds(d)).toEqual(["solo/tool#61", "Acme/API#12"]);
+    });
+
+    it("pushes item.removed for hidden items and item.updated for the ones that return", async () => {
+      const d = await start(await home());
+      const ws = new WebSocket(d.address().replace("http", "ws") + "/ws");
+      await new Promise((r) => ws.once("open", r));
+      const messages: any[] = [];
+      ws.on("message", (m) => messages.push(JSON.parse(String(m))));
+      const of = (type: string) => messages.filter((m) => m.type === type).map((m) => m.payload.externalId ?? m.payload.id);
+      const ids = Object.fromEntries((await get(d, "/api/items")).body.map((i: any) => [i.externalId, i.id]));
+
+      await ignore(d, true);
+      await waitFor(() => expect(of("item.removed")).toEqual([ids["acme/widgets#161"], ids["acme/widgets#157"]]));
+      expect(of("item.updated")).toEqual([]);
+
+      await ignore(d, false);
+      await waitFor(() => expect(of("item.updated")).toEqual(["acme/widgets#161", "acme/widgets#157"]));
+      await d.pollNow();
+      ws.close();
+    });
+
+    it("changes one origin at a time and needs no restart, also through the settings patch", async () => {
+      const d = await start(await home());
+      const other = { query: "label:bug", assignOnStart: true };
+      const saved = await put(d, "/api/settings", { sources: { "github.com/solo/tool": other } });
+      expect(saved.body).toMatchObject({ settings: { sources: { "github.com/solo/tool": other } }, restartRequired: false });
+
+      expect((await ignore(d, true)).body.settings.sources).toEqual({
+        "github.com/solo/tool": other,
+        [WIDGETS]: { assignOnStart: false, ignored: true },
+      });
+      expect((await ignore(d, false)).body.settings.sources).toEqual({ "github.com/solo/tool": other });
+
+      const patched = await put(d, "/api/settings", { sources: { [WIDGETS]: { ignored: true } } });
+      expect(patched.body.restartRequired).toBe(false);
+      expect(await externalIds(d)).toEqual(["solo/tool#61", "Acme/API#12"]);
+      expect((await put(d, "/api/settings", { sources: {} })).body.restartRequired).toBe(false);
+      await d.pollNow();
+      expect(await externalIds(d)).toEqual(expect.arrayContaining(["acme/widgets#161", "acme/widgets#157"]));
+    });
+
+    it("rejects a bad body and an unknown repository", async () => {
+      const d = await start(await home());
+      const repo = (await get(d, "/api/repos")).body[0];
+      expect((await put(d, `/api/repos/${repo.id}`, { ignored: "yes" })).status).toBe(400);
+      expect((await put(d, `/api/repos/${repo.id}`, { ignored: true, query: "x" })).status).toBe(400);
+      expect((await put(d, "/api/repos/nope", { ignored: true })).status).toBe(404);
+    });
+  });
 });

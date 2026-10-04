@@ -66,6 +66,21 @@ describe("sources", () => {
     });
   });
 
+  it("accepts the ignored flag next to the other fields and by itself", () => {
+    const c = parseConfig(JSON.stringify({
+      sources: { "github.com/o/r": { ignored: true }, "github.com/o/q": { query: "is:issue", ignored: false } },
+    }));
+    expect(c.sources).toEqual({
+      "github.com/o/r": { assignOnStart: false, ignored: true },
+      "github.com/o/q": { query: "is:issue", assignOnStart: false, ignored: false },
+    });
+    expect(parseConfig('{"sources":{"github.com/o/r":{}}}').sources["github.com/o/r"]).not.toHaveProperty("ignored");
+  });
+
+  it("rejects an ignored flag that is not a boolean", () => {
+    expect(() => parseConfig('{"sources":{"github.com/o/r":{"ignored":"yes"}}}')).toThrow(/ignored/);
+  });
+
   it("rejects keys that are not normalised, other providers and unknown fields", () => {
     expect(() => parseConfig('{"sources":{"https://github.com/o/r":{}}}')).toThrow(/normalised origin/);
     expect(() => parseConfig('{"sources":{"GitHub.com/o/r":{}}}')).toThrow(/normalised origin/);

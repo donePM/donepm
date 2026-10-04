@@ -2,7 +2,8 @@ import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
 
-export type PushType = "item.updated" | "event.appended" | "transcript.appended" | "stream.delta" | "status.changed";
+/** `item.removed` is `{ id }`: the item is off the board now (its repository is ignored), but not deleted. */
+export type PushType = "item.updated" | "item.removed" | "event.appended" | "transcript.appended" | "stream.delta" | "status.changed";
 
 /** Pushes `{ type, payload }` to every connected UI on `/ws` (spec 11). Server to client only. */
 export class Hub {
