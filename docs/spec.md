@@ -67,7 +67,7 @@ functions. `daemon` calls them and persists the result.
 | labels | string[] | |
 | state | enum | see 4.2 |
 | playbook | string | playbook name, default `implement`; `review` for `github-pr` |
-| priority | int | tier from the labels, 0 most urgent (see 12.1); recomputed on every poll |
+| priority | int | tier from GitHub's "Priority" issue field, else from the labels, 0 most urgent (see 6.2, 12.1, D45); recomputed on every poll |
 | issueCreatedAt | datetime? | when the issue was opened upstream (6.2) |
 | startedAt | datetime? | first `start`; kept on retry and through Needs You |
 | stateSince | datetime | when the item entered its current state; transitions that keep the state leave it |
@@ -134,7 +134,8 @@ stays) and `worktree.remove_skipped` (merged, but the worktree has uncommitted c
 6.5, `ci.started`, `ci.passed`, `ci.failed` and `ci.marked_done` (see 6.6), `pr.conflicted`,
 `pr.conflict_resolved` and `pr.conflict_dismissed` (see 6.7), `pr.feedback` and
 `pr.feedback_dismissed` (see 6.9), `item.archived` (actor `system`,
-payload `{ finishedAt }`, see 6.8). `agent.resumed` carries
+payload `{ finishedAt }`, see 6.8), `item.refreshed` (actor `system`, payload `{ changed: {
+priority?, title?, labels? } }`, each `{ from, to }` and only the fields that changed, see 6.2). `agent.resumed` carries
 `reason: "ci_failed"` when the user let the agent fix a red CI, `reason: "pr_conflict"` when it
 resolves a merge conflict, `reason: "pr_feedback"` when it addresses review feedback. `worktree.removed` carries `reason: "pr_merged"` and actor `system` when the poll removed it.
 
@@ -235,7 +236,7 @@ On start and on Settings open:
 - Every 60 seconds (configurable).
 - Command:
   ```
-  gh search issues --assignee=@me --state=open --json number,title,body,createdAt,labels,repository,url
+  gh search issues --assignee=@me --state=open --json id,number,title,body,createdAt,labels,repository,url
   ```
   If `gh search` is not available, fall back to `gh issue list --assignee @me --json ...` per
   known repo.
@@ -248,7 +249,25 @@ On start and on Settings open:
   --json state` answers `MERGED` for a merged PR, which counts as closed.
 - Validate output with a schema (zod). On schema failure: log the raw output, do not crash, show
   an error badge in Settings.
-- Upsert items by `externalId`. New issue → `item.collected` event, state `ready`. Closed issue
+- Priority (D45). After all sources answered, one call per 100 polled issues reads GitHub's
+  "Priority" issue field by the issues' node ids (`id` above; pull requests have no issue fields):
+  ```
+  gh api graphql -f query='query { nodes(ids: [...]) { ... on Issue { id issueFieldValues(first: 20) {
+    nodes { ... on IssueFieldSingleSelectValue { name field { ... on IssueFieldSingleSelect { name } } } } } } } }'
+  ```
+  The option of the field named "Priority" (any case) gives the tier: `Urgent` / `Critical` / `P0`
+  → 0, `High` / `P1` → 1, `Medium` / `Normal` / `P2` → 2, `Low` / `P3` → 3. No field, or an option
+  of another name → the labels decide (12.1). gh exits 1 when one id does not resolve but answers
+  for the others; those are used. A GitHub without issue fields (the query names an unknown field)
+  counts as "no field". Any other failure leaves the priority of known items as it is, rather than
+  falling back to the labels for one poll; new items take the labels. A failing lookup is not a
+  failing source. The issue type and Projects v2 fields are not read (D45).
+- Upsert items by `externalId`. New issue → `item.collected` event, state `ready`. A known item
+  takes over title, body, labels, URL and priority; a changed priority, title or label set (not the
+  order) adds one `item.refreshed` event naming only what changed, so the timeline can say
+  "Priority changed on GitHub: P2 → P1". Body and URL change silently. Items the poll does not
+  return (done, archived, or no longer assigned or matching their query) are not refreshed; they
+  are only checked for closing (D45). Closed issue
   that is not `done` (D32):
   - never started (`ready`, no worktree, no agent session) → the daemon moves it to `done` with an
     `item.closed_upstream` event (actor `system`). Nothing can be lost.
@@ -903,6 +922,9 @@ you". Amber means "you have something to do"; red stays for daemon problems.
   agent / Read / Mark done) or a reply draft (flag "Reply draft") or a review draft (flag "Review
   draft", "Posting", "Review failed").
 - A `github-pr` card carries the badge "PR review" next to its id (D40).
+- A card whose priority is not the default P2 shows the tier as a badge next to its id: `P0` and
+  `P1` in danger colours, `P3` quiet (D45). A priority changed on GitHub moves a Ready card within
+  one poll, and its timeline shows the `item.refreshed` event.
 - In Progress card of a `checking` item: "waiting for CI", Mark done.
 - Done card: PR link, Remove worktree. With `removeWorktreeOnMerge` on, a quiet note "Worktree is
   removed when PR #45 is merged" (PR linked) until it is; "Not removed: uncommitted changes" when
@@ -922,7 +944,9 @@ you". Amber means "you have something to do"; red stays for daemon problems.
   | Needs You | longest waiting on top | `stateSince` |
   | Done | newest finished on top | `stateSince` |
 
-  Priority tier from the labels (`priorityTier` in `core`, case-insensitive): `P0` / `priority:
+  Priority tier (`issuePriority` in `core`, D45): GitHub's "Priority" issue field when it is set
+  to a known option (6.2), else from the labels. A field set on GitHub wins over a priority label.
+  From the labels (`priorityTier` in `core`, case-insensitive): `P0` / `priority:
   critical` → 0, `P1` / `priority: high` → 1, `P2` / `priority: medium` / no priority label → 2,
   `P3` / `priority: low` → 3. `priority:high`, `priority/high` and `prio: high` match too; with
   several, the most urgent wins. Manual reordering is not supported; it may come back later as an

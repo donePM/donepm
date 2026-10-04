@@ -1,6 +1,6 @@
 import type { Ctx } from "../ids.js";
 import type { Event } from "../event/types.js";
-import { priorityTier } from "./priority.js";
+import { issuePriority } from "./priority.js";
 import type { ItemSource, WorkItem } from "./types.js";
 
 /** An issue as a source reports it, already validated. */
@@ -16,6 +16,13 @@ export interface SourceIssue {
   createdAt: string;
   /** `github-pr` for a pull request that asks for the user's review (D40); an issue otherwise. */
   source?: ItemSource;
+  /** The option of GitHub's "Priority" issue field (D45), when the issue has one set. */
+  priorityField?: string;
+  /**
+   * The issue fields could not be read this time: a known item keeps its priority rather than
+   * falling back to the labels and back again on the next poll.
+   */
+  priorityUnread?: boolean;
 }
 
 export interface Collected {
@@ -54,7 +61,7 @@ export function collect(
     labels: [...issue.labels],
     state: "ready",
     playbook: opts.playbook ?? defaultPlaybookFor(source),
-    priority: priorityTier(issue.labels),
+    priority: issuePriority(issue),
     issueCreatedAt: issue.createdAt,
     stateSince: at,
     createdAt: at,
@@ -72,12 +79,32 @@ export function collect(
   return { item, events: [event] };
 }
 
+/** A field that changed on GitHub, as `item.refreshed` records it. */
+export interface Change<T> {
+  from: T;
+  to: T;
+}
+
+/** Payload of `item.refreshed`: only the fields that changed, never the body (D45). */
+export interface RefreshedChanges {
+  priority?: Change<number>;
+  title?: Change<string>;
+  labels?: Change<string[]>;
+}
+
+const sameSet = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && new Set(a).size === new Set([...a, ...b]).size;
+
 /**
  * Apply the latest upstream content to a known item. Returns undefined when nothing changed.
- * An issue seen open again clears `closedUpstream`. The priority follows the labels. State is never
- * touched.
+ * An issue seen open again clears `closedUpstream`. The priority follows the "Priority" issue field,
+ * else the labels (D45); when the fields could not be read it stays. State is never touched.
+ *
+ * A changed priority, title or label set is recorded as one `item.refreshed` event (actor `system`)
+ * naming only what changed. Body, URL and label order change silently: they are noise in a timeline.
  */
-export function refresh(item: WorkItem, issue: SourceIssue, ctx: Ctx): WorkItem | undefined {
+export function refresh(item: WorkItem, issue: SourceIssue, ctx: Ctx): Collected | undefined {
+  const priority = issue.priorityUnread ? item.priority : issuePriority(issue);
   const sameLabels =
     item.labels.length === issue.labels.length && item.labels.every((l, i) => l === issue.labels[i]);
   const changed =
@@ -85,22 +112,31 @@ export function refresh(item: WorkItem, issue: SourceIssue, ctx: Ctx): WorkItem 
     item.body !== issue.body ||
     item.externalUrl !== issue.url ||
     !sameLabels ||
-    item.priority !== priorityTier(issue.labels) ||
+    item.priority !== priority ||
     item.issueCreatedAt !== issue.createdAt ||
     item.closedUpstream === true;
   if (!changed) return undefined;
+  const at = ctx.now();
   const next: WorkItem = {
     ...item,
     title: issue.title,
     body: issue.body,
     externalUrl: issue.url,
     labels: [...issue.labels],
-    priority: priorityTier(issue.labels),
+    priority,
     issueCreatedAt: issue.createdAt,
-    updatedAt: ctx.now(),
+    updatedAt: at,
   };
   delete next.closedUpstream;
-  return next;
+
+  const changes: RefreshedChanges = {};
+  if (item.priority !== priority) changes.priority = { from: item.priority, to: priority };
+  if (item.title !== issue.title) changes.title = { from: item.title, to: issue.title };
+  if (!sameSet(item.labels, issue.labels)) changes.labels = { from: [...item.labels], to: [...issue.labels] };
+  const events: Event[] = Object.keys(changes).length
+    ? [{ id: ctx.newId(), itemId: item.id, at, actor: "system", type: "item.refreshed", payload: { changed: changes } }]
+    : [];
+  return { item: next, events };
 }
 
 /**

@@ -1,4 +1,4 @@
-import { externalIdOf, type Ctx, type SourceIssue, type WorkItem } from "@donepm/core";
+import { externalIdOf, type Ctx, type WorkItem } from "@donepm/core";
 import type { Config } from "../config/config.js";
 import type { Db } from "../db/database.js";
 import type { EventStore } from "../events/store.js";
@@ -11,8 +11,10 @@ import type { RepoStore } from "../repos/store.js";
 import { TombstoneStore } from "../retention/tombstones.js";
 import type { SourcePollStatus, StatusStore } from "../status/status.js";
 import { detectGh } from "./detect.js";
+import { withPriorityFields } from "./issue-fields.js";
 import { fetchAssignedIssues, fetchIssueState, fetchQueryIssues, type FetchResult } from "./issues.js";
 import { fetchReviewRequests } from "./review-requests.js";
+import type { FetchedIssue } from "./schema.js";
 
 export interface CollectDeps {
   db: Db;
@@ -63,7 +65,7 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
       if (source.query && !ignored.has(origin)) fetched.push({ origin, result: await fetchQueryIssues(exec, origin, source.query) });
     }
 
-    const issues: SourceIssue[] = [];
+    const issues: FetchedIssue[] = [];
     const errors: string[] = [];
     const sources: Record<string, SourcePollStatus> = {};
     for (const { origin, label, result } of fetched) {
@@ -85,7 +87,8 @@ export async function collectIssues(deps: CollectDeps): Promise<void> {
     const main = fetched[0]!.result;
     if (!main.ok && main.kind === "command") status.update({ gh: await detectGh(exec) });
 
-    const synced = syncIssues(issues, deps, ignored);
+    // GitHub's "Priority" issue field, one batched call for all issues of the poll (D45).
+    const synced = syncIssues(await withPriorityFields(exec, issues), deps, ignored);
     for (const item of [...synced.collected, ...synced.updated]) deps.onItemUpdated(item);
 
     // An item is only "missing" if every source answered; otherwise it may just not have been asked.

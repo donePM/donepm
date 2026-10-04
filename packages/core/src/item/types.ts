@@ -18,7 +18,7 @@ export interface WorkItem {
   state: ItemState;
   /** Playbook name. */
   playbook: string;
-  /** `priorityTier(labels)`: 0 is the most urgent. Recomputed whenever the labels change. */
+  /** `issuePriority`: the "Priority" issue field, else the labels (D45). 0 is the most urgent. Recomputed on every poll. */
   priority: number;
   /** When the issue was opened on GitHub. Absent on items collected before it was fetched. */
   issueCreatedAt?: string;

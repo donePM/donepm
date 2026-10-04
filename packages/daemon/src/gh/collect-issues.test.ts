@@ -17,6 +17,7 @@ const ready = {
   "which gh": ok("/opt/homebrew/bin/gh\n"),
   "gh auth status": ok(fixture("gh/auth-status-ok.stdout")),
   "gh search prs": ok(fixture("gh/search-prs-empty.json")),
+  "gh api graphql": ok(fixture("gh/issue-fields.json")),
 };
 
 function setup(exec: Exec, log: Log = silentLog, sources: Config["sources"] = {}) {
@@ -38,6 +39,33 @@ describe("collectIssues", () => {
     expect(pushed).toHaveLength(4);
     expect(deps.status.get().gh?.state).toBe("ready");
     expect(deps.status.get().lastPoll).toEqual({ at: "2026-10-03T12:00:00.000Z", ok: true, issues: 4 });
+  });
+
+  it("takes the Priority issue field over, records the change and keeps it when the fields fail (D45)", async () => {
+    let fields = ok(fixture("gh/issue-fields.json"));
+    const { deps, pushed } = setup(fakeExec({ ...ready, "gh search issues": ok(fixture("gh/search-issues.json")), "gh api graphql": () => fields }));
+    await collectIssues(deps);
+    const priorities = () => Object.fromEntries(deps.items.all().map((s) => [s.item.externalId, s.item.priority]));
+    expect(priorities()).toEqual({ "acme/widgets#161": 2, "acme/widgets#157": 3, "solo/tool#61": 2, "Acme/API#12": 2 });
+
+    // The user sets #161 to Urgent on GitHub: one poll later it is P0 and the timeline says so.
+    fields = ok(fixture("gh/issue-fields.json").replace('"Medium"', '"Urgent"'));
+    pushed.length = 0;
+    await collectIssues(deps);
+    expect(pushed.map((i) => [i.externalId, i.priority])).toEqual([["acme/widgets#161", 0]]);
+    const events = deps.events.forItem(pushed[0]!.id);
+    expect(events.map((e) => [e.type, e.payload])).toEqual([
+      ["item.collected", expect.anything()],
+      ["item.refreshed", { changed: { priority: { from: 2, to: 0 } } }],
+    ]);
+
+    // A failing lookup changes nothing: no fallback to the labels and back.
+    fields = fail("HTTP 502");
+    pushed.length = 0;
+    await collectIssues(deps);
+    expect(pushed).toEqual([]);
+    expect(priorities()["acme/widgets#161"]).toBe(0);
+    expect(deps.status.get().lastPoll?.ok).toBe(true);
   });
 
   it("does not poll when gh is not logged in", async () => {
