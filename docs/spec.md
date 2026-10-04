@@ -218,7 +218,19 @@ Keep the raw line always. Decode what is known. Never fail on unknown event type
   slash). Store in `repos`.
 - Rescan on daemon start and on button click in Settings. Cache in SQLite.
 - Match issues to repos by normalised origin URL. Issues without a local repo are shown in Ready
-  with a "no local clone" badge and cannot be started.
+  with a "no local clone" badge and cannot be started, but can be cloned.
+- Clone (issue #37): for a `github.com` origin that is not ignored, the daemon (never the agent)
+  runs `gh repo clone <owner>/<repo> <repoRoot>/<owner>/<repo>`. Read-only towards GitHub and the
+  user's click, so no draft. `gh` uses the user's auth and protocol and sets `upstream` for forks.
+  - Target exists: a clone of the same origin is registered without cloning; an empty folder is
+    cloned into; anything else (a clone of another origin, a repo without origin, a folder with
+    files, a file) is refused with 409 and never touched.
+  - Success: the clone is registered directly in `repos`, independent of the scan rules, and every
+    item of the origin is relinked. A rescan keeps a stored clone that sits at
+    `<repoRoot>/<owner>/<repo>` of its own origin even where the scan does not look (an owner
+    named `vendor` or starting with `.`).
+  - Failure: nothing is registered; the stderr tail stays on the items until the next try.
+  - One clone per origin at a time. `.donepm/setup.yml` (7.3) applies per worktree, not here.
 
 ## 6. GitHub adapter
 
@@ -883,14 +895,18 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/worktrees/orphaned/remove` | `{ path }`; only paths from the orphan list |
 | GET | `/api/repos` | |
 | POST | `/api/repos/rescan` | |
+| POST | `/api/repos/clone` | `{ origin }`; clones into `<repoRoot>/<owner>/<repo>` (5). 202 `{ origin, path, result: "started" }`, the outcome arrives as `repo.*` pushes; 200 with `result: "cloned"` when a clone of the origin was at the target already; 400 for an origin donePM cannot clone; 409 while it clones, when it has a clone, is ignored, or the target is occupied |
 | GET/PUT | `/api/settings` | PUT is partial; `sources` is replaced as a whole. A new `worktreeRoot` with item worktrees under the old one needs `?worktrees=move\|leave`, else 409 `{ worktreesAtOldRoot }` and nothing saved; with move the answer has `worktrees: { moved, skipped }` (7.1) |
 | POST | `/api/sources/test` | `{ origin, query }`; runs the query once: `{ count, issues }` (first 10) |
 | GET | `/api/status` | CLI detection, daemon version, running agents |
 
 WebSocket `/ws`: server pushes `{ type, payload }` for `item.updated`, `item.removed` (`{ id }`: the
 item left the board, e.g. archived), `event.appended`,
-`transcript.appended`, `stream.delta`, `status.changed`. UI reloads the affected item on
-`item.updated`.
+`transcript.appended`, `stream.delta`, `status.changed`, `repo.cloning` and `repo.cloned`
+(`{ origin, path }`), `repo.clone_failed` (`{ origin, path, error }` with the stderr tail). UI
+reloads the affected item on `item.updated`; every item of the origin gets one when a clone starts,
+finishes or fails. An item without a clone that donePM can clone carries
+`clone: { origin, target, cloning?, error? }`.
 
 ## 12. UI
 
@@ -912,7 +928,10 @@ you". Amber means "you have something to do"; red stays for daemon problems.
   playbook badge, running indicator, and the agent's tokens as `12.3k in · 4.1k out` (k from 1000,
   one decimal; plain number below 1000; nothing until a `result` reported usage). Input counts
   cached tokens too, as in the Laravel AI SDK; the tooltip shows the cache split.
-- Ready card: dropdown for playbook, button "Start". Cards without local repo: greyed out.
+- Ready card: dropdown for playbook, button "Start". Cards without local repo: greyed out, with
+  "No local clone under <repoRoot>" and a Clone button (5) whose tooltip names the target. While
+  it clones the button reads "Cloning…" and is disabled; a refused or failed clone shows its
+  message under it. Once cloned the card links the clone and Start appears, no rescan needed.
 - Needs You card: shows what is needed: permission question (tool name, input, Allow / Deny) or
   draft (title, body editable, diff of branch vs base, Approve / Reject with reason) or failure
   (stderr tail, Retry / Remove worktree) or red CI (failed checks with log tails, Fix with agent /
@@ -954,6 +973,8 @@ you". Amber means "you have something to do"; red stays for daemon problems.
 
 ### 12.2 Item detail (drawer or route)
 
+- Without a local clone: "No local clone. Clone lands in <target>" under the title, with the same
+  Clone button as the card (12.1).
 - Right column, top to bottom: Worktree (path, remove button; only when a worktree exists), then
   Timeline of events, newest at top. Each: time, actor, text, link to draft/ask.
 - Transcript: full agent conversation, tool calls collapsed, live text while running. The agent's
