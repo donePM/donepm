@@ -210,20 +210,20 @@ const preview = (text: string) => (text.length > TASK_PREVIEW ? `${text.slice(0,
   font-family: var(--mono);
   font-size: 12px;
 }
-.call.running { border-color: var(--primary); }
+.call.running { border-color: var(--primary-ring); }
 /* Steps follow each other closely; text and turns keep their distance. */
 .step-row + .step-row { margin-top: -10px; }
 .group {
   flex: 1;
   min-width: 0;
-  border-left: 2px solid transparent;
+  border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--card);
   overflow: hidden;
   font-family: var(--mono);
   font-size: 12px;
 }
-.group.running { border-left-color: var(--primary); }
+.group.running { border-color: var(--primary-ring); }
 .group > .tool-head:hover { background: var(--muted); }
 .group-steps { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 4px 14px; border-top: 1px solid var(--border); }
 .note.bad { color: var(--danger); }
@@ -254,7 +254,7 @@ const preview = (text: string) => (text.length > TASK_PREVIEW ? `${text.slice(0,
   white-space: pre;
 }
 .body.result { color: var(--fg-2); }
-.call.sub { font-family: inherit; font-size: 13px; }
+.call.sub { font-family: inherit; font-size: 13px; border-style: dashed; }
 .call.sub > .tool-head { font-family: var(--mono); font-size: 12px; }
 .children { padding: 10px 12px 12px; border-top: 1px solid var(--border); }
 .children .meta { margin: 0 0 10px; font-size: 12px; }

@@ -1,4 +1,4 @@
-import { ciFailed, ciPassed, ciVerdict, ciWaitOf, failedRuns, type CheckLog, type Ctx, type FailedCheck, type WorkItem } from "@donepm/core";
+import { ciFailed, ciPassed, ciVerdict, ciWaitOf, failedRuns, type CheckLog, type CiCheck, type Ctx, type FailedCheck, type WorkItem } from "@donepm/core";
 import type { EventStore } from "../events/store.js";
 import { fetchFailedLogs, fetchPrChecks } from "../gh/pr-checks.js";
 import { prRepository } from "../gh/pr-state.js";
@@ -14,6 +14,8 @@ export interface CiWatchDeps {
   exec: Exec;
   ctx: Ctx;
   log: Log;
+  /** The checks each poll read, pending ones included; the card shows them while CI runs. */
+  onChecks?: (itemId: string, checks: CiCheck[]) => void;
 }
 
 /**
@@ -40,6 +42,7 @@ async function check(deps: CiWatchDeps, item: WorkItem): Promise<void> {
     deps.log.warn({ itemId: item.id, pr: wait.pr.url, error: checks.error }, "gh pr checks failed");
     return;
   }
+  deps.onChecks?.(item.id, checks.checks);
   const verdict = ciVerdict(checks.checks, wait.since, deps.ctx.now());
   if (verdict.kind === "pending") return;
   const logs = verdict.kind === "failed" ? await failedLogs(deps.exec, wait.pr.url, verdict.failed) : [];

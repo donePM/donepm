@@ -1,6 +1,7 @@
 import { isQuestionTool, parseRules, priorityName, questionsOf, rawRule, repoName, toolSummary, type Event, type PermissionAsk } from "@donepm/core";
 import { grantText } from "../asks/grant";
 import { askCopyText, askView } from "../asks/view";
+import { tokens } from "../time/duration";
 
 export type Tone = "attention" | "danger" | "user" | "system";
 
@@ -15,7 +16,13 @@ export interface TimelineEntry {
   detail?: string;
   /** The whole tool input when `code` shows only its first line; the code's tooltip. */
   full?: string;
+  /** Who did it, in bold: "You", "Agent", "System" (spec 12.2). */
+  actor: string;
+  /** `text` without the actor: "created PR draft". */
+  verb: string;
 }
+
+type EntryText = Omit<TimelineEntry, "id" | "at" | "actor" | "verb">;
 
 const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v : undefined);
 
@@ -65,7 +72,7 @@ const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is
  * `item.refreshed` (D45): "Priority changed on GitHub: P2 → P1" when only the priority changed,
  * else "Changed on GitHub: priority P2 → P1, title, labels +bug −P3"; a changed title in the detail.
  */
-function refreshedEntry(p: Record<string, unknown>): Omit<TimelineEntry, "id" | "at"> {
+function refreshedEntry(p: Record<string, unknown>): EntryText {
   const changed = (typeof p.changed === "object" && p.changed !== null ? p.changed : {}) as Record<string, { from?: unknown; to?: unknown } | undefined>;
   const { priority, title, labels } = changed;
   const parts: string[] = [];
@@ -87,7 +94,39 @@ function refreshedEntry(p: Record<string, unknown>): Omit<TimelineEntry, "id" | 
 
 const DRAFT_NAME: Record<string, string> = { pr: "PR draft", push: "push draft", comment: "reply draft", review: "review draft" };
 
-function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: ReadonlyMap<string, string>): Omit<TimelineEntry, "id" | "at"> {
+/** "4 s", "11 min", "1 h 5 min". */
+export function spanText(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s} s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min`;
+  return m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 60)} h`;
+}
+
+/** "11 min · $0.86 · 48.2k in / 6.1k out": how long the turn took, the run's cost and tokens so far. */
+function turnDetail(p: Record<string, unknown>, durationMs: number | undefined): string | undefined {
+  const parts: string[] = [];
+  if (durationMs !== undefined) parts.push(spanText(durationMs));
+  if (typeof p.costUsd === "number") parts.push(`$${p.costUsd.toFixed(2)}`);
+  const u = p.usage as { inputTokens?: unknown; outputTokens?: unknown } | undefined;
+  if (u && typeof u.inputTokens === "number" && typeof u.outputTokens === "number") parts.push(`${tokens(u.inputTokens)} in / ${tokens(u.outputTokens)} out`);
+  return parts.length ? parts.join(" · ") : undefined;
+}
+
+const PROPER = /^(GitHub|CI|PR|PRs|donePM)\b/;
+
+/**
+ * The bold actor and the rest. The text names the user ("You …") or the agent ("Agent …"); an
+ * agent start the user made reads "You started". Everything else is donePM itself.
+ */
+export function splitActor(text: string, actor: Event["actor"]): { actor: string; verb: string } {
+  if (text.startsWith("You ")) return { actor: "You", verb: text.slice(4) };
+  if (text.startsWith("Agent ")) return { actor: actor === "user" ? "You" : "Agent", verb: text.slice(6) };
+  const verb = PROPER.test(text) ? text : text.charAt(0).toLowerCase() + text.slice(1);
+  return { actor: "System", verb };
+}
+
+function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: ReadonlyMap<string, string>, turnMs: ReadonlyMap<string, number>): EntryText {
   const p = e.payload;
   const ask = e.refId ? asks.get(e.refId) : undefined;
   const type = (e.refId !== undefined && draftTypes.get(e.refId)) || "pr";
@@ -97,7 +136,7 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: R
     case "item.collected":
       return { tone: "system", text: "Collected from GitHub" };
     case "item.playbook_changed":
-      return { tone: "user", text: "You changed the playbook", ...(str(p.name) ? { code: str(p.name) } : {}) };
+      return { tone: "user", text: "You changed the playbook", ...withCode(str(p.to) ?? str(p.name)) };
     case "item.assigned":
       return { tone: "system", text: "Assigned the issue to you on GitHub" };
     case "item.closed_upstream":
@@ -125,7 +164,7 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: R
       return {
         tone: "system",
         text: p.isError === true ? "Agent turn ended with an error" : "Agent turn ended",
-        ...(typeof p.costUsd === "number" ? { detail: `$${p.costUsd.toFixed(2)} so far in this run` } : {}),
+        ...(turnDetail(p, turnMs.get(e.id)) ? { detail: turnDetail(p, turnMs.get(e.id)) } : {}),
       };
     case "agent.failed":
       return { tone: "danger", text: "Agent failed", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
@@ -282,10 +321,23 @@ export function timelineEntries(events: readonly Event[], asks: readonly Permiss
   const draftTypes = new Map(
     events.flatMap((e) => (e.type === "draft.created" && e.refId && typeof e.payload.type === "string" ? [[e.refId, e.payload.type] as const] : [])),
   );
+  // How long each turn took: from the start, resume or continuation before it.
+  const turnMs = new Map<string, number>();
+  let turnStart: string | undefined;
+  for (const e of events) {
+    if (e.type === "agent.started" || e.type === "agent.resumed" || e.type === "agent.turn_started") turnStart = e.at;
+    else if (e.type === "agent.turn_ended" && turnStart) {
+      turnMs.set(e.id, Date.parse(e.at) - Date.parse(turnStart));
+      turnStart = undefined;
+    }
+  }
   return events
     .map((e, i) => ({ e, i }))
     .sort((a, b) => b.e.at.localeCompare(a.e.at) || b.i - a.i)
-    .map(({ e }) => ({ id: e.id, at: e.at, ...entry(e, byId, draftTypes) }));
+    .map(({ e }) => {
+      const x = entry(e, byId, draftTypes, turnMs);
+      return { id: e.id, at: e.at, ...x, ...splitActor(x.text, e.actor) };
+    });
 }
 
 /** "09:41" today, "Yesterday 17:02", else "Sep 28 17:02". Local time. */

@@ -927,7 +927,8 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | GET | `/api/archive` | archived items, newest archived first (12.5) |
 | GET | `/api/items/:id` | item + events + drafts + asks; archived items too |
 | POST | `/api/items/:id/start` | create worktree, run setup, start agent; 409 when the repo is not managed (D46) |
-| POST | `/api/items/:id/playbook` | `{ name }` |
+| PUT | `/api/items/:id/playbook` | `{ playbook }`: the card's playbook choice, `item.playbook_changed`; only on a `ready` item that never started (409 otherwise), 400 for a playbook the item's repo does not have |
+| POST | `/api/items/:id/say` | `{ text }`: a note from the user to the running agent, written to its stdin as the next user message; it joins the running turn. 409 when the agent is not running, 400 for an empty or too long note |
 | GET | `/api/items/:id/transcript?after=<id>` | paged transcript |
 | POST | `/api/asks/:id/answer` | `{ behavior: allow\|deny, scope?: run\|always, answers?, message? }` |
 | GET | `/api/grants` | active "Always allow" grants of every repo (4.5a) |
@@ -968,7 +969,9 @@ item left the board, e.g. archived), `event.appended`,
 (`{ origin, path }`), `repo.clone_failed` (`{ origin, path, error }` with the stderr tail). UI
 reloads the affected item on `item.updated`; every item of the origin gets one when a clone starts,
 finishes or fails. An item without a clone that donePM can clone carries
-`clone: { origin, target, cloning?, error? }`.
+`clone: { origin, target, cloning?, error? }`. A `checking` item carries `ci: { checks }`, the PR's
+checks from the last CI watch poll (`name`, `bucket` as `gh pr checks` reports it, `startedAt` while
+pending); the daemon keeps them in memory only, so they are absent until the first poll after a start.
 
 ## 12. UI
 
@@ -995,19 +998,44 @@ Waiting for CI (`checking`, D35): a small round dot in needs-you amber stands be
 CI" on the card, in the CI panel heading and in the item's state badge. It pulses gently (opacity and
 scale only, no layout shift) and stays static under `prefers-reduced-motion: reduce`.
 
-Header, every view: right side shows the status dot (red problem icon when the daemon has a
-problem). Left of it an amber warning triangle with a count appears while at least one item is in
-the Needs You column (`columnOf`, so `failed` counts; archived items do not). It is hidden at zero,
-links to the board, updates live from `item.updated`, and has an `aria-label` such as "3 items need
-you". Amber means "you have something to do"; red stays for daemon problems.
+Header, every view: brand disc and "donePM" on the left, then nav links with icons (Board, Agents
+with a badge counting running agents, Archive, Settings). Right side: an amber pill "3 need you"
+while at least one item is in the Needs You column (`columnOf`, so `failed` counts; archived items
+do not). It is hidden at zero, links to the board, updates live from `item.updated`, and has an
+`aria-label` such as "3 items need you". Then the status dot with the poll text ("polled 12 s ago";
+red problem icon when the daemon has a problem), then the theme switch. Amber means "you have
+something to do"; red stays for daemon problems. Icons are inline SVG components in
+`packages/web/src/icons/`, no icon library.
+
+Layout: the document never scrolls. The app fills the window; each view scrolls inside it, so there
+is exactly one vertical scrollbar per view (the Agents view has one per pane on a desktop and one
+for the whole view on a phone). Every scroll container is positioned, so visually hidden labels
+(`.sr`) stay inside it instead of stretching the document. Views other than the board load lazily.
 
 ### 12.1 Board
 
-- Four columns: Ready, In Progress, Needs You, Done. Cards: title, repo, external id, labels,
-  playbook badge, running indicator, and the agent's tokens as `12.3k in · 4.1k out` (k from 1000,
-  one decimal; plain number below 1000; nothing until a `result` reported usage). Input counts
-  cached tokens too, as in the Laravel AI SDK; the tooltip shows the cache split.
-- Ready card: dropdown for playbook, button "Start". Cards without local repo: greyed out, with
+- Four columns: Ready, In Progress, Needs You, Done. Column headers are uppercase with a count;
+  Needs You is amber; In Progress reads "3 · 2 agents" while agents run. Below 1050px the four
+  columns keep their width and the board scrolls sideways; on a phone the columns stack per lane.
+- Lanes: one per repository, header with a chevron, the repo name in mono and "5 items". A
+  collapsed lane shows a summary instead ("2 ready · 1 needs you · 1 done") and a badge with the
+  number of open Dependabot PRs.
+- Card: the number (`#45`) top left, at most one badge top right (`cardBadge`): what the user is
+  asked for (PR draft, push draft, replies draft, review draft, permission, CI failed, conflict,
+  review, interrupted, failed), else merged / closed upstream / done, else "PR · <author>" on a
+  `github-pr` item, else the first label (bug red, feature indigo). Then the title and the other
+  labels. Cost (`$0.41`) shows on cards; tokens only on the item page and in the Agents view.
+- Card variants: running (indigo border, "running · 6:12" with a dot, branch and current tool in
+  mono, Transcript / Stop, cost); waiting for CI (pulsing dot, one badge per check, green with a
+  tick when passed, "name · 1:20" while pending, PR link); PR draft (amber card, "waiting 14 min",
+  Review draft); conflict ("PR #45 conflicts with main in 2 files. Who resolves it?", Agent / I'll
+  do it, PR link); permission (tool, input as a code block, Allow / Allow for this run / Deny…);
+  merged (green badge, PR link, "worktree removed · $0.65"); no clone and closed upstream are ghost
+  cards with a dashed border.
+- Ready card: a select "implement · opus" (global playbooks plus the repo's own, a repo playbook
+  overriding a global one of the same name) and "Start" with a play icon. The select is enabled
+  only on a ready item that never started; a change is saved at once (`PUT
+  /api/items/:id/playbook`). Cards without local repo: greyed out, with
   "No local clone under <repoRoot>" and a Clone button (5) whose tooltip names the target. While
   it clones the button reads "Cloning…" and is disabled; a refused or failed clone shows its
   message under it. Once cloned the card links the clone and Start appears, no rescan needed.
@@ -1061,8 +1089,19 @@ you". Amber means "you have something to do"; red stays for daemon problems.
 
 - Without a local clone: "No local clone. Clone lands in <target>" under the title, with the same
   Clone button as the card (12.1).
-- Right column, top to bottom: Worktree (path, remove button; only when a worktree exists), then
-  Timeline of events, newest at top. Each: time, actor, text, link to draft/ask.
+- Head: crumb "← Board / owner/repo #45" with the state badge, the title, and a mono line with the
+  playbook badge, branch → base, commits, +/− lines, worked time and cost, tokens, and the link to
+  the issue or PR.
+- Tabs: Draft (Overview when no draft waits), Changes with the number of changed files, Transcript
+  (opens the item in the Agents view), Timeline. The tab is in the query (`?tab=changes`).
+- Right column, top to bottom: Worktree panel (mono path, Finder / Terminal, Remove; session id and
+  "resumable"; only when a worktree exists), then Timeline of events, newest at top (not repeated
+  while the Timeline tab is open). Each entry: a dot, the actor in bold ("You", "Agent", "System")
+  and what happened, then "14:02 · 11 min · $0.86 · 48.2k in / 6.1k out" (duration, cost and
+  tokens on a finished turn).
+- PR draft panel: amber border, "by agent · 14:02 · you can edit before publishing", Write / Preview
+  tabs, Approve and publish, and a note of what approving runs ("commit leftovers · git push · gh pr
+  create", D25).
 - Transcript: full agent conversation, tool calls collapsed, live text while running. The agent's
   text, the task (opened) and a subagent's report render as Markdown in a compact style; the
   user's messages, thinking, tool input and output and setup logs stay plain. Streaming text
@@ -1092,8 +1131,15 @@ you". Amber means "you have something to do"; red stays for daemon problems.
 
 ### 12.3 Agents (multiplexer)
 
-- Left: list of running and recently finished agents (item title, state, elapsed, cost from
-  `result.total_cost_usd`, tokens from `result.usage`). Both count from the start of the `claude`
+- Left: agents in groups Running, Waiting for CI, Waiting for you, Finished today (finished before
+  today are left out, at most 10). Each entry: "repo #45" in mono, the title, and a state line
+  with a dot ("running · 6:12 · $0.41", "2 of 4 checks · 1:20", "PR draft · 14 min", "permission ·
+  Bash", "merged · $0.65"). Header of the selected one: id and title, a mono line with branch,
+  playbook, tokens and session; buttons Card, Changes and Stop. Below the transcript, while the
+  agent runs, a composer "Send a note to the agent · joins the running turn" (`POST
+  /api/items/:id/say`). Tool calls are bordered pills, a subagent's pill is dashed, a running call
+  has an indigo border, and live text ends in a caret.
+- Cost comes from `result.total_cost_usd`, tokens from `result.usage`. Both count from the start of the `claude`
   process: each process contributes its last value and a new process starts a new sum.
 - Elapsed (here and on the card) is the time the agent worked: the sum of its intervals from
   `agent.started`, `agent.resumed`, `agent.turn_started` or `permission.answered` to

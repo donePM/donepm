@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { feedbackEntries } from "@donepm/core";
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { pending, resumeAgent, startAgent } from "../agents/actions";
 import AnsiText from "../ansi/AnsiText.vue";
@@ -13,7 +13,8 @@ import { diffFiles, diffStats } from "../diff/files";
 import DiffPanel from "../diff/DiffPanel.vue";
 import MarkdownView from "../markdown/MarkdownView.vue";
 import { repoOf } from "../markdown/render";
-import { money } from "../time/duration";
+import { agentElapsed, clock, money, usageLabel } from "../time/duration";
+import { loadPlaybookEntries, playbookEntries } from "../board/playbook-options";
 import { useNow } from "../time/now";
 import { timeLabel } from "../timeline/entries";
 import TimelineList from "../timeline/TimelineList.vue";
@@ -41,7 +42,37 @@ const draftCreatedAt = computed(() => {
 });
 const repo = computed(() => (detail.value ? repoOf(detail.value.externalId) : undefined));
 const feedback = computed(() => feedbackEntries(detail.value?.events ?? []));
-const stats = computed(() => (diff.value ? diffStats(diffFiles(diff.value.patch)) : undefined));
+const files = computed(() => (diff.value ? diffFiles(diff.value.patch) : undefined));
+const stats = computed(() => (files.value ? diffStats(files.value) : undefined));
+
+/** `?tab=changes|timeline`; the first tab holds what needs the user, the CI, the PR and the issue (spec 12.2). */
+type Tab = "overview" | "changes" | "timeline";
+const tab = computed<Tab>(() => {
+  const t = route.query?.tab;
+  return t === "changes" || t === "timeline" ? t : "overview";
+});
+const tabTo = (t: Tab) => ({ query: t === "overview" ? {} : { tab: t } });
+/** "Draft" while a draft waits for the user, else "Overview". */
+const firstTab = computed(() => (draft.value ? "Draft" : "Overview"));
+
+onMounted(() => void loadPlaybookEntries());
+/** "implement · opus": the model from the playbook file, when it is known. */
+const playbookLabel = computed(() => {
+  const d = detail.value;
+  if (!d) return "";
+  const own = playbookEntries.value.filter((e) => e.name === d.playbook);
+  const e = own.find((x) => x.scope.kind === "repo" && x.scope.repoId === d.repo?.id) ?? own.find((x) => x.scope.kind === "global");
+  return e ? `${d.playbook} · ${e.model}` : d.playbook;
+});
+/** "11 min · $0.86": how long the agent worked and what it cost. */
+const work = computed(() => {
+  const d = detail.value;
+  if (!d) return undefined;
+  const ms = agentElapsed(d.agent, now.value);
+  const parts = [ms !== undefined ? clock(ms) : undefined, d.agent.costUsd !== undefined ? money(d.agent.costUsd) : undefined].filter(Boolean);
+  return parts.length ? parts.join(" · ") : undefined;
+});
+const tokensLabel = computed(() => usageLabel(detail.value?.agent.usage));
 
 const STATE_LABEL: Record<string, string> = {
   ready: "Ready",
@@ -52,6 +83,7 @@ const STATE_LABEL: Record<string, string> = {
   done: "Done",
 };
 const DRAFT_LABEL: Record<string, string> = { pr: "PR draft", push: "push draft", comment: "reply draft", review: "review draft" };
+const BADGE_TONE: Record<string, string> = { needs_you: "attn", failed: "attn", running: "primary", checking: "primary", done: "ok", ready: "" };
 const badge = computed(() => {
   const d = detail.value;
   if (!d) return "";
@@ -78,127 +110,151 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
 </script>
 
 <template>
-  <main class="page">
-    <p v-if="error" class="alert" role="alert">Could not load the item: {{ error }}</p>
+  <div class="item-page">
+    <p v-if="error" class="alert top-alert" role="alert">Could not load the item: {{ error }}</p>
     <template v-if="detail">
-      <nav class="crumbs" aria-label="Breadcrumb">
+      <nav class="crumb" aria-label="Breadcrumb">
         <RouterLink to="/">← Board</RouterLink>
         <span aria-hidden="true">/</span>
-        <a class="mono ext" :href="detail.externalUrl" target="_blank" rel="noreferrer">{{ displayId(detail.externalId) }}</a>
-        <span class="state" :class="`s-${detail.state}`"><CiPendingDot v-if="detail.state === 'checking'" />{{ badge }}</span>
+        <span class="mono">{{ displayId(detail.externalId).replace("#", " #") }}</span>
+        <span class="badge state" :class="BADGE_TONE[detail.state]"><CiPendingDot v-if="detail.state === 'checking'" />{{ badge }}</span>
       </nav>
-      <h1>{{ detail.title }}</h1>
-      <div v-if="detail.badges.includes('no-local-clone')" class="no-clone">
-        <span>No local clone<template v-if="detail.clone">. Clone lands in <span class="mono">{{ detail.clone.target }}</span></template></span>
-        <CloneButton v-if="detail.clone" :clone="detail.clone" />
+      <div class="title">
+        <h1>{{ detail.title }}</h1>
+        <div class="m">
+          <span class="badge primary" title="Playbook">{{ playbookLabel }}</span>
+          <span v-if="detail.branch"><template v-if="detail.source === 'github-pr'">reviewing </template>{{ detail.branch }} → {{ detail.baseBranch ?? detail.repo?.defaultBranch ?? "?" }}</span>
+          <span v-if="diff">{{ diff.commits }} {{ diff.commits === 1 ? "commit" : "commits" }}</span>
+          <span v-if="stats"><span class="add">+{{ stats.additions }}</span> <span class="del">−{{ stats.deletions }}</span></span>
+          <span v-if="work" title="How long the agent worked · its cost">{{ work }}</span>
+          <span v-if="tokensLabel" title="Tokens: input includes cache reads and writes">{{ tokensLabel }}</span>
+          <a :href="detail.externalUrl" target="_blank" rel="noreferrer" class="ext">{{ detail.source === "github-pr" ? "PR" : "issue" }} ↗</a>
+        </div>
+        <div v-if="detail.badges.includes('no-local-clone')" class="no-clone">
+          <span>No local clone<template v-if="detail.clone">. Clone lands in <span class="mono">{{ detail.clone.target }}</span></template></span>
+          <CloneButton v-if="detail.clone" :clone="detail.clone" />
+        </div>
       </div>
-      <p v-if="detail.branch" class="facts mono">
-        <template v-if="detail.source === 'github-pr'">reviewing </template>{{ detail.branch }} → {{ detail.baseBranch ?? detail.repo?.defaultBranch ?? "?" }}
-        <template v-if="diff"> · {{ diff.commits }} {{ diff.commits === 1 ? "commit" : "commits" }}</template>
-        <template v-if="stats"> · +{{ stats.additions }} −{{ stats.deletions }}</template>
-        <template v-if="detail.agent.costUsd !== undefined"> · agent cost {{ money(detail.agent.costUsd) }}</template>
-      </p>
 
-      <div class="layout">
+      <main class="layout">
         <div class="main">
-          <section v-for="a in askPending" :key="a.id" class="needs" aria-label="Permission question">
-            <h2>The agent asks for permission</h2>
-            <AskPanel
-              :ask-id="a.id"
-              :tool-name="a.toolName"
-              :input="a.input"
-              :rules="a.rules"
-              :reason="a.reason"
-              :worktree="detail.worktreePath"
+          <nav class="tabs" aria-label="Item">
+            <RouterLink :to="tabTo('overview')" :class="{ on: tab === 'overview' }" :aria-current="tab === 'overview' ? 'page' : undefined">{{ firstTab }}</RouterLink>
+            <RouterLink v-if="detail.worktreePath" :to="tabTo('changes')" :class="{ on: tab === 'changes' }" :aria-current="tab === 'changes' ? 'page' : undefined">
+              Changes<span v-if="files" class="badge muted count">{{ files.length }}</span>
+            </RouterLink>
+            <RouterLink v-if="detail.startedAt" :to="{ name: 'agent', params: { id: detail.id } }">Transcript</RouterLink>
+            <RouterLink :to="tabTo('timeline')" :class="{ on: tab === 'timeline' }" :aria-current="tab === 'timeline' ? 'page' : undefined">Timeline</RouterLink>
+          </nav>
+          <template v-if="tab === 'overview'">
+            <section v-for="a in askPending" :key="a.id" class="needs" aria-label="Permission question">
+              <h2>The agent asks for permission</h2>
+              <AskPanel
+                :ask-id="a.id"
+                :tool-name="a.toolName"
+                :input="a.input"
+                :rules="a.rules"
+                :reason="a.reason"
+                :worktree="detail.worktreePath"
+                :repo="repo"
+                @answered="reload"
+              />
+            </section>
+            <PushDraftPanel
+              v-if="(draft?.type === 'push' || draft?.type === 'comment') && detail.state === 'needs_you'"
+              :draft="draft"
+              :feedback="feedback"
               :repo="repo"
-              @answered="reload"
+              :created-at="draftCreatedAt"
+              :can-reject="detail.agent.running || !!detail.agentSessionId"
+              :publish-error="publishError"
+              @changed="reload"
             />
-          </section>
-          <PushDraftPanel
-            v-if="(draft?.type === 'push' || draft?.type === 'comment') && detail.state === 'needs_you'"
-            :draft="draft"
-            :feedback="feedback"
-            :repo="repo"
-            :created-at="draftCreatedAt"
-            :can-reject="detail.agent.running || !!detail.agentSessionId"
-            :publish-error="publishError"
-            @changed="reload"
-          />
-          <ReviewDraftPanel
-            v-else-if="draft?.type === 'review' && detail.state === 'needs_you'"
-            :draft="draft"
-            :repo="repo"
-            :created-at="draftCreatedAt"
-            :can-reject="detail.agent.running || !!detail.agentSessionId"
-            :publish-error="publishError"
-            @changed="reload"
-          />
-          <DraftPanel
-            v-else-if="draft?.type === 'pr' && detail.state === 'needs_you'"
-            :draft="draft"
-            :created-at="draftCreatedAt"
-            :can-reject="detail.agent.running || !!detail.agentSessionId"
-            :publish-error="publishError"
-            :repo="repo"
-            @changed="reload"
-          />
-          <ConflictPanel :item="detail" @changed="reload" />
-          <FeedbackPanel :item="detail" :repo="repo" @changed="reload" />
-          <CiPanel :item="detail" @changed="reload" />
-          <section v-if="detail.pr" class="panel" aria-labelledby="pr-h">
-            <h2 id="pr-h">Pull request</h2>
-            <a :href="detail.pr.url" target="_blank" rel="noreferrer" class="mono">#{{ detail.pr.number }} · {{ detail.pr.url }}</a>
-          </section>
-          <section v-if="interrupted" class="needs" aria-label="Interrupted">
-            <h2>The agent stopped: {{ interrupted.reason }}</h2>
-            <p class="hint">Resume continues its session in the same worktree.</p>
-            <div>
-              <button class="btn primary" type="button" :disabled="pending.has(detail.id)" @click="retry(detail.id, resumeAgent)">Resume</button>
-            </div>
-            <p v-if="retryError" class="alert" role="alert">{{ retryError }}</p>
-          </section>
-          <section v-if="failure" class="needs" aria-label="Failure">
-            <h2>The agent failed: {{ failure.reason }}</h2>
-            <pre v-if="failure.stderrTail" class="stderr mono on-code"><AnsiText :text="failure.stderrTail" /></pre>
-            <div>
-              <button class="btn primary" type="button" :disabled="pending.has(detail.id)" @click="retry(detail.id)">Retry</button>
-            </div>
-            <p v-if="retryError" class="alert" role="alert">{{ retryError }}</p>
-          </section>
-          <DiffPanel v-if="detail.worktreePath" :diff="diff" :loading="diffLoading" :error="diffError" @refresh="reloadDiff" />
-          <section v-if="detail.body.trim()" class="panel" aria-labelledby="issue-h">
-            <h2 id="issue-h">Issue</h2>
-            <MarkdownView class="body" :source="detail.body" :repo="repo" />
-          </section>
+            <ReviewDraftPanel
+              v-else-if="draft?.type === 'review' && detail.state === 'needs_you'"
+              :draft="draft"
+              :repo="repo"
+              :created-at="draftCreatedAt"
+              :can-reject="detail.agent.running || !!detail.agentSessionId"
+              :publish-error="publishError"
+              @changed="reload"
+            />
+            <DraftPanel
+              v-else-if="draft?.type === 'pr' && detail.state === 'needs_you'"
+              :draft="draft"
+              :created-at="draftCreatedAt"
+              :can-reject="detail.agent.running || !!detail.agentSessionId"
+              :publish-error="publishError"
+              :repo="repo"
+              @changed="reload"
+            />
+            <ConflictPanel :item="detail" @changed="reload" />
+            <FeedbackPanel :item="detail" :repo="repo" @changed="reload" />
+            <CiPanel :item="detail" @changed="reload" />
+            <section v-if="detail.pr" class="panel" aria-labelledby="pr-h">
+              <h2 id="pr-h">Pull request</h2>
+              <a :href="detail.pr.url" target="_blank" rel="noreferrer" class="mono pr-link">#{{ detail.pr.number }} · {{ detail.pr.url }}</a>
+            </section>
+            <section v-if="interrupted" class="needs" aria-label="Interrupted">
+              <h2>The agent stopped: {{ interrupted.reason }}</h2>
+              <p class="hint">Resume continues its session in the same worktree.</p>
+              <div>
+                <button class="btn primary" type="button" :disabled="pending.has(detail.id)" @click="retry(detail.id, resumeAgent)">Resume</button>
+              </div>
+              <p v-if="retryError" class="alert" role="alert">{{ retryError }}</p>
+            </section>
+            <section v-if="failure" class="needs" aria-label="Failure">
+              <h2>The agent failed: {{ failure.reason }}</h2>
+              <pre v-if="failure.stderrTail" class="stderr mono on-code"><AnsiText :text="failure.stderrTail" /></pre>
+              <div>
+                <button class="btn primary" type="button" :disabled="pending.has(detail.id)" @click="retry(detail.id)">Retry</button>
+              </div>
+              <p v-if="retryError" class="alert" role="alert">{{ retryError }}</p>
+            </section>
+            <section v-if="detail.body.trim()" class="panel" aria-labelledby="issue-h">
+              <h2 id="issue-h">{{ detail.source === "github-pr" ? "Pull request" : "Issue" }}</h2>
+              <MarkdownView class="body" :source="detail.body" :repo="repo" />
+            </section>
+          </template>
+          <DiffPanel v-else-if="tab === 'changes' && detail.worktreePath" :diff="diff" :loading="diffLoading" :error="diffError" @refresh="reloadDiff" />
+          <TimelineList v-else-if="tab === 'timeline'" :events="detail.events" :asks="detail.asks" :now="now" />
         </div>
         <aside class="side">
           <WorktreeBlock
             v-if="detail.worktreePath"
             :item-id="detail.id"
             :path="detail.worktreePath"
+            :session-id="detail.agentSessionId"
             :removable="(detail.state === 'done' || detail.state === 'failed') && !detail.agent.running"
             @removed="reload"
           />
-          <TimelineList :events="detail.events" :asks="detail.asks" :now="now" />
+          <TimelineList v-if="tab !== 'timeline'" :events="detail.events" :asks="detail.asks" :now="now" />
         </aside>
-      </div>
+      </main>
     </template>
-  </main>
+  </div>
 </template>
 
 <style scoped>
-.page { padding: 20px 24px 40px; max-width: 1480px; }
-.crumbs { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--fg-3); }
-.crumbs a { color: var(--fg-2); text-decoration: none; }
-.crumbs a:hover { color: var(--primary); }
-.state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--muted); color: var(--fg-2); }
-.state.s-needs_you, .state.s-failed { background: var(--attn-tint); color: var(--attn); }
-.state.s-running, .state.s-checking { background: var(--primary-tint); color: var(--primary); }
-h1 { margin: 12px 0 6px; font-size: 22px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
-.no-clone { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; color: var(--fg-3); font-size: 13px; overflow-wrap: anywhere; }
-.facts { margin: 0 0 20px; color: var(--fg-2); font-size: 13px; overflow-wrap: anywhere; }
-.layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
-.main, .side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.crumb { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--fg-3); flex-wrap: wrap; padding: 16px 20px 0; }
+.crumb a { color: var(--fg-3); text-decoration: none; }
+.crumb a:hover { color: var(--fg); }
+.state { gap: 6px; }
+.title { padding: 8px 20px 0; }
+.title h1 { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.title .m { margin-top: 6px; font-family: var(--mono); font-size: 12px; color: var(--fg-3); display: flex; gap: 6px 10px; flex-wrap: wrap; align-items: center; overflow-wrap: anywhere; }
+.title .m .badge { font-family: var(--sans); }
+.add { color: var(--ok); }
+.del { color: var(--danger); }
+.ext { color: var(--primary); text-decoration: none; }
+.ext:hover { text-decoration: underline; }
+.no-clone { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; color: var(--fg-3); font-size: 13px; overflow-wrap: anywhere; }
+.layout { padding: 20px; display: flex; flex-wrap: wrap; gap: 20px; align-items: start; }
+.main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.side { flex: 1 1 300px; max-width: 380px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.tabs { overflow-x: auto; }
+.tabs a { white-space: nowrap; }
+.count { margin-left: 6px; }
 .needs {
   background: var(--attn-tint);
   border: 1px solid var(--attn-border);
@@ -210,6 +266,7 @@ h1 { margin: 12px 0 6px; font-size: 22px; font-weight: 600; line-height: 1.3; ov
 }
 .hint { margin: 0; font-size: 13px; color: var(--fg-2); }
 .needs h2, .panel h2 { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.pr-link { display: block; margin-top: 8px; overflow-wrap: anywhere; }
 .stderr {
   margin: 0;
   padding: 10px 12px;
@@ -223,11 +280,14 @@ h1 { margin: 12px 0 6px; font-size: 22px; font-weight: 600; line-height: 1.3; ov
   overflow: auto;
 }
 .body { margin-top: 12px; }
-.alert { margin-bottom: 16px; }
-@media (max-width: 1000px) {
-  .layout { grid-template-columns: minmax(0, 1fr); }
+.top-alert { margin: 16px 20px 0; }
+/* Below the two columns the side panels follow the main one at full width. */
+@media (max-width: 900px) {
+  .side { max-width: none; }
 }
 @media (max-width: 640px) {
-  .page { padding: 16px; }
+  .crumb { padding: 12px 16px 0; }
+  .title { padding: 8px 16px 0; }
+  .layout { padding: 16px; }
 }
 </style>

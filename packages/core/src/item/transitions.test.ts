@@ -5,7 +5,7 @@ import {
   draftExecutionFailed, draftRejected, interrupted, issueAssignFailed, issueAssigned, resume, start, worktreeRemoved, worktreeMoved,
   turnEnded, turnStarted, closedUpstream, ciFailed, ciFix, ciMarkedDone, ciPassed, ciRerun, dismissed, wasStarted, prMerged, worktreeRemovedOnMerge, worktreeRemoveSkipped,
   prConflicted, prConflictResolved, prConflictDismissed, prConflictFix, archived, alwaysAllowed, grantRevoked,
-  prFeedback, prFeedbackFix, prFeedbackDismissed, repliesPosted, reviewPosted, reviewedPrMerged,
+  prFeedback, prFeedbackFix, prFeedbackDismissed, repliesPosted, reviewPosted, reviewedPrMerged, playbookChanged,
 } from "./transitions.js";
 import type { PrConflict } from "../pr/conflict.js";
 import type { FeedbackEntry, PrFeedback } from "../pr/feedback.js";
@@ -387,5 +387,25 @@ describe("archived", () => {
   it("throws for an item already archived", () => {
     const once = archived(item("done"), makeCtx(), "2026-10-02T08:00:00.000Z").item;
     expect(() => archived(once, makeCtx(), "2026-10-02T08:00:00.000Z")).toThrow(InvalidTransitionError);
+  });
+});
+
+describe("playbookChanged", () => {
+  it("sets the playbook of a Ready item and records the change", () => {
+    const t = playbookChanged(item("ready"), makeCtx(), "review");
+    expect(t.item.playbook).toBe("review");
+    expect(t.item.state).toBe("ready");
+    expect(t.item.stateSince).toBe("2026-10-01T00:00:00.000Z");
+    expect(t.events).toEqual([
+      expect.objectContaining({ type: "item.playbook_changed", actor: "user", payload: { from: "implement", to: "review" } }),
+    ]);
+  });
+
+  it.each(ALL.filter((s) => s !== "ready"))("throws from %s", (state) => {
+    expect(() => playbookChanged(item(state), makeCtx(), "review")).toThrow(InvalidTransitionError);
+  });
+
+  it("throws once the item was started", () => {
+    expect(() => playbookChanged(item("ready", { startedAt: "2026-10-02T00:00:00.000Z" }), makeCtx(), "review")).toThrow(InvalidTransitionError);
   });
 });

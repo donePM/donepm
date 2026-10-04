@@ -1,6 +1,6 @@
 import type { Event, PermissionAsk } from "@donepm/core";
 import { describe, expect, it } from "vitest";
-import { timeLabel, timelineEntries } from "./entries";
+import { spanText, splitActor, timeLabel, timelineEntries } from "./entries";
 
 let n = 0;
 const ev = (type: string, payload: Record<string, unknown> = {}, over: Partial<Event> = {}): Event => {
@@ -27,7 +27,7 @@ describe("timelineEntries", () => {
       { tone: "danger", text: "Agent failed", code: undefined, detail: "exit 1" },
       { tone: "user", text: "You rejected the PR draft", code: undefined, detail: "Add a test" },
       { tone: "attention", text: "Agent created PR draft", code: undefined, detail: "Fix it" },
-      { tone: "system", text: "Agent turn ended", code: undefined, detail: "$0.86 so far in this run" },
+      { tone: "system", text: "Agent turn ended", code: undefined, detail: "3 min · $0.86" },
       { tone: "user", text: "You allowed", code: "Bash: composer test", detail: undefined },
       { tone: "attention", text: "Agent asked permission", code: "Bash: composer test", detail: undefined },
       { tone: "system", text: "Agent started", code: undefined, detail: undefined },
@@ -278,6 +278,33 @@ describe("timelineEntries", () => {
     const at = "2026-10-03T10:00:00Z";
     const events = [ev("draft.created", {}, { at, id: "first" }), ev("draft.edited", {}, { at, id: "second" })];
     expect(timelineEntries(events, []).map((e) => e.id)).toEqual(["second", "first"]);
+  });
+});
+
+describe("turn details", () => {
+  it("shows how long a turn took, the cost and the tokens", () => {
+    const events = [
+      ev("agent.turn_started", {}, { at: "2026-10-03T09:30:00Z" }),
+      ev("agent.turn_ended", { costUsd: 0.86, usage: { inputTokens: 48_200, outputTokens: 6_100 } }, { at: "2026-10-03T09:41:00Z" }),
+    ];
+    expect(timelineEntries(events, [])[0]?.detail).toBe("11 min · $0.86 · 48.2k in / 6.1k out");
+  });
+
+  it("spells durations short", () => {
+    expect(spanText(4_000)).toBe("4 s");
+    expect(spanText(11 * 60_000)).toBe("11 min");
+    expect(spanText(65 * 60_000)).toBe("1 h 5 min");
+    expect(spanText(120 * 60_000)).toBe("2 h");
+  });
+});
+
+describe("splitActor", () => {
+  it("puts who did it first, in its own field", () => {
+    expect(splitActor("You allowed", "user")).toEqual({ actor: "You", verb: "allowed" });
+    expect(splitActor("Agent created PR draft", "agent")).toEqual({ actor: "Agent", verb: "created PR draft" });
+    expect(splitActor("Agent started", "user")).toEqual({ actor: "You", verb: "started" });
+    expect(splitActor("Collected from GitHub", "system")).toEqual({ actor: "System", verb: "collected from GitHub" });
+    expect(splitActor("CI passed", "system")).toEqual({ actor: "System", verb: "CI passed" });
   });
 });
 

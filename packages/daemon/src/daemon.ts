@@ -1,4 +1,4 @@
-import { autoMergeOn, executedPr, finishedAt, mergeBlockers, prConflictOf, prMergeOf, type Ctx, type PrConflict, type WorkItem } from "@donepm/core";
+import { autoMergeOn, executedPr, finishedAt, mergeBlockers, prConflictOf, prMergeOf, type CiCheck, type Ctx, type PrConflict, type WorkItem } from "@donepm/core";
 import type { FastifyInstance } from "fastify";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -32,13 +32,15 @@ import { buildServer, type WorktreeChoice } from "./http/server.js";
 import { makeGuard } from "./http/guard.js";
 import { itemWriter } from "./items/commit.js";
 import { dismissItem } from "./items/dismiss.js";
+import { changePlaybook } from "./items/playbook.js";
+import { sayToAgent } from "./agent/say.js";
 import { ItemStore, type StoredItem } from "./items/store.js";
 import { relinkItems } from "./items/sync.js";
 import { agentHistory, liveHistory } from "./items/agent-info.js";
 import { attentionOf } from "./items/attention.js";
-import { toItemView, type CurrentTool, type MergeView } from "./items/view.js";
+import { toItemView, type CiCheckView, type CurrentTool, type ItemView, type MergeView } from "./items/view.js";
 import type { Exec } from "./process/exec.js";
-import { ensureDefaultPlaybooks } from "./playbooks/load.js";
+import { ensureDefaultPlaybooks, loadPlaybooks } from "./playbooks/load.js";
 import { listPlaybooks } from "./playbooks/list.js";
 import { databaseBytes } from "./system/info.js";
 import { withOrphanDetails } from "./worktrees/orphan-details.js";
@@ -132,7 +134,16 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const guard = makeGuard(boundPort, opts.extraOrigins);
   const hub = new Hub((req) => guard(req.headers));
 
-  const view = (item: WorkItem) => {
+  /** The last poll's checks per item waiting for CI; memory only, the next poll refills it. */
+  const ciChecks = new Map<string, CiCheckView[]>();
+  const onChecks = (itemId: string, checks: CiCheck[]) => {
+    const next = checks.map((c) => ({ name: c.name, bucket: c.bucket, ...(c.startedAt ? { startedAt: c.startedAt } : {}) }));
+    if (JSON.stringify(ciChecks.get(itemId)) === JSON.stringify(next)) return;
+    ciChecks.set(itemId, next);
+    const stored = items.get(itemId);
+    if (stored?.item.state === "checking") pushItem(stored.item);
+  };
+  const view = (item: WorkItem): ItemView => {
     const repo = item.repoId ? repos.get(item.repoId) : undefined;
     const origin = repo ? undefined : items.get(item.id)?.originUrl;
     const clone = origin === undefined ? undefined : cloner.state(origin);
@@ -159,7 +170,10 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       pr ? { ...pr, ...prMergeOf(itemEvents), ...conflictView(prConflictOf(itemEvents)) } : undefined,
     );
     const merge = item.source === "github-pr" ? mergeView(item, items.get(item.id)?.originUrl) : undefined;
-    return { ...v, ...(finished ? { finishedAt: finished } : {}), ...(clone ? { clone } : {}), ...(merge ? { merge } : {}) };
+    const checks = item.state === "checking" ? ciChecks.get(item.id) : undefined;
+    return {
+      ...v, ...(finished ? { finishedAt: finished } : {}), ...(clone ? { clone } : {}), ...(merge ? { merge } : {}), ...(checks ? { ci: { checks } } : {}),
+    };
   };
   /** Whether the card's Merge button may be used, and the repository's merge defaults (D47). */
   const mergeView = (item: WorkItem, origin: string | undefined): MergeView => {
@@ -285,7 +299,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     async () => {
       await collectIssues({ db, exec: opts.exec, items, events, repos, status, ctx: opts.ctx, log: app.log, sources: () => config.sources, onItemUpdated: pushItem });
       if (status.get().gh?.state === "ready") {
-        await watchCi({ items, events, writer, exec: opts.exec, ctx: opts.ctx, log: app.log });
+        for (const id of ciChecks.keys()) if (items.get(id)?.item.state !== "checking") ciChecks.delete(id);
+        await watchCi({ items, events, writer, exec: opts.exec, ctx: opts.ctx, log: app.log, onChecks });
         await autoMergeReady({ items, events, writer, exec: opts.exec, ctx: opts.ctx, log: app.log }, config.sources, (o) => isManaged(config.sources, o));
         await watchPrs({
           items, events, drafts, repos, writer, exec: opts.exec, ctx: opts.ctx, log: app.log,
@@ -381,6 +396,20 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     commentOnPr: (id, body) => commentOnPr({ items, events, writer, ctx: opts.ctx, exec: opts.exec }, id, body),
     mergePr: (id, method) => mergePr({ items, events, writer, ctx: opts.ctx, exec: opts.exec }, id, method),
     setAutoMerge: (id, on) => setAutoMerge({ items, events, writer, ctx: opts.ctx }, id, on),
+    changePlaybook: (id, playbook) =>
+      changePlaybook(
+        {
+          items, writer, ctx: opts.ctx,
+          available: async (item) => {
+            const repo = item.repoId ? repos.get(item.repoId) : undefined;
+            return (await loadPlaybooks(paths.playbooksDir, repo?.path)).playbooks.map((p) => p.name);
+          },
+        },
+        id,
+        playbook,
+      ),
+    sayToAgent: (id, text) =>
+      sayToAgent({ item: (i) => items.get(i)?.item, hasProcess: (i) => runner.hasProcess(i), say: (i, t) => runner.say(i, t) }, id, text),
     view,
     answerAsk: (id, answer) => runner.answer(id, answer),
     grants: () => grants.active(),

@@ -753,6 +753,37 @@ describe("daemon", { timeout: 30_000 }, () => {
     expect((await get(d, "/api/items/nope/dismiss", { method: "POST" })).status).toBe(404);
   });
 
+  it("changes the playbook of a Ready item until it starts, and passes the composer's note to the running agent", async () => {
+    const spawn = fakeProcesses();
+    const d = await start(await homeWithHistory(), undefined, undefined, spawn);
+    const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
+    const put = (body: unknown) =>
+      get(d, `/api/items/${item.id}/playbook`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const say = (body: unknown) =>
+      get(d, `/api/items/${item.id}/say`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    expect(item.playbook).toBe("implement");
+    const changed = await put({ playbook: "review" });
+    expect(changed).toMatchObject({ status: 200, body: { playbook: "review", state: "ready" } });
+    expect((await get(d, `/api/items/${item.id}`)).body.events.at(-1)).toMatchObject({
+      type: "item.playbook_changed", actor: "user", payload: { from: "implement", to: "review" },
+    });
+    expect((await put({ playbook: "nope" })).status).toBe(400);
+    expect((await put({})).status).toBe(400);
+    expect((await get(d, "/api/items/nope/playbook", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ playbook: "review" }) })).status).toBe(404);
+    expect((await put({ playbook: "implement" })).status).toBe(200);
+
+    expect((await say({ text: "hi" })).body).toEqual({ error: "the agent is not running" });
+    await get(d, `/api/items/${item.id}/start`, { method: "POST" });
+    await waitFor(() => expect(spawn.spawned).toHaveLength(1));
+    const proc = spawn.last();
+    proc.emit({ type: "system", subtype: "init", session_id: "s1" });
+    expect((await put({ playbook: "review" })).status).toBe(409);
+    expect((await say({ text: "  " })).status).toBe(400);
+    expect(await say({ text: "Keep the old tag as an alias." })).toEqual({ status: 200, body: { ok: true } });
+    expect(proc.sent().at(-1)).toMatchObject({ type: "user", message: { role: "user", content: [{ type: "text", text: "Keep the old tag as an alias." }] } });
+  });
+
   it("refuses to start twice, items without a clone, and a second agent", async () => {
     const d = await start(await homeWithHistory());
     const items = (await get(d, "/api/items")).body;

@@ -13,6 +13,8 @@ import type { DaemonInfo } from "../system/info.js";
 import type { MoveOutcome, WorktreeAtOldRoot } from "../worktrees/move.js";
 import { RemoveError } from "../worktrees/remove.js";
 import { DismissError } from "../items/dismiss.js";
+import { PlaybookChangeError } from "../items/playbook.js";
+import { SayError } from "../agent/say.js";
 import { CiActionError } from "../ci/actions.js";
 import { PrActionError } from "../prs/actions.js";
 import { GrantError } from "../asks/revoke.js";
@@ -93,6 +95,10 @@ export interface ServerDeps {
   commentOnPr: (id: string, body: string) => Promise<WorkItem>;
   mergePr: (id: string, method: MergeMethod) => Promise<WorkItem>;
   setAutoMerge: (id: string, on: boolean) => WorkItem;
+  /** Throws PlaybookChangeError. The playbook dropdown on a Ready card. */
+  changePlaybook: (id: string, playbook: string) => Promise<WorkItem>;
+  /** Throws SayError. A note from the composer that joins the running turn. */
+  sayToAgent: (id: string, text: string) => void;
   /** Throws StopError when no agent process is alive. Resolves once it exited. */
   stopItem: (id: string) => Promise<void>;
   /** The item as the API shows it: clone, badges, agent. */
@@ -184,6 +190,10 @@ const PrCommentSchema = z.object({ body: z.string() }).strict();
 const PrMergeSchema = z.object({ method: z.enum(MERGE_METHODS) }).strict();
 
 const AutoMergeSchema = z.object({ on: z.boolean() }).strict();
+
+const PlaybookSchema = z.object({ playbook: z.string().trim().min(1) }).strict();
+
+const SaySchema = z.object({ text: z.string() }).strict();
 
 const DraftRejectSchema = z.object({ reason: z.string().optional() }).strict();
 
@@ -329,6 +339,29 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const parsed = AutoMergeSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "body must be {on: boolean}" });
     return ciCall(reply, async () => deps.view(deps.setAutoMerge(req.params.id, parsed.data.on)));
+  });
+
+  app.put<{ Params: { id: string } }>("/api/items/:id/playbook", async (req, reply) => {
+    const parsed = PlaybookSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: "body must be {playbook: string}" });
+    try {
+      return deps.view(await deps.changePlaybook(req.params.id, parsed.data.playbook));
+    } catch (e) {
+      if (e instanceof PlaybookChangeError) return reply.code(e.status).send({ error: e.message });
+      throw e;
+    }
+  });
+
+  app.post<{ Params: { id: string } }>("/api/items/:id/say", async (req, reply) => {
+    const parsed = SaySchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: "body must be {text: string}" });
+    try {
+      deps.sayToAgent(req.params.id, parsed.data.text);
+      return { ok: true };
+    } catch (e) {
+      if (e instanceof SayError) return reply.code(e.status).send({ error: e.message });
+      throw e;
+    }
   });
 
   app.post<{ Params: { id: string } }>("/api/items/:id/stop", async (req, reply) => {

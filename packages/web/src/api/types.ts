@@ -80,6 +80,15 @@ export interface ItemView extends WorkItem {
   clone?: CloneState;
   /** Someone else's pull request: what still blocks the Merge button, and how it merges (D47). */
   merge?: MergeView;
+  /** While it waits for CI: the checks of the last poll (spec 12.1). */
+  ci?: { checks: CiCheckView[] };
+}
+
+/** `bucket` as gh reports it: pass, fail, pending, skipping, cancel. */
+export interface CiCheckView {
+  name: string;
+  bucket: string;
+  startedAt?: string;
 }
 
 export interface MergeView {

@@ -48,8 +48,12 @@ describe("watchCi", () => {
   it("leaves the item waiting while checks are pending", async () => {
     const t = setup(() => ({ code: 8, stdout: fixture("gh/pr-checks-pending.json"), stderr: "" }));
     t.at("2026-10-03T19:55:00Z");
-    await watchCi(t.deps);
+    const seen: Array<{ itemId: string; buckets: string[] }> = [];
+    await watchCi({ ...t.deps, onChecks: (itemId, checks) => seen.push({ itemId, buckets: checks.map((c) => c.bucket) }) });
     expect(t.item().state).toBe("checking");
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.itemId).toBe(t.item().id);
+    expect(seen[0]!.buckets).toContain("pending");
   });
 
   it("moves the item to Done when all checks passed", async () => {

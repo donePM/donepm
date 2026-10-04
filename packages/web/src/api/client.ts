@@ -57,6 +57,9 @@ export const api = {
   commentOnPr: (id: string, body: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/pr/comment`, { body }),
   mergePr: (id: string, method: MergeMethod) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/pr/merge`, { method }),
   setAutoMerge: (id: string, on: boolean) => call<ItemView>("PUT", `/api/items/${encodeURIComponent(id)}/auto-merge`, { on }),
+  setPlaybook: (id: string, playbook: string) => call<ItemView>("PUT", `/api/items/${encodeURIComponent(id)}/playbook`, { playbook }),
+  /** A note to the running agent; it joins the running turn. */
+  say: (id: string, text: string) => call<{ ok: true }>("POST", `/api/items/${encodeURIComponent(id)}/say`, { text }),
   dismiss: (id: string) => call<ItemView>("POST", `/api/items/${encodeURIComponent(id)}/dismiss`),
   transcript: (id: string, after?: string) =>
     call<TranscriptMessage[]>(
