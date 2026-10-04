@@ -368,6 +368,29 @@ resume to the cwd, the remedy is a fresh session, not moving its files. Former r
 config (`previousWorktreeRoots`) and searched for orphans until nothing under them is left, so
 "leave" does not hide worktrees from Settings.
 
+**D45. Priority comes from GitHub's "Priority" issue field, labels are the fallback; changes are
+events; items outside the poll are not refreshed.** A priority set on GitHub did not reach the
+board (#95). Looking at the user's assigned issues on 2026-10-04: no priority labels anywhere, and
+an organization (`clonio-dev`) with GitHub's organization-level issue field "Priority" (options
+Urgent, High, Medium, Low) set on its issues. That is where the user sets it, so donePM reads it.
+The other two places were checked and are not read: the issue type (Feature, Task, …) says what
+kind of work it is, not how urgent; a Projects v2 "Priority" field needs the `read:project` scope,
+which a default `gh auth login` token does not have (the query fails with `INSUFFICIENT_SCOPES`),
+and asking users to widen their token for a sort order is out of proportion. `gh search issues
+--json` cannot return issue fields, so the poll asks for the node `id` and reads the fields of all
+polled issues with one `gh api graphql` `nodes(ids:)` call per 100 issues (a few GraphQL points per
+poll), not one call per issue. Option names map to tiers (Urgent/Critical 0, High 1,
+Medium/Normal 2, Low 3, also `P0`..`P3`); an unknown option or no field falls back to the labels,
+which keep working for repositories that use them. If the lookup fails, known items keep their
+priority: falling back to the labels for one poll would move cards back and forth and write two
+events for nothing. A changed priority, title or label set is an `item.refreshed` event (actor
+`system`) listing only what changed as `{ from, to }`, so the timeline can tell why a card moved;
+body edits are noise and change silently. The card shows the tier as a badge unless it is the
+default P2. Items the poll does not return are not refreshed: `done` and archived items are
+finished and their card is muted, and an item no longer assigned or matching its query left the
+user's scope; refreshing them would need a call per item per poll. They are still checked for
+closing (6.2) as before. Review requests (`github-pr`) have no issue fields and keep the labels.
+
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.

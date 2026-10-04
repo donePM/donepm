@@ -57,6 +57,10 @@ describe("collect", () => {
   it("derives the priority from the labels", () => {
     expect(collect({ ...issue, labels: ["bug", "P1"] }, makeCtx()).item.priority).toBe(1);
   });
+
+  it("takes the priority from the issue field over the labels (D45)", () => {
+    expect(collect({ ...issue, labels: ["P3"], priorityField: "Urgent" }, makeCtx()).item.priority).toBe(0);
+  });
 });
 
 describe("refresh", () => {
@@ -65,24 +69,65 @@ describe("refresh", () => {
   });
 
   it("applies new title, body and labels without touching state", () => {
-    const next = refresh(existing({ state: "running" }), { ...issue, title: "New", labels: ["bug", "x"] }, makeCtx());
+    const next = refresh(existing({ state: "running" }), { ...issue, title: "New", labels: ["bug", "x"] }, makeCtx())?.item;
     expect(next).toMatchObject({ title: "New", labels: ["bug", "x"], state: "running", updatedAt: "2026-10-03T12:00:00.000Z" });
   });
 
   it("recomputes the priority when the labels change", () => {
-    expect(refresh(existing(), { ...issue, labels: ["priority: critical"] }, makeCtx())?.priority).toBe(0);
-    expect(refresh(existing({ priority: 0 }), issue, makeCtx())?.priority).toBe(2);
+    expect(refresh(existing(), { ...issue, labels: ["priority: critical"] }, makeCtx())?.item.priority).toBe(0);
+    expect(refresh(existing({ priority: 0 }), issue, makeCtx())?.item.priority).toBe(2);
+  });
+
+  it("takes the priority from the issue field, the labels as fallback (D45)", () => {
+    expect(refresh(existing(), { ...issue, priorityField: "High" }, makeCtx())?.item.priority).toBe(1);
+    expect(refresh(existing({ priority: 1 }), { ...issue, labels: ["P1"], priorityField: "Low" }, makeCtx())?.item.priority).toBe(3);
+    expect(refresh(existing({ priority: 1 }), { ...issue, labels: ["P1"], priorityField: "Someday" }, makeCtx())).toMatchObject({ item: { priority: 1 } });
+  });
+
+  it("keeps the priority when the issue fields could not be read", () => {
+    expect(refresh(existing({ priority: 0 }), { ...issue, priorityUnread: true }, makeCtx())).toBeUndefined();
+    const next = refresh(existing({ priority: 0 }), { ...issue, title: "New", priorityUnread: true }, makeCtx());
+    expect(next?.item.priority).toBe(0);
+    expect(next?.events[0]?.payload).toEqual({ changed: { title: { from: "Fix it", to: "New" } } });
+  });
+
+  it("records a changed priority, title and labels as one item.refreshed event", () => {
+    const r = refresh(existing(), { ...issue, title: "New", labels: ["bug", "P1"], priorityField: "Urgent" }, makeCtx());
+    expect(r?.events).toEqual([
+      {
+        id: expect.any(String),
+        itemId: "id-1",
+        at: "2026-10-03T12:00:00.000Z",
+        actor: "system",
+        type: "item.refreshed",
+        payload: {
+          changed: {
+            priority: { from: 2, to: 0 },
+            title: { from: "Fix it", to: "New" },
+            labels: { from: ["bug"], to: ["bug", "P1"] },
+          },
+        },
+      },
+    ]);
+  });
+
+  it("records nothing for a changed body, URL or label order", () => {
+    const item = existing({ labels: ["bug", "x"] });
+    const r = refresh(item, { ...issue, body: "Other", url: "https://github.com/acme/widgets/issues/7", labels: ["x", "bug"] }, makeCtx());
+    expect(r?.item).toMatchObject({ body: "Other", labels: ["x", "bug"] });
+    expect(r?.events).toEqual([]);
   });
 
   it("fills in issueCreatedAt on an item collected without it", () => {
     const { issueCreatedAt: _gone, ...old } = existing();
-    expect(refresh(old, issue, makeCtx())?.issueCreatedAt).toBe("2026-09-01T08:00:00Z");
+    expect(refresh(old, issue, makeCtx())?.item.issueCreatedAt).toBe("2026-09-01T08:00:00Z");
   });
 
   it("clears closedUpstream when the issue is open again", () => {
     const next = refresh(existing({ closedUpstream: true }), issue, makeCtx());
     expect(next).toBeDefined();
-    expect(next).not.toHaveProperty("closedUpstream");
+    expect(next?.item).not.toHaveProperty("closedUpstream");
+    expect(next?.events).toEqual([]);
   });
 });
 

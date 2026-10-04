@@ -4,6 +4,8 @@ import { z } from "zod";
 const Label = z.object({ name: z.string() }).passthrough();
 
 const IssueFields = {
+  /** GitHub's global node id; asked for so the issue fields can be read in one batch (D45). */
+  id: z.string().optional(),
   number: z.number().int().positive(),
   title: z.string(),
   body: z
@@ -15,14 +17,14 @@ const IssueFields = {
   createdAt: z.string().datetime({ offset: true }),
 };
 
-/** One entry of `gh search issues --json number,title,body,createdAt,labels,repository,url`. */
+/** One entry of `gh search issues --json id,number,title,body,createdAt,labels,repository,url`. */
 export const SearchIssueSchema = z.object({
   ...IssueFields,
   repository: z.object({ nameWithOwner: z.string().regex(/^[^/\s]+\/[^/\s]+$/) }).passthrough(),
 });
 export const SearchIssuesSchema = z.array(SearchIssueSchema);
 
-/** One entry of `gh issue list --json number,title,body,createdAt,labels,url` (no repository field). */
+/** One entry of `gh issue list --json id,number,title,body,createdAt,labels,url` (no repository field). */
 export const ListIssueSchema = z.object(IssueFields);
 export const ListIssuesSchema = z.array(ListIssueSchema);
 
@@ -38,8 +40,12 @@ export const PrStateSchema = z.object({
   baseRefName: z.string().optional(),
 });
 
-export function toSourceIssue(i: z.infer<typeof ListIssueSchema>, repository: string): SourceIssue {
+/** A polled issue plus its node id, until the issue fields are read (`withPriorityFields`, D45). */
+export type FetchedIssue = SourceIssue & { nodeId?: string };
+
+export function toSourceIssue(i: z.infer<typeof ListIssueSchema>, repository: string): FetchedIssue {
   return {
+    ...(i.id ? { nodeId: i.id } : {}),
     repository,
     number: i.number,
     url: i.url,

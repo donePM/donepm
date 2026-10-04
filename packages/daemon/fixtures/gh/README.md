@@ -37,3 +37,14 @@ Recorded with `gh` 2.102.0 on 2026-10-03.
   not acceptable); donePM only reads `id` and `html_url`.
 - `pr-feedback-bots.json`: the same with the review nodes emptied by hand, so only the bot comments
   remain.
+- `search-issues.json` got `id` later (issue #95): `gh search issues --json id,…` answers GitHub's
+  global node id (`I_kwDO…`); the recorded ids are replaced by `I_kwDOredacted<number>`.
+- `issue-fields.json`: `gh api graphql -f query=<issueFieldsQuery(ids)>` (`src/gh/issue-fields.ts`)
+  for the same four issues on 2026-10-04 with gh 2.102.0, ids redacted the same way. The first two
+  belong to an organization with the issue field "Priority" (options Urgent, High, Medium, Low)
+  set to Medium and Low; the other two have none (a user-owned repo, and an organization without
+  the field).
+- `issue-fields-not-found.json`: the answer when one id does not resolve (gh exits 1, the other
+  nodes are still there); recorded with a made-up id.
+- `issue-fields-unsupported.json`: the answer of a GitHub that has no `issueFieldValues`; recorded
+  with a misspelt field name and the name put back, since github.com has the field.

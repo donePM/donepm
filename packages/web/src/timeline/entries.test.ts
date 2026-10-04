@@ -193,6 +193,23 @@ describe("timelineEntries", () => {
     });
   });
 
+  it("describes changes taken over from GitHub (D45)", () => {
+    const only = ev("item.refreshed", { changed: { priority: { from: 2, to: 1 } } });
+    const all = ev("item.refreshed", {
+      changed: {
+        priority: { from: 3, to: 0 },
+        title: { from: "Old", to: "New" },
+        labels: { from: ["P3", "bug"], to: ["bug", "urgent"] },
+      },
+    });
+    const labelsOnly = ev("item.refreshed", { changed: { labels: { from: [], to: ["docs"] } } });
+    expect(timelineEntries([only, all, labelsOnly], []).map(({ tone, text, detail }) => ({ tone, text, detail }))).toEqual([
+      { tone: "system", text: "Changed on GitHub: labels +docs", detail: undefined },
+      { tone: "system", text: "Changed on GitHub: priority P3 → P0, title, labels +urgent −P3", detail: "“Old” → “New”" },
+      { tone: "system", text: "Priority changed on GitHub: P2 → P1", detail: undefined },
+    ]);
+  });
+
   it("describes assigning the issue on start", () => {
     const events = [ev("item.assigned", { assignee: "@me" }), ev("item.assign_failed", { reason: "HTTP 403" })];
     expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail }))).toEqual([

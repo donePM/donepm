@@ -1,4 +1,4 @@
-import { isQuestionTool, parseRules, questionsOf, rawRule, repoName, toolSummary, type Event, type PermissionAsk } from "@donepm/core";
+import { isQuestionTool, parseRules, priorityName, questionsOf, rawRule, repoName, toolSummary, type Event, type PermissionAsk } from "@donepm/core";
 import { grantText } from "../asks/grant";
 import { askCopyText, askView } from "../asks/view";
 
@@ -59,6 +59,32 @@ function answersText(ask: PermissionAsk | undefined, answers: unknown): string |
   return parts.length ? parts.join(" · ") : undefined;
 }
 
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+
+/**
+ * `item.refreshed` (D45): "Priority changed on GitHub: P2 → P1" when only the priority changed,
+ * else "Changed on GitHub: priority P2 → P1, title, labels +bug −P3"; a changed title in the detail.
+ */
+function refreshedEntry(p: Record<string, unknown>): Omit<TimelineEntry, "id" | "at"> {
+  const changed = (typeof p.changed === "object" && p.changed !== null ? p.changed : {}) as Record<string, { from?: unknown; to?: unknown } | undefined>;
+  const { priority, title, labels } = changed;
+  const parts: string[] = [];
+  const tiers = priority && typeof priority.from === "number" && typeof priority.to === "number"
+    ? `${priorityName(priority.from)} → ${priorityName(priority.to)}`
+    : undefined;
+  if (tiers) parts.push(`priority ${tiers}`);
+  if (title) parts.push("title");
+  if (labels) {
+    const from = strings(labels.from);
+    const to = strings(labels.to);
+    const diff = [...to.filter((l) => !from.includes(l)).map((l) => `+${l}`), ...from.filter((l) => !to.includes(l)).map((l) => `−${l}`)];
+    parts.push(diff.length ? `labels ${diff.join(" ")}` : "labels");
+  }
+  const text = tiers && parts.length === 1 ? `Priority changed on GitHub: ${tiers}` : `Changed on GitHub: ${parts.join(", ")}`;
+  const detail = title && str(title.from) && str(title.to) ? { detail: `“${str(title.from)}” → “${str(title.to)}”` } : {};
+  return { tone: "system", text, ...detail };
+}
+
 const DRAFT_NAME: Record<string, string> = { pr: "PR draft", push: "push draft", comment: "reply draft", review: "review draft" };
 
 function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: ReadonlyMap<string, string>): Omit<TimelineEntry, "id" | "at"> {
@@ -80,6 +106,8 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: R
       return { tone: "user", text: "You dismissed it after it was closed on GitHub" };
     case "item.archived":
       return { tone: "system", text: "Moved to the Archive" };
+    case "item.refreshed":
+      return refreshedEntry(p);
     case "item.assign_failed":
       return { tone: "attention", text: "Assigning the issue to you failed", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
     case "agent.started":

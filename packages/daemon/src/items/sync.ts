@@ -35,8 +35,9 @@ export interface SyncResult {
 
 /**
  * Upsert the polled issues by `externalId` (spec 6.2). New issues become `ready` items with an
- * `item.collected` event. Known items get the latest content. Nothing is deleted. Items of
- * `ignored` origins were not asked for, so they are never reported missing.
+ * `item.collected` event. Known items get the latest content, and a changed priority, title or
+ * labels an `item.refreshed` event (D45). Nothing is deleted. Items of `ignored` origins were not
+ * asked for, so they are never reported missing. Items not in the result are not refreshed (D45).
  *
  * An issue whose item was archived or purged (D37) is skipped while it stays open: its work is
  * finished. Once it was seen closed, its showing up again means it was reopened, and it is
@@ -73,10 +74,12 @@ export function syncIssues(issues: readonly SourceIssue[], deps: SyncDeps, ignor
         collected.push(c.item);
         continue;
       }
-      const refreshed = refresh(known.item, issue, ctx) ?? known.item;
+      const r = refresh(known.item, issue, ctx);
+      const refreshed = r?.item ?? known.item;
       const linked = linkRepo(refreshed, repoId, ctx) ?? refreshed;
       if (linked !== known.item) {
         items.update(linked);
+        if (r) events.append(r.events);
         updated.push(linked);
       }
     }

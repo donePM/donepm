@@ -56,6 +56,27 @@ describe("syncIssues", () => {
     expect(d.items.get(stored.id)!.item.priority).toBe(3);
   });
 
+  it("records a priority set on GitHub as item.refreshed, once (D45)", () => {
+    const d = setup();
+    syncIssues([a], d);
+    const id = d.items.byExternalId("Acme/Widgets#1")!.item.id;
+    const r = syncIssues([{ ...a, priorityField: "High" }], d);
+    expect(r.updated.map((i) => i.priority)).toEqual([1]);
+    syncIssues([{ ...a, priorityField: "High" }], d);
+    const events = d.events.forItem(id);
+    expect(events.map((e) => e.type)).toEqual(["item.collected", "item.refreshed"]);
+    expect(events[1]!.payload).toEqual({ changed: { priority: { from: 2, to: 1 } } });
+  });
+
+  it("adds no event for a body change", () => {
+    const d = setup();
+    syncIssues([a], d);
+    const id = d.items.byExternalId("Acme/Widgets#1")!.item.id;
+    syncIssues([{ ...a, body: "edited" }], d);
+    expect(d.items.get(id)!.item.body).toBe("edited");
+    expect(d.events.forItem(id).map((e) => e.type)).toEqual(["item.collected"]);
+  });
+
   it("updates content of known items without touching state", () => {
     const d = setup();
     syncIssues([a], d);

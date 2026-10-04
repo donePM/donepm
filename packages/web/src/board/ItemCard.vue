@@ -11,6 +11,7 @@ import { agentElapsed, clock, usageLabel } from "../time/duration";
 import { columnOf, displayId, labelTone, shortId } from "./columns";
 import { isFinished } from "./finished";
 import { mergeNote } from "./merge-note";
+import { priorityBadge } from "./priority-badge";
 
 /**
  * `hideRepo`: the lane already names the repo, so the id shows only the number.
@@ -22,6 +23,7 @@ const noClone = computed(() => props.item.badges.includes("no-local-clone"));
 /** Someone else's pull request that asks for the user's review (D40). */
 const reviewing = computed(() => props.item.source === "github-pr");
 const closedUpstream = computed(() => props.item.badges.includes("closed-upstream"));
+const priority = computed(() => priorityBadge(props.item.priority));
 /** A started item stays when its issue closes upstream; the user moves it to Done (D32). */
 const dismissable = computed(() => closedUpstream.value && props.item.state !== "done" && props.item.state !== "running" && !props.item.agent.running);
 const column = computed(() => columnOf(props.item));
@@ -122,6 +124,7 @@ async function act(fn: (id: string) => Promise<void>) {
         :title="hideRepo ? displayId(item.externalId) : undefined"
         :aria-label="hideRepo ? displayId(item.externalId) : undefined"
       >{{ hideRepo ? shortId(item.externalId) : displayId(item.externalId) }}</a>
+      <span v-if="priority" class="prio" :class="`prio-${priority.tone}`" :title="priority.title">{{ priority.text }}</span>
       <span v-if="reviewing" class="kind" title="A pull request that asks for your review">PR review</span>
       <span v-if="item.state === 'running'" class="live"><span class="dot dot-ok" aria-hidden="true"></span>running<template v-if="elapsed"> · {{ elapsed }}</template></span>
       <span v-else-if="item.state === 'checking'" class="live"><span class="dot dot-off" aria-hidden="true"></span>waiting for CI</span>
@@ -300,6 +303,16 @@ async function act(fn: (id: string) => Promise<void>) {
   border: 1px solid var(--blue);
   color: var(--blue);
 }
+.prio {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.prio-urgent { background: var(--danger-tint); color: var(--danger); }
+.prio-low { border: 1px solid var(--border-soft); color: var(--ink-3); }
+.card.finished .prio { background: transparent; color: var(--ink-3); }
 .flag { flex: none; color: var(--amber); font-family: var(--sans); font-weight: 500; }
 h3 { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
 .title { color: inherit; text-decoration: none; }
