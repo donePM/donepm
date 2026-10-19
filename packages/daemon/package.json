@@ -33,10 +33,10 @@
   },
   "dependencies": {
     "@donepm/core": "workspace:*",
-    "@fastify/static": "^10.1.5",
+    "@fastify/static": "^10.1.6",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "diff": "^9.0.0",
-    "fastify": "^5.12.5",
+    "fastify": "^5.12.7",
     "jira2md": "^3.0.1",
     "marklassian": "^1.2.1",
     "turndown": "^7.2.4",
