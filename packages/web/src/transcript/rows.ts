@@ -12,6 +12,7 @@ import { resultNote as coreResultNote, stepSummary, todosOf, toolSummary } from 
 import { diffLines } from "diff";
 import type { PermissionAsk, TranscriptMessage } from "../api/types";
 import { clock } from "../time/duration";
+import { applyCodexDelta, codexPresenter } from "./codex-rows";
 
 export interface DiffLine {
   op: "+" | "-" | " ";
@@ -287,7 +288,13 @@ export function toRows(messages: readonly TranscriptMessage[], asks: readonly Pe
     return (parent && agents.get(parent)?.flow) || main;
   };
 
+  const codex = codexPresenter(messages, asks, cwd);
+
   for (const m of messages) {
+    if (m.agentKind === "codex") {
+      codex(m, main);
+      continue;
+    }
     switch (m.kind) {
       case "user": {
         const flow = flowOf(m);
@@ -525,6 +532,8 @@ export function groupNote(row: GroupRow): string {
  * starts the text over.
  */
 export function applyDelta(text: string, event: unknown): string {
+  const codex = applyCodexDelta(text, event);
+  if (codex !== undefined) return codex;
   if (!isObject(event)) return text;
   if (event.type === "message_start") return "";
   if (event.type === "content_block_delta" && isObject(event.delta) && event.delta.type === "text_delta") {

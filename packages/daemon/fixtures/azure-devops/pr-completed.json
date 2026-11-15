@@ -1,0 +1,22 @@
+{
+  "repository": {
+    "id": "3411ebc1-d5aa-464f-9615-0b527bc66719",
+    "name": "legacy",
+    "project": { "id": "0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11", "name": "Platform" }
+  },
+  "pullRequestId": 123,
+  "codeReviewId": 123,
+  "status": "completed",
+  "creationDate": "2026-09-30T10:12:44.123Z",
+  "closedDate": "2026-10-01T08:30:00.000Z",
+  "closedBy": { "displayName": "Jamal Hartnett", "id": "d6245f20-2af8-44f4-9451-8107cb2767db" },
+  "title": "Fix the build on main",
+  "sourceRefName": "refs/heads/dp/7-fix-the-build",
+  "targetRefName": "refs/heads/main",
+  "mergeStatus": "succeeded",
+  "completionOptions": { "mergeStrategy": "squash", "deleteSourceBranch": true },
+  "lastMergeCommit": { "commitId": "39f52d24533cc712fc845ed9fd1b6c06b3942588" },
+  "isDraft": false,
+  "reviewers": [],
+  "supportsIterations": true
+}

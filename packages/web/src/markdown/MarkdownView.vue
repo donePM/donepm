@@ -8,10 +8,12 @@ const props = defineProps<{
   repo?: RepoRef;
   /** Tighter spacing for the transcript. */
   compact?: boolean;
+  /** Not from GitHub: `@name` and `#123` stay text. */
+  noReferences?: boolean;
 }>();
 
 // Sanitized in renderMarkdown; nothing else may feed v-html.
-const html = computed(() => renderMarkdown(props.source, props.repo));
+const html = computed(() => renderMarkdown(props.source, props.repo, { noReferences: props.noReferences }));
 </script>
 
 <template>

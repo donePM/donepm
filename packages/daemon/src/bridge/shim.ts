@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { connect as netConnect, type Socket } from "node:net";
 import type { Readable, Writable } from "node:stream";
 import { BRIDGE_PROTOCOL, EXIT, type Hello, type Welcome } from "./protocol.js";
@@ -17,9 +18,9 @@ export interface ShimIo {
  */
 export function runShim(io: ShimIo): Promise<number> {
   const socketPath = io.env.DONEPM_SOCKET;
-  const token = io.env.DONEPM_TOKEN;
+  const token = io.env.DONEPM_TOKEN || tokenFromFile(io.env.DONEPM_TOKEN_FILE);
   if (!socketPath || !token) {
-    io.stderr.write("donepm-bridge: DONEPM_SOCKET and DONEPM_TOKEN must be set (started by the donePM daemon)\n");
+    io.stderr.write("donepm-bridge: DONEPM_SOCKET and DONEPM_TOKEN (or DONEPM_TOKEN_FILE) must be set (started by the donePM daemon)\n");
     return Promise.resolve(EXIT.unconfigured);
   }
 
@@ -77,4 +78,17 @@ export function runShim(io: ShimIo): Promise<number> {
       io.stdin.pipe(socket, { end: false });
     });
   });
+}
+
+/**
+ * The token from a file the daemon wrote (mode 0600). For an agent whose MCP config is on its
+ * command line (Codex, issue #137): there the env holds only the file's path, never the token.
+ */
+function tokenFromFile(path: string | undefined): string | undefined {
+  if (!path) return undefined;
+  try {
+    return readFileSync(path, "utf8").trim() || undefined;
+  } catch {
+    return undefined;
+  }
 }

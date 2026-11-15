@@ -1,4 +1,5 @@
 import type { PrStatus, WorkItem } from "@donepm/core";
+import { githubProviders } from "../gh/adapter.js";
 import { describe, expect, it } from "vitest";
 import { openDb } from "../db/database.js";
 import { EventStore } from "../events/store.js";
@@ -9,7 +10,7 @@ import { silentLog } from "../log.js";
 import { fail, fakeExec, ok } from "../test-support/fake-exec.js";
 import { autoMergeReady, mergeDefaults, mergePr, setAutoMerge } from "./merge.js";
 
-const READY: PrStatus = { state: "OPEN", mergeable: "MERGEABLE", base: "main", viewerReview: "APPROVED", checks: "SUCCESS" };
+const READY: PrStatus = { state: "OPEN", mergeable: "MERGEABLE", mergeState: "CLEAN", head: "abc", base: "main", viewerReview: "APPROVED", checks: "SUCCESS" };
 const ORIGIN = "github.com/acme/widgets";
 
 function setup(patch: Partial<WorkItem> = {}, exec = fakeExec({ "gh pr merge": ok("") })) {
@@ -25,7 +26,7 @@ function setup(patch: Partial<WorkItem> = {}, exec = fakeExec({ "gh pr merge": o
   };
   items.insert(item, ORIGIN);
   const commands = () => exec.calls.map((c) => [c.cmd, ...c.args].join(" "));
-  return { deps: { items, events, writer, ctx, exec, log: silentLog }, exec, commands, item: () => items.get("item-1")!.item, last: () => events.forItem("item-1").at(-1) };
+  return { deps: { items, events, writer, ctx, providers: githubProviders(exec), log: silentLog }, exec, commands, item: () => items.get("item-1")!.item, last: () => events.forItem("item-1").at(-1) };
 }
 
 describe("mergePr (D47)", () => {
@@ -66,7 +67,7 @@ describe("setAutoMerge (D47)", () => {
 describe("mergeDefaults", () => {
   it("is off and squash unless the repository says otherwise", () => {
     expect(mergeDefaults({}, ORIGIN)).toEqual({ auto: false, method: "squash" });
-    expect(mergeDefaults({ [ORIGIN]: { autoMerge: true, mergeMethod: "merge" } }, ORIGIN)).toEqual({ auto: true, method: "merge" });
+    expect(mergeDefaults({ [ORIGIN]: { assignOnStart: false, autoMerge: true, mergeMethod: "merge" } }, ORIGIN)).toEqual({ auto: true, method: "merge" });
   });
 });
 
@@ -75,14 +76,14 @@ describe("autoMergeReady (D47)", () => {
 
   it("merges a ready pull request whose repository turned auto-merge on, with its method", async () => {
     const t = setup();
-    await autoMergeReady(t.deps, { [ORIGIN]: { autoMerge: true, mergeMethod: "merge" } }, managed);
+    await autoMergeReady(t.deps, { [ORIGIN]: { assignOnStart: false, autoMerge: true, mergeMethod: "merge" } }, managed);
     expect(t.commands()).toEqual(["gh pr merge 88 --repo github.com/acme/widgets --merge"]);
     expect(t.last()).toMatchObject({ type: "pr.merged", actor: "system", payload: { method: "merge", auto: true } });
   });
 
   it("follows the item's own choice over the repository's", async () => {
     const off = setup({ autoMerge: false });
-    await autoMergeReady(off.deps, { [ORIGIN]: { autoMerge: true } }, managed);
+    await autoMergeReady(off.deps, { [ORIGIN]: { assignOnStart: false, autoMerge: true } }, managed);
     expect(off.exec.calls).toEqual([]);
     const on = setup({ autoMerge: true });
     await autoMergeReady(on.deps, {}, managed);
@@ -90,7 +91,7 @@ describe("autoMergeReady (D47)", () => {
   });
 
   it("leaves blocked, merged and unmanaged pull requests alone", async () => {
-    for (const patch of [{ prStatus: { ...READY, checks: "PENDING" } }, { prStatus: { ...READY, state: "MERGED" } }, { state: "running" as const }]) {
+    for (const patch of [{ prStatus: { ...READY, checks: "PENDING" } }, { prStatus: { ...READY, mergeState: "BEHIND" } }, { prStatus: { ...READY, state: "MERGED" } }, { state: "running" as const }]) {
       const t = setup({ autoMerge: true, ...patch });
       await autoMergeReady(t.deps, {}, managed);
       expect(t.exec.calls).toEqual([]);
@@ -107,5 +108,28 @@ describe("autoMergeReady (D47)", () => {
     expect(t.last()).toMatchObject({ type: "pr.merge_failed", actor: "system", payload: { method: "squash", auto: true, error: "Pull request is in clean status, merge queue required" } });
     await autoMergeReady(t.deps, {}, managed);
     expect(t.exec.calls).toHaveLength(1);
+  });
+
+  it("keeps auto-merge on when the branch was behind its base, and tries again once the pull request changed", async () => {
+    const behind = "X Pull request acme/widgets#88 is not mergeable: the head branch is not up to date with the base branch.";
+    let answer = fail(behind);
+    const t = setup({ autoMerge: true }, fakeExec({ "gh pr merge": () => answer }));
+    await autoMergeReady(t.deps, {}, managed);
+    expect(t.item()).toMatchObject({ autoMerge: true, autoMergeHeld: { head: "abc", mergeState: "CLEAN" } });
+    expect(t.last()).toMatchObject({ type: "pr.merge_failed", payload: { auto: true, staysOn: true, error: behind } });
+
+    // Same head, same merge state: not tried again.
+    await autoMergeReady(t.deps, {}, managed);
+    expect(t.exec.calls).toHaveLength(1);
+
+    // Behind: blocked. Rebased onto the base and clean again: merged.
+    t.deps.items.update({ ...t.item(), prStatus: { ...READY, mergeState: "BEHIND" } });
+    await autoMergeReady(t.deps, {}, managed);
+    expect(t.exec.calls).toHaveLength(1);
+    t.deps.items.update({ ...t.item(), prStatus: { ...READY, head: "def" } });
+    answer = ok("");
+    await autoMergeReady(t.deps, {}, managed);
+    expect(t.exec.calls).toHaveLength(2);
+    expect(t.last()).toMatchObject({ type: "pr.merged", actor: "system", payload: { auto: true } });
   });
 });

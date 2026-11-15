@@ -1,5 +1,5 @@
 import {
-  draftCreated, draftEdited, draftRejected, draftTitle, executedPr, replyThreads,
+  azureOrganizationOf, boardsWorkItemOf, draftCreated, draftEdited, draftRejected, draftTitle, executedPr, prTitleFor, replyThreads, withBoardsLink,
   type CommentDraft, type Ctx, type Draft, type DraftCommit, type DraftReply, type DraftType, type PrDraft, type PrDraftPayload,
   type PushDraft, type WorkItem,
 } from "@donepm/core";
@@ -40,15 +40,21 @@ export function createPrDraft(deps: DraftDeps, itemId: string, input: { title: s
   const repo = item.repoId ? deps.repos.get(item.repoId) : undefined;
   if (!repo) throw new DraftError(409, "the item has no local clone");
 
+  // A ticket's PR title starts with its key, which links the two in Jira (issue #139).
+  const title = prTitleFor(item.externalId, input.title);
+  // A GitHub PR names its Azure Boards work item as AB#1234, which the Azure Boards app links;
+  // an Azure Repos one links it when it is created (issue #142).
+  const workItem = boardsWorkItemOf(item);
+  const body = workItem && azureOrganizationOf(repo.originUrl) === undefined ? withBoardsLink(input.body, workItem.id) : input.body;
   const draft: PrDraft = {
     id: deps.ctx.newId(),
     itemId,
     type: "pr",
-    payload: { title: input.title, body: input.body, base: repo.defaultBranch },
+    payload: { title, body, base: repo.defaultBranch },
     state: "pending",
   };
   deps.drafts.insert(draft, deps.ctx.now());
-  deps.writer.commit(draftCreated(item, deps.ctx, draft.id, { type: "pr", title: input.title }));
+  deps.writer.commit(draftCreated(item, deps.ctx, draft.id, { type: "pr", title }));
   return draft;
 }
 
@@ -181,16 +187,31 @@ export async function rejectDraft(deps: RejectDeps, draftId: string, reason: str
   return { ...draft, state: "rejected" };
 }
 
-const REJECTED: Record<DraftType, { what: string; tool: string }> = {
+const REJECTED: Record<DraftType, { what: string; tool: string; tail?: string }> = {
   pr: { what: "pull request draft", tool: "draft_pr" },
   push: { what: "push draft", tool: "draft_push" },
   comment: { what: "replies", tool: "draft_comment" },
   review: { what: "review", tool: "draft_review" },
+  update_branch: {
+    what: "update-branch draft",
+    tool: "draft_update_branch",
+    tail: "Leave the branch as it is. Go on with your review and call draft_review once, at the end.",
+  },
+  ticket_comment: {
+    what: "ticket comment",
+    tool: "draft_ticket_comment",
+    tail: "Nothing was posted. Go on with your work; call draft_ticket_comment again only if their reason asks for a changed comment.",
+  },
+  ticket_transition: {
+    what: "ticket transition",
+    tool: "draft_ticket_transition",
+    tail: "The ticket stays where it is. Go on with your work; call draft_ticket_transition again only if their reason asks for another move.",
+  },
 };
 
 export function rejectionMessage(reason: string | undefined, type: DraftType = "pr"): string {
   const head = `The user rejected your ${REJECTED[type].what}.`;
-  const tail = `Revise the work and call ${REJECTED[type].tool} again when it is ready.`;
+  const tail = REJECTED[type].tail ?? `Revise the work and call ${REJECTED[type].tool} again when it is ready.`;
   return reason ? `${head}\n\nTheir reason:\n${reason}\n\n${tail}` : `${head}\n\n${tail}`;
 }
 

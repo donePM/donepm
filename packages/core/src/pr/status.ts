@@ -1,6 +1,7 @@
 import type { Ctx } from "../ids.js";
 import { InvalidTransitionError, type Transition } from "../item/transitions.js";
 import type { WorkItem } from "../item/types.js";
+import { DEPENDABOT_REBASE } from "./update-branch.js";
 
 /**
  * Where someone else's pull request stands on GitHub (D47), read on every poll. Values are GitHub's
@@ -13,6 +14,14 @@ export interface PrStatus {
   closedAt?: string;
   /** `MERGEABLE`, `CONFLICTING`, or `UNKNOWN` while GitHub computes it. */
   mergeable: string;
+  /**
+   * GitHub's `mergeStateStatus`: `BEHIND` (branch protection wants it up to date with its base),
+   * `BLOCKED`, `CLEAN`, `DIRTY`, `DRAFT`, `HAS_HOOKS`, `UNKNOWN` or `UNSTABLE`. Absent in statuses
+   * read before it was asked.
+   */
+  mergeState?: string;
+  /** The head commit's SHA. Absent in statuses read before it was asked. */
+  head?: string;
   /** The branch it goes into. */
   base: string;
   /** `APPROVED`, `CHANGES_REQUESTED` or `REVIEW_REQUIRED`; absent without required reviews. */
@@ -28,6 +37,8 @@ const same = (a: PrStatus | undefined, b: PrStatus): boolean =>
   a.state === b.state &&
   a.closedAt === b.closedAt &&
   a.mergeable === b.mergeable &&
+  a.mergeState === b.mergeState &&
+  a.head === b.head &&
   a.base === b.base &&
   a.reviewDecision === b.reviewDecision &&
   a.viewerReview === b.viewerReview &&
@@ -49,7 +60,7 @@ export function prConflicts(item: Pick<WorkItem, "prStatus">): boolean {
  * person is asked. The user edits it before it is posted.
  */
 export function conflictComment(item: Pick<WorkItem, "author" | "prStatus">): string {
-  if (item.author === "dependabot[bot]") return "@dependabot rebase";
+  if (item.author === "dependabot[bot]") return DEPENDABOT_REBASE;
   const base = item.prStatus?.base;
   return `This pull request has conflicts with \`${base ?? "its base branch"}\`. Could you resolve them?`;
 }

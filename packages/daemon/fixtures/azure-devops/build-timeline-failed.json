@@ -1,0 +1,58 @@
+{
+  "records": [
+    {
+      "id": "5c6f1d2a-1e2b-5f00-8c3a-0a1b2c3d4e01", "parentId": null, "type": "Stage", "name": "Build", "identifier": "build",
+      "startTime": "2026-10-03T19:48:10.000Z", "finishTime": "2026-10-03T19:52:38.000Z", "state": "completed", "result": "failed", "order": 1,
+      "attempt": 1, "log": null, "errorCount": 0, "warningCount": 0
+    },
+    {
+      "id": "6d7a2e3b-2f3c-5a11-9d4b-1b2c3d4e5f02", "parentId": "5c6f1d2a-1e2b-5f00-8c3a-0a1b2c3d4e01", "type": "Phase", "name": "Build", "identifier": "build.__default",
+      "state": "completed", "result": "failed", "order": 1, "attempt": 1, "log": null
+    },
+    {
+      "id": "a1f3c9e2-7b44-5d1e-9c0a-2f6e8b1d4c55", "parentId": "6d7a2e3b-2f3c-5a11-9d4b-1b2c3d4e5f02", "type": "Job", "name": "Unit tests", "identifier": "build.unit.__default",
+      "startTime": "2026-10-03T19:48:30.000Z", "finishTime": "2026-10-03T19:52:30.000Z", "state": "completed", "result": "failed", "order": 1, "attempt": 1,
+      "workerName": "Azure Pipelines 4", "log": { "id": 10, "type": "Container", "url": "https://dev.azure.com/acme/0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11/_apis/build/builds/812/logs/10" },
+      "errorCount": 1, "warningCount": 0
+    },
+    {
+      "id": "c3d5e1f4-8c55-5e2f-ad1b-3f7a9c2e5d61", "parentId": "a1f3c9e2-7b44-5d1e-9c0a-2f6e8b1d4c55", "type": "Task", "name": "Checkout acme/api@dp/7-fix-the-build",
+      "state": "completed", "result": "succeeded", "order": 1, "attempt": 1,
+      "log": { "id": 3, "type": "Container", "url": "https://dev.azure.com/acme/0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11/_apis/build/builds/812/logs/3" }
+    },
+    {
+      "id": "d4e6f2a5-9d66-5f30-be2c-4a8b0d3f6e72", "parentId": "a1f3c9e2-7b44-5d1e-9c0a-2f6e8b1d4c55", "type": "Task", "name": "Run tests",
+      "startTime": "2026-10-03T19:49:02.000Z", "finishTime": "2026-10-03T19:52:28.000Z", "state": "completed", "result": "failed", "order": 4, "attempt": 1,
+      "log": { "id": 7, "type": "Container", "url": "https://dev.azure.com/acme/0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11/_apis/build/builds/812/logs/7" },
+      "issues": [{ "type": "error", "category": "General", "message": "Bash exited with code '1'." }],
+      "errorCount": 1, "warningCount": 0
+    },
+    {
+      "id": "b2e4d0f3-8a55-5e2f-9d1b-3a7f9c2e5d66", "parentId": "6d7a2e3b-2f3c-5a11-9d4b-1b2c3d4e5f02", "type": "Job", "name": "Lint", "identifier": "build.lint.__default",
+      "state": "completed", "result": "failed", "order": 2, "attempt": 1,
+      "log": { "id": 11, "type": "Container", "url": "https://dev.azure.com/acme/0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11/_apis/build/builds/812/logs/11" }
+    },
+    {
+      "id": "e5f7a3b6-ae77-5041-8f3d-5b9c1e4a7f83", "parentId": "b2e4d0f3-8a55-5e2f-9d1b-3a7f9c2e5d66", "type": "Task", "name": "Run lint",
+      "state": "completed", "result": "failed", "order": 3, "attempt": 1,
+      "log": { "id": 9, "type": "Container", "url": "https://dev.azure.com/acme/0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11/_apis/build/builds/812/logs/9" }
+    },
+    {
+      "id": "f6a8b4c7-bf88-5152-903e-6c0d2f5b8094", "parentId": null, "type": "Stage", "name": "Deploy", "identifier": "deploy",
+      "state": "completed", "result": "skipped", "order": 2, "attempt": 1, "log": null
+    },
+    {
+      "id": "07b9c5d8-c099-5263-a14f-7d1e3a6c9105", "parentId": null, "type": "Stage", "name": "Docs", "identifier": "docs",
+      "state": "completed", "result": "succeeded", "order": 3, "attempt": 1, "log": null
+    },
+    {
+      "id": "18cad6e9-d1aa-5374-b250-8e2f4b7d0216", "parentId": "5c6f1d2a-1e2b-5f00-8c3a-0a1b2c3d4e01", "type": "Checkpoint", "name": "Checkpoint",
+      "state": "completed", "result": "succeeded", "order": 0, "attempt": 1, "log": null
+    }
+  ],
+  "lastChangedBy": "00000002-0000-8888-8000-000000000000",
+  "lastChangedOn": "2026-10-03T19:52:40.870Z",
+  "id": "8f1c2b3a-4d5e-4f60-9a7b-0c1d2e3f4a5b",
+  "changeId": 41,
+  "url": "https://dev.azure.com/acme/0b2d9c3e-5c3f-4a4f-9f0e-6b1f2f7c1a11/_apis/build/builds/812/Timeline/8f1c2b3a-4d5e-4f60-9a7b-0c1d2e3f4a5b"
+}

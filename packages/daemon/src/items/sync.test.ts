@@ -1,4 +1,4 @@
-import type { SourceIssue } from "@donepm/core";
+import type { ItemSource, SourceIssue } from "@donepm/core";
 import { describe, expect, it } from "vitest";
 import { openDb } from "../db/database.js";
 import { EventStore } from "../events/store.js";
@@ -37,16 +37,19 @@ describe("syncIssues", () => {
     expect(d.events.forItem(stored.item.id).map((e) => e.type)).toEqual(["item.collected"]);
   });
 
-  it("starts a repository's new issues with its default playbook, pull requests with theirs (issue #127)", () => {
+  it("starts new items with the playbook the repository picks for their ingest (issue #127, #153)", () => {
     const d = setup();
     const pr: SourceIssue = { ...a, number: 3, url: "https://github.com/Acme/Widgets/pull/3", source: "github-pr" };
-    const playbookFor = (origin: string) => (origin === "github.com/acme/widgets" ? "dependency-update" : undefined);
+    const playbookFor = (origin: string, source: ItemSource) =>
+      origin !== "github.com/acme/widgets" ? undefined : source === "github-pr" ? "audit" : "dependency-update";
     const r = syncIssues([a, b, pr], { ...d, playbookFor });
     expect(r.collected.map((i) => [i.externalId, i.playbook])).toEqual([
       ["Acme/Widgets#1", "dependency-update"],
       ["solo/tool#2", "implement"],
-      ["Acme/Widgets#3", "review"],
+      ["Acme/Widgets#3", "audit"],
     ]);
+    const plain = syncIssues([{ ...pr, number: 4, url: "https://github.com/Acme/Widgets/pull/4" }], setup());
+    expect(plain.collected.map((i) => i.playbook)).toEqual(["review"]);
   });
 
   it("is idempotent: polling the same issues again changes nothing and adds no events", () => {

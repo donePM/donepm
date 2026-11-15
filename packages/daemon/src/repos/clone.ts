@@ -1,19 +1,11 @@
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { normalizeOriginUrl, parseCloneOrigin, type CloneOrigin, type Ctx, type Repo } from "@donepm/core";
+import { cloneSegments, normalizeOriginUrl, parseCloneOrigin, type CloneOrigin, type Ctx, type Repo } from "@donepm/core";
 import type { Log } from "../log.js";
 import type { Exec } from "../process/exec.js";
+import { noConnection, type Providers } from "../providers/registry.js";
 import { readDefaultBranch, readOrigin } from "./git.js";
 import type { RepoStore } from "./store.js";
-
-/** Hosts whose clone a provider adapter can make; `gh` for GitHub (issue #37). */
-const CLONE_HOSTS = new Set(["github.com"]);
-
-/** A clone can take minutes. */
-const CLONE_TIMEOUT_MS = 30 * 60_000;
-
-/** Lines of `gh repo clone` stderr kept for the user. */
-const STDERR_TAIL_LINES = 20;
 
 export class CloneError extends Error {
   constructor(
@@ -24,15 +16,18 @@ export class CloneError extends Error {
   }
 }
 
-/** `<root>/<owner>/<repo>`, where a clone of `origin` lands. */
+/**
+ * Where a clone of `origin` lands: `<root>/<owner>/<repo>` on github.com, `<root>/<host>/<path…>`
+ * on every other host (issue #141).
+ */
 export function cloneTarget(root: string, origin: CloneOrigin): string {
-  return join(root, origin.owner, origin.repo);
+  return join(root, ...cloneSegments(origin));
 }
 
-/** The origin parsed, when donePM can clone it. */
-export function cloneableOrigin(origin: string): CloneOrigin | undefined {
+/** The origin parsed, when a connection serves its host as a code host (issues #37, #138). */
+export function cloneableOrigin(origin: string, providers: Providers): CloneOrigin | undefined {
   const parsed = parseCloneOrigin(origin);
-  return parsed && CLONE_HOSTS.has(parsed.host) ? parsed : undefined;
+  return parsed && providers.codeHost(origin) ? parsed : undefined;
 }
 
 /** The directory holds a `.git` directory or file of its own. */
@@ -65,6 +60,7 @@ export type ClonePush = "repo.cloning" | "repo.cloned" | "repo.clone_failed";
 
 export interface ClonerDeps {
   exec: Exec;
+  providers: Providers;
   repos: RepoStore;
   ctx: Ctx;
   log: Log;
@@ -85,7 +81,7 @@ export interface CloneState {
 }
 
 /**
- * Clones a repository without a local clone into `<repoRoot>/<owner>/<repo>` with `gh repo clone`
+ * Clones a repository without a local clone into its `cloneTarget` through its code host
  * and registers it directly, so the scan rules (hidden folders, `vendor`) do not matter. The click
  * is the user's decision and nothing is written to GitHub, so no draft (issue #37).
  */
@@ -97,7 +93,7 @@ export class RepoCloner {
 
   /** Undefined when the origin cannot be cloned from the board. */
   state(origin: string): CloneState | undefined {
-    const parsed = cloneableOrigin(origin);
+    const parsed = cloneableOrigin(origin, this.deps.providers);
     if (!parsed) return undefined;
     const error = this.failures.get(origin);
     return {
@@ -113,7 +109,7 @@ export class RepoCloner {
    * now. `started`: `gh` runs; `done` settles once it registered the clone or failed.
    */
   async clone(origin: string): Promise<{ target: string } & ({ result: "cloned" } | { result: "started"; done: Promise<void> })> {
-    const parsed = cloneableOrigin(origin);
+    const parsed = cloneableOrigin(origin, this.deps.providers);
     if (!parsed) throw new CloneError(`${origin} cannot be cloned from donePM`, 400);
     if (this.running.has(origin)) throw new CloneError(`${origin} is being cloned`, 409);
     const known = this.deps.repos.byOrigin(origin);
@@ -145,8 +141,10 @@ export class RepoCloner {
   private async run(origin: string, parsed: CloneOrigin, target: string): Promise<void> {
     const { exec, log } = this.deps;
     try {
-      const r = await exec("gh", ["repo", "clone", `${parsed.owner}/${parsed.repo}`, target], { timeoutMs: CLONE_TIMEOUT_MS });
-      if (r.code !== 0) throw new CloneError(tail(r.stderr) || `gh repo clone exited with ${r.code}`, 502);
+      const host = this.deps.providers.codeHost(origin);
+      if (!host) throw new CloneError(noConnection(origin), 502);
+      const cloned = await host.clone(origin, target);
+      if (!cloned.ok) throw new CloneError(cloned.error, 502);
       await this.register(origin, target);
       log.info({ origin, path: target }, "repository cloned");
       this.deps.push("repo.cloned", { origin, path: target });
@@ -171,8 +169,4 @@ export class RepoCloner {
     repos.upsert(repo, ctx.now());
     return repo;
   }
-}
-
-function tail(stderr: string): string {
-  return stderr.trimEnd().split("\n").slice(-STDERR_TAIL_LINES).join("\n").trim();
 }

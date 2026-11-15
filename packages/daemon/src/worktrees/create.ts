@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { branchName, slugify, type Repo, type WorkItem } from "@donepm/core";
+import { branchName, slugify, workRef, type Repo, type WorkItem } from "@donepm/core";
 import type { Exec } from "../process/exec.js";
 
 export class WorktreeError extends Error {
@@ -16,6 +16,13 @@ export function issueNumber(externalId: string): number {
   const m = /#(\d+)$/.exec(externalId);
   if (!m) throw new WorktreeError(`cannot read an issue number from "${externalId}"`);
   return Number(m[1]);
+}
+
+/** What the item's branch is named by: `APP-123` for a ticket (issue #139), the number for an issue. */
+export function branchRef(externalId: string): string {
+  const ref = workRef(externalId);
+  if (ref === undefined) throw new WorktreeError(`cannot read an issue number or ticket key from "${externalId}"`);
+  return ref;
 }
 
 /** `<worktreeRoot>/<repo-slug>/<branch-slug>` (spec 7.1). */
@@ -51,7 +58,7 @@ export async function ensureWorktree(input: {
 
   const branch = branchName({
     prefix: input.branchPrefix,
-    issueNumber: issueNumber(item.externalId),
+    issueNumber: branchRef(item.externalId),
     title: item.title,
     existing: await localBranches(exec, repo.path),
   });

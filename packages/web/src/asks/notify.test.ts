@@ -1,3 +1,4 @@
+import { claudeAskSubject } from "@donepm/core";
 import { describe, expect, it } from "vitest";
 import type { ItemView } from "../api/types";
 import { asksToNotify, askSummary, faviconSvg, NOTIFIED_LIMIT, pendingAsks, rememberNotified, tabTitle } from "./notify";
@@ -6,7 +7,7 @@ import { loadEnabled, loadNotified, saveEnabled, saveNotified, type KeyValueStor
 const item = (id: string, attention?: ItemView["attention"]): ItemView =>
   ({ id, title: `Item ${id}`, state: "needs_you", ...(attention ? { attention } : {}) }) as ItemView;
 const ask = (askId: string, toolName = "Bash", input: unknown = { command: "pnpm test" }): ItemView["attention"] => ({
-  kind: "ask", askId, toolName, input, rules: [],
+  kind: "ask", askId, toolName, input, subject: claudeAskSubject(toolName, input), rules: [],
 });
 
 describe("pendingAsks", () => {

@@ -16,6 +16,12 @@ describe("normalizeOriginUrl", () => {
     ["git://github.com/o/r.git", "github.com/o/r"],
     ["  https://github.com/o/r.git\n", "github.com/o/r"],
     ["github.com/o/r", "github.com/o/r"],
+    // GitHub Enterprise Server and GHE.com (issue #140).
+    ["https://github.acme.com/team/app.git", "github.acme.com/team/app"],
+    ["git@github.acme.com:team/app.git", "github.acme.com/team/app"],
+    ["ssh://git@github.acme.com:2222/team/app.git", "github.acme.com/team/app"],
+    ["https://acme.ghe.com/Team/App", "acme.ghe.com/team/app"],
+    ["git@acme.ghe.com:Team/App.git", "acme.ghe.com/team/app"],
   ])("%s", (input, expected) => {
     expect(normalizeOriginUrl(input)).toBe(expected);
   });

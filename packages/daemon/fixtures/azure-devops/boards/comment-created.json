@@ -1,0 +1,12 @@
+{
+  "workItemId": 1234,
+  "commentId": 5021,
+  "version": 1,
+  "text": "Fixed in the linked pull request.",
+  "renderedText": "<p>Fixed in the linked pull request.</p>",
+  "format": "markdown",
+  "createdBy": { "displayName": "Jamal Hartnett", "uniqueName": "jamal@acme.example" },
+  "createdDate": "2026-10-01T10:12:30.000Z",
+  "modifiedDate": "2026-10-01T10:12:30.000Z",
+  "url": "https://dev.azure.com/acme/0b9a3f5c-2d7e-4c1a-8f3b-6e5d4c3b2a10/_apis/wit/workItems/1234/comments/5021"
+}

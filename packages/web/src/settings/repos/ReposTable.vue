@@ -76,9 +76,11 @@ const poll = (r: RepoView) => pollLine(status.value?.lastPoll?.sources?.[r.origi
               </td>
               <td>
                 <span v-if="!r.managed" class="badge muted">ignored</span>
-                <div v-else-if="source(r)?.assignOnStart || source(r)?.autoMerge || source(r)?.playbook || r.setup" class="row" style="gap: 4px">
+                <div v-else-if="source(r)?.assignOnStart || source(r)?.autoMerge || source(r)?.playbook || source(r)?.playbooks || r.setup" class="row" style="gap: 4px">
                   <span v-if="source(r)?.assignOnStart" class="badge">assigns on start</span>
                   <span v-if="source(r)?.playbook" class="badge mono">{{ source(r)!.playbook }}</span>
+                  <span v-if="source(r)?.playbooks?.issue" class="badge" title="Playbooks offered for issues">issues: {{ source(r)!.playbooks!.issue!.join(", ") }}</span>
+                  <span v-if="source(r)?.playbooks?.pr" class="badge" title="Playbooks offered for pull requests">PRs: {{ source(r)!.playbooks!.pr!.join(", ") }}</span>
                   <span v-if="source(r)?.autoMerge" class="badge">merges automatically</span>
                   <span v-if="r.setup" class="badge ok">setup.yml</span>
                 </div>

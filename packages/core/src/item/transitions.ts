@@ -1,12 +1,40 @@
+import { DEFAULT_AGENT, type AgentKind } from "../agent/kind.js";
 import type { Ctx } from "../ids.js";
 import type { Event, EventActor, EventType } from "../event/types.js";
 import type { PrConflict } from "../pr/conflict.js";
 import type { FeedbackEntry, PrFeedback } from "../pr/feedback.js";
-import type { ItemState, WorkItem } from "./types.js";
+import type { ItemSource, ItemState, WorkItem } from "./types.js";
 
 export interface Transition {
   item: WorkItem;
   events: Event[];
+}
+
+/** A playbook the repository does not offer for the item's ingest (issue #153). */
+export class PlaybookNotAllowedError extends Error {
+  constructor(
+    readonly playbook: string,
+    readonly source: ItemSource,
+  ) {
+    super(`playbook "${playbook}" is not offered for ${source === "github-pr" ? "pull requests" : "issues"} of this repository`);
+    this.name = "PlaybookNotAllowedError";
+  }
+}
+
+/** A ticket with several repositories waits for the user to choose one before it starts (issue #139). */
+export class RepoNotChosenError extends Error {
+  constructor() {
+    super("choose the repository this ticket's work goes to first");
+    this.name = "RepoNotChosenError";
+  }
+}
+
+/** The repository asked for is not one of the ticket's (issue #139). */
+export class NotARepoCandidateError extends Error {
+  constructor(readonly origin: string) {
+    super(`${origin} is not one of this ticket's repositories`);
+    this.name = "NotARepoCandidateError";
+  }
 }
 
 export class InvalidTransitionError extends Error {
@@ -46,8 +74,11 @@ function apply(
 /**
  * Ready (or failed, as retry) to running. Emits `agent.resumed` if a session already exists.
  * The first start sets `startedAt`; a retry keeps it, so the card keeps its place in In Progress.
+ * The first start also fixes the item's agent (`chooseAgent`); a later start keeps it, because the
+ * session belongs to it. An item with a session from before #136 is Claude Code's.
  */
-export function start(item: WorkItem, ctx: Ctx): Transition {
+export function start(item: WorkItem, ctx: Ctx, agent: AgentKind = DEFAULT_AGENT): Transition {
+  if (item.repoCandidates !== undefined && item.repoOrigin === undefined) throw new RepoNotChosenError();
   const t = apply(
     {
       name: "start",
@@ -59,7 +90,42 @@ export function start(item: WorkItem, ctx: Ctx): Transition {
     item,
     ctx,
   );
-  return item.startedAt === undefined ? { ...t, item: { ...t.item, startedAt: t.item.stateSince } } : t;
+  const agentKind = item.agentKind ?? (item.agentSessionId ? DEFAULT_AGENT : agent);
+  const started = { ...t.item, agentKind, ...(item.startedAt === undefined ? { startedAt: t.item.stateSince } : {}) };
+  return { ...t, item: started };
+}
+
+/**
+ * The user chooses which of a ticket's repositories its work goes to (issue #139), as
+ * `item.repo_chosen` with `{ origin }`. Only until the agent first starts: after that the work is in
+ * that repository's worktree. Choosing the repository the item already has changes nothing. The
+ * daemon links the item to that repository's clone.
+ */
+export function repoChosen(item: WorkItem, ctx: Ctx, origin: string): Transition {
+  if (item.repoCandidates === undefined || !item.repoCandidates.includes(origin)) throw new NotARepoCandidateError(origin);
+  if (item.startedAt !== undefined || wasStarted(item)) throw new InvalidTransitionError("repoChosen", item.state);
+  const t = apply({ name: "repoChosen", from: ["ready"], to: "ready", actor: "user", event: "item.repo_chosen" }, item, ctx, undefined, { origin });
+  if (item.repoOrigin === origin) return { item, events: [] };
+  return { ...t, item: { ...t.item, repoOrigin: origin } };
+}
+
+/**
+ * The user picks another agent for the item (issue #136). A session belongs to the agent that made
+ * it, so the session is dropped and the next start begins a fresh one; the transcript stays. Only
+ * from Ready or Failed: never while the agent runs, and not while the item waits on that session.
+ * Picking the agent the item already has changes nothing.
+ */
+export function agentKindChanged(item: WorkItem, ctx: Ctx, agentKind: AgentKind): Transition {
+  const t = apply(
+    { name: "agentKindChanged", from: ["ready", "failed"], to: item.state, actor: "user", event: "agent.kind_changed" },
+    item,
+    ctx,
+    undefined,
+    { from: item.agentKind ?? null, to: agentKind, ...(item.agentSessionId ? { droppedSession: item.agentSessionId } : {}) },
+  );
+  if (item.agentKind === agentKind) return { item, events: [] };
+  const { agentSessionId: _session, ...rest } = t.item;
+  return { ...t, item: { ...rest, agentKind } };
 }
 
 /**
@@ -564,6 +630,40 @@ export function reviewPosted(item: WorkItem, ctx: Ctx, draftId: string, payload:
 }
 
 /**
+ * The daemon asked for the branch of someone else's pull request to be updated, on the user's
+ * approval of the agent's update-branch draft (issue #148, D47). The review is not done yet, so the
+ * agent runs again and goes on with it.
+ */
+export function branchUpdatePosted(item: WorkItem, ctx: Ctx, draftId: string, payload: Record<string, unknown> = {}): Transition {
+  return apply(
+    { name: "branchUpdatePosted", from: ["needs_you"], to: "running", actor: "system", event: "draft.executed" },
+    item,
+    ctx,
+    draftId,
+    payload,
+  );
+}
+
+/**
+ * The daemon posted an approved ticket draft (issue #139): a comment on the ticket or its move to
+ * another status. That does not end the work, so the agent runs again.
+ */
+export function ticketDraftPosted(item: WorkItem, ctx: Ctx, draftId: string, payload: Record<string, unknown> = {}): Transition {
+  return apply(
+    { name: "ticketDraftPosted", from: ["needs_you"], to: "running", actor: "system", event: "draft.executed" },
+    item,
+    ctx,
+    draftId,
+    payload,
+  );
+}
+
+/** What the agent hears after its ticket draft was posted. */
+export function ticketDraftPostedMessage(title: string): string {
+  return `The user approved your ticket draft and donePM did it: ${title}. Go on with your work.`;
+}
+
+/**
  * donePM merged someone else's pull request (D47): the user's Merge click, or the daemon on the
  * user's auto-merge choice. The item is done, and so is its pull request.
  */
@@ -714,9 +814,10 @@ export function dismissed(item: WorkItem, ctx: Ctx): Transition {
 
 /**
  * The user picked another playbook on a Ready card (spec 12.1). Only before the first start: a
- * running or started item keeps the playbook its session began with.
+ * running or started item keeps the playbook its session began with. Only one of `allowed`, the
+ * playbooks the repository offers the item's ingest (issue #153, `allowedPlaybooks`).
  */
-export function playbookChanged(item: WorkItem, ctx: Ctx, playbook: string): Transition {
+export function playbookChanged(item: WorkItem, ctx: Ctx, playbook: string, allowed: readonly string[]): Transition {
   if (item.startedAt !== undefined) throw new InvalidTransitionError("playbookChanged", item.state);
   const t = apply(
     { name: "playbookChanged", from: ["ready"], to: "ready", actor: "user", event: "item.playbook_changed" },
@@ -725,5 +826,6 @@ export function playbookChanged(item: WorkItem, ctx: Ctx, playbook: string): Tra
     undefined,
     { from: item.playbook, to: playbook },
   );
+  if (!allowed.includes(playbook)) throw new PlaybookNotAllowedError(playbook, item.source);
   return { ...t, item: { ...t.item, playbook } };
 }

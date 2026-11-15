@@ -5,6 +5,8 @@ import { status } from "../../status/status";
 import { useNow } from "../../time/now";
 import { ago } from "../../time/relative";
 import { settings } from "../store";
+import ConnectionsPanel from "./ConnectionsPanel.vue";
+import TicketSourcesPanel from "./TicketSourcesPanel.vue";
 import ToolsPanel from "./ToolsPanel.vue";
 
 const now = useNow();
@@ -16,10 +18,14 @@ const errors = computed(() => status.value?.pollErrors ?? []);
 <template>
   <div>
     <h1>Tools</h1>
-    <p class="lead">donePM uses command-line tools that are already logged in. It never stores your tokens.</p>
+    <p class="lead">The command-line tools donePM collects work and sends drafts with, already logged in, and helpers agents may use. donePM never stores your tokens.</p>
   </div>
 
-  <ToolsPanel />
+  <ToolsPanel title="Tools" :categories="['source', 'helper']" />
+
+  <ConnectionsPanel />
+
+  <TicketSourcesPanel />
 
   <section class="panel">
     <h2><IconRefresh />Polling</h2>

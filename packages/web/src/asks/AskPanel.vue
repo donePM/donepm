@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { isQuestionTool, questionsOf, type Answers } from "@donepm/core";
+import { claudeAskSubject, type AgentKind, type Answers, type AskSubject } from "@donepm/core";
 import { computed, ref } from "vue";
 import { api } from "../api/client";
 import { errorText } from "../api/errors";
@@ -8,12 +8,14 @@ import type { RepoRef } from "../markdown/render";
 import AskInput from "./AskInput.vue";
 import { grantText, grantWords } from "./grant";
 import QuestionDialog from "./QuestionDialog.vue";
-import { askReason } from "./view";
+import { allowScopes, askReason } from "./view";
 
 const props = defineProps<{
   askId: string;
   toolName: string;
   input: unknown;
+  /** What the ask is about (issue #136); absent: derived from Claude Code's tool name and input. */
+  subject?: AskSubject;
   rules?: PermissionRule[];
   /** The CLI's `decision_reason`. */
   reason?: string;
@@ -21,6 +23,8 @@ const props = defineProps<{
   worktree?: string;
   /** The item's repository: "Always allow" grants the rules there (D38). */
   repo?: RepoRef;
+  /** Whose ask it is; absent: Claude Code. Decides which "allow" buttons there are (issue #137). */
+  agentKind?: AgentKind;
   /** On a card: small buttons, the deny buttons quiet (spec 12.1). */
   compact?: boolean;
 }>();
@@ -28,19 +32,22 @@ const emit = defineEmits<{ answered: [] }>();
 
 const reasonText = computed(() => askReason(props.reason));
 
-/** The Bash sandbox asks before any connection (D27); say so in words. */
-const network = computed(() => props.toolName === "SandboxNetworkAccess");
+const subject = computed(() => props.subject ?? claudeAskSubject(props.toolName, props.input));
+/** A connection that is not a fetch of one URL, e.g. the Bash sandbox's (D27); say so in words. */
+const network = computed(() => subject.value.kind === "network" && subject.value.url === undefined);
 const label = computed(() => (network.value ? "Network access" : props.toolName));
 
 /** What "Allow for this run" adds; no button when the CLI suggested nothing we may grant. */
 const grant = computed(() => grantText(props.rules ?? []));
+/** Which of "Allow for this run" and "Always allow" the agent can do here. */
+const scopes = computed(() => allowScopes({ grant: grant.value, repoName: repoName.value, agentKind: props.agentKind }));
 /** The same rules, shown under the buttons before the user presses (issue #71). */
 const grantShown = computed(() => grantWords(props.rules ?? []));
 /** `owner/repo` for "Always allow in …"; no button without a repository. */
 const repoName = computed(() => (props.repo ? `${props.repo.owner}/${props.repo.name}` : undefined));
 
-/** AskUserQuestion: Allow alone is no answer; the user answers in a dialog or declines (spec 9.4). */
-const questions = computed(() => (isQuestionTool(props.toolName) ? questionsOf(props.input) : []));
+/** Questions: Allow alone is no answer; the user answers in a dialog or declines (spec 9.4). */
+const questions = computed(() => (subject.value.kind === "question" ? subject.value.questions : []));
 const asking = ref(false);
 
 const denying = ref(false);
@@ -79,7 +86,7 @@ async function answer(behavior: "allow" | "deny", scope?: "run" | "always", answ
     </ul>
     <template v-else>
       <p class="head"><span class="tool-name mono">{{ label }}</span><span v-if="reasonText" class="reason">{{ reasonText }}</span></p>
-      <AskInput :tool-name="toolName" :input="input" :worktree="worktree" />
+      <AskInput :tool-name="toolName" :input="input" :subject="subject" :worktree="worktree" />
     </template>
     <p v-if="network" class="hint">
       A command wants to connect to this host. Publishing goes through drafts; allow only what the work needs.
@@ -99,11 +106,18 @@ async function answer(behavior: "allow" | "deny", scope?: "run" | "always", answ
     </div>
     <div v-else class="buttons" :class="{ compact }">
       <button class="btn primary" type="button" :disabled="busy" @click="answer('allow')">Allow</button>
-      <button v-if="grant" class="btn" type="button" :disabled="busy" :title="`Also allows ${grant} until this run ends`" @click="answer('allow', 'run')">
+      <button
+        v-if="scopes.run"
+        class="btn"
+        type="button"
+        :disabled="busy"
+        :title="grant ? `Also allows ${grant} until this run ends` : 'Also allows requests like this one until this run ends'"
+        @click="answer('allow', 'run')"
+      >
         Allow for this run
       </button>
       <button
-        v-if="grant && repoName"
+        v-if="scopes.always"
         class="btn"
         type="button"
         :disabled="busy"
@@ -119,7 +133,7 @@ async function answer(behavior: "allow" | "deny", scope?: "run" | "always", answ
       "Allow for this run" also allows
       <template v-for="(w, i) in grantShown" :key="i"
         >{{ i ? ", " : " " }}{{ w.text }}<template v-if="w.pattern"> <code class="mono">{{ w.pattern }}</code></template></template
-      > for the rest of this run<template v-if="repoName">; "Always allow" in every run in {{ repoName }}, until you remove it in Settings</template>.
+      > for the rest of this run<template v-if="scopes.always">; "Always allow" in every run in {{ repoName }}, until you remove it in Settings</template>.
     </p>
     <p v-if="error && !asking" class="alert" role="alert">{{ error }}</p>
     <QuestionDialog

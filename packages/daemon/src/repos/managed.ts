@@ -6,6 +6,15 @@ export function isManaged(sources: Config["sources"], origin: string): boolean {
   return sources[origin]?.managed === true;
 }
 
+/**
+ * Whether an item belongs to a managed repository: its own origin, or for a ticket whose
+ * repository is still to be chosen, any of the candidates (issue #139).
+ */
+export function itemManaged(sources: Config["sources"], item: { repoCandidates?: string[] }, originUrl: string): boolean {
+  if (originUrl) return isManaged(sources, originUrl);
+  return (item.repoCandidates ?? []).some((origin) => isManaged(sources, origin));
+}
+
 /** Every managed origin. */
 export function managedOrigins(sources: Config["sources"]): Set<string> {
   return new Set(Object.keys(sources).filter((origin) => isManaged(sources, origin)));

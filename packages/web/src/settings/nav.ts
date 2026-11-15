@@ -1,5 +1,5 @@
 import type { Status } from "../api/types";
-import { health } from "../status/health";
+import { health, tools } from "../status/health";
 
 export type SectionId = "general" | "repositories" | "agents" | "playbooks" | "tools" | "daemon";
 
@@ -30,8 +30,14 @@ export function sectionGroups(sections: readonly Section[] = SECTIONS): { group:
   return out;
 }
 
-/** The Tools entry's dot: green when all is well, amber on a problem, grey while unknown. */
-export function toolsDot(status: Status | undefined, reachable: boolean): "ok" | "attn" | "off" {
-  const h = health(status, reachable);
+export type DotSection = "agents" | "tools";
+
+/**
+ * The dot of a section that shows tools: green when all is well, amber on a problem, grey while
+ * unknown. Agents & access covers the coding agents; Tools covers the source clients and the poll
+ * (issue #152).
+ */
+export function sectionDot(section: DotSection, status: Status | undefined, reachable: boolean): "ok" | "attn" | "off" {
+  const h = health(status, reachable, tools.filter((t) => t.section === section), section === "tools");
   return h === "ok" ? "ok" : h === "problem" ? "attn" : "off";
 }

@@ -1,0 +1,45 @@
+﻿2026-10-03T19:49:02.1180934Z ##[section]Starting: Run tests
+2026-10-03T19:49:02.1201112Z ==============================================================================
+2026-10-03T19:49:02.1203455Z Task         : Bash
+2026-10-03T19:49:03.0000000Z Generating script.
+2026-10-03T19:49:03.0100000Z ========================== Starting Command Output ===========================
+2026-10-03T19:49:03.0200000Z [command]/usr/bin/bash /home/vsts/work/_temp/5e1d.sh
+2026-10-03T19:49:05.4401234Z > acme-api@1.4.0 test
+2026-10-03T19:49:05.4412345Z > vitest run
+2026-10-03T19:52:01.0001111Z [32m✓[39m src/routes/r01.test.ts (4 tests) 3ms
+2026-10-03T19:52:02.0002222Z [32m✓[39m src/routes/r02.test.ts (4 tests) 6ms
+2026-10-03T19:52:03.0003333Z [32m✓[39m src/routes/r03.test.ts (4 tests) 9ms
+2026-10-03T19:52:04.0004444Z [32m✓[39m src/routes/r04.test.ts (4 tests) 12ms
+2026-10-03T19:52:05.0005555Z [32m✓[39m src/routes/r05.test.ts (4 tests) 15ms
+2026-10-03T19:52:06.0006666Z [32m✓[39m src/routes/r06.test.ts (4 tests) 18ms
+2026-10-03T19:52:07.0007777Z [32m✓[39m src/routes/r07.test.ts (4 tests) 21ms
+2026-10-03T19:52:08.0008888Z [32m✓[39m src/routes/r08.test.ts (4 tests) 24ms
+2026-10-03T19:52:09.0009999Z [32m✓[39m src/routes/r09.test.ts (4 tests) 27ms
+2026-10-03T19:52:10.0011110Z [32m✓[39m src/routes/r10.test.ts (4 tests) 30ms
+2026-10-03T19:52:11.0012221Z [32m✓[39m src/routes/r11.test.ts (4 tests) 33ms
+2026-10-03T19:52:12.0013332Z [32m✓[39m src/routes/r12.test.ts (4 tests) 36ms
+2026-10-03T19:52:13.0014443Z [32m✓[39m src/routes/r13.test.ts (4 tests) 39ms
+2026-10-03T19:52:14.0015554Z [32m✓[39m src/routes/r14.test.ts (4 tests) 42ms
+2026-10-03T19:52:15.0016665Z [32m✓[39m src/routes/r15.test.ts (4 tests) 45ms
+2026-10-03T19:52:16.0017776Z [32m✓[39m src/routes/r16.test.ts (4 tests) 48ms
+2026-10-03T19:52:17.0018887Z [32m✓[39m src/routes/r17.test.ts (4 tests) 51ms
+2026-10-03T19:52:18.0019998Z [32m✓[39m src/routes/r18.test.ts (4 tests) 54ms
+2026-10-03T19:52:19.0021109Z [32m✓[39m src/routes/r19.test.ts (4 tests) 57ms
+2026-10-03T19:52:20.0022220Z [32m✓[39m src/routes/r20.test.ts (4 tests) 60ms
+2026-10-03T19:52:21.0023331Z [32m✓[39m src/routes/r21.test.ts (4 tests) 63ms
+2026-10-03T19:52:22.0024442Z [32m✓[39m src/routes/r22.test.ts (4 tests) 66ms
+2026-10-03T19:52:23.0025553Z [32m✓[39m src/routes/r23.test.ts (4 tests) 69ms
+2026-10-03T19:52:24.0026664Z [32m✓[39m src/routes/r24.test.ts (4 tests) 72ms
+2026-10-03T19:52:25.0027775Z [32m✓[39m src/routes/r25.test.ts (4 tests) 75ms
+2026-10-03T19:52:26.0028886Z [32m✓[39m src/routes/r26.test.ts (4 tests) 78ms
+2026-10-03T19:52:27.0029997Z [32m✓[39m src/routes/r27.test.ts (4 tests) 81ms
+2026-10-03T19:52:28.0031108Z [32m✓[39m src/routes/r28.test.ts (4 tests) 84ms
+2026-10-03T19:52:29.0032219Z [32m✓[39m src/routes/r29.test.ts (4 tests) 87ms
+2026-10-03T19:52:30.0033330Z [32m✓[39m src/routes/r30.test.ts (4 tests) 90ms
+2026-10-03T19:52:25.0000000Z [31m×[39m src/orders/total.test.ts > total > adds tax
+2026-10-03T19:52:25.0010000Z   AssertionError: expected 107 to be 108
+2026-10-03T19:52:25.0020000Z    ❯ src/orders/total.test.ts:14:31
+2026-10-03T19:52:26.0000000Z  Test Files  1 failed | 30 passed (31)
+2026-10-03T19:52:26.0010000Z       Tests  1 failed | 120 passed (121)
+2026-10-03T19:52:28.0000000Z ##[error]Bash exited with code '1'.
+2026-10-03T19:52:28.0100000Z ##[section]Finishing: Run tests

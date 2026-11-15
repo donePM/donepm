@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { MERGE_METHODS, type Draft, type MergeMethod, type PermissionGrant, type PrDraftPayload, type WorkItem } from "@donepm/core";
+import { AGENT_KINDS, MERGE_METHODS, type AgentKind, type Draft, type MergeMethod, type PermissionGrant, type PrDraftPayload, type WorkItem } from "@donepm/core";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { z } from "zod";
@@ -14,18 +14,20 @@ import type { MoveOutcome, WorktreeAtOldRoot } from "../worktrees/move.js";
 import { RemoveError } from "../worktrees/remove.js";
 import { DismissError } from "../items/dismiss.js";
 import { PlaybookChangeError } from "../items/playbook.js";
+import { AgentChangeError } from "../items/agent-choice.js";
 import { SayError } from "../agent/say.js";
 import { CiActionError } from "../ci/actions.js";
 import { PrActionError } from "../prs/actions.js";
 import { GrantError } from "../asks/revoke.js";
 import type { AskStore } from "../asks/store.js";
-import { ConfigSchema, SourceKey, type Config } from "../config/config.js";
+import { ConfigSchema, noConnectionFor, SourceKey, ValidConfigSchema, type Config } from "../config/config.js";
+import { connectionFor, connectionsOf } from "../config/connections.js";
 import { DraftError } from "../drafts/actions.js";
 import { ExecutionError } from "../drafts/execute.js";
 import type { DraftStore } from "../drafts/store.js";
 import type { ItemDiff } from "../diff/item-diff.js";
 import type { EventStore } from "../events/store.js";
-import type { FetchResult } from "../gh/issues.js";
+import type { FetchResult } from "../providers/ticket-source.js";
 import type { ItemStore, StoredItem } from "../items/store.js";
 import type { ItemView } from "../items/view.js";
 import { CloneError } from "../repos/clone.js";
@@ -33,9 +35,11 @@ import { isManaged, withManaged } from "../repos/managed.js";
 import type { RepoStore } from "../repos/store.js";
 import type { StatusStore } from "../status/status.js";
 import type { TranscriptStore } from "../transcript/store.js";
+import { connectionRoutes, type ConnectionRouteDeps } from "./connection-routes.js";
+import { ticketRoutes, type TicketRouteDeps } from "./ticket-routes.js";
 import { makeGuard } from "./guard.js";
 
-export interface ServerDeps {
+export interface ServerDeps extends ConnectionRouteDeps, Omit<TicketRouteDeps, "view"> {
   /** The port actually bound; checked against Host and Origin. */
   port: () => number;
   items: ItemStore;
@@ -94,9 +98,13 @@ export interface ServerDeps {
   /** Throws PrActionError. Posts the user's comment on someone else's pull request (D47). */
   commentOnPr: (id: string, body: string) => Promise<WorkItem>;
   mergePr: (id: string, method: MergeMethod) => Promise<WorkItem>;
+  /** The card's "Update branch" (#148). */
+  updatePrBranch: (id: string) => Promise<WorkItem>;
   setAutoMerge: (id: string, on: boolean) => WorkItem;
   /** Throws PlaybookChangeError. The playbook dropdown on a Ready card. */
   changePlaybook: (id: string, playbook: string) => Promise<WorkItem>;
+  /** Throws AgentChangeError. The agent dropdown on a Ready or Failed card (issue #137). */
+  changeAgent: (id: string, agent: AgentKind) => Promise<WorkItem>;
   /** Throws SayError. A note from the composer that joins the running turn. */
   sayToAgent: (id: string, text: string) => void;
   /** Throws StopError when no agent process is alive. Resolves once it exited. */
@@ -192,10 +200,15 @@ const PrMergeSchema = z.object({ method: z.enum(MERGE_METHODS) }).strict();
 const AutoMergeSchema = z.object({ on: z.boolean() }).strict();
 
 const PlaybookSchema = z.object({ playbook: z.string().trim().min(1) }).strict();
+const AgentSchema = z.object({ agent: z.enum(AGENT_KINDS) }).strict();
 
 const SaySchema = z.object({ text: z.string() }).strict();
 
 const DraftRejectSchema = z.object({ reason: z.string().optional() }).strict();
+
+function issuesText(issues: readonly { path: PropertyKey[]; message: string }[]): string {
+  return issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+}
 
 const SourceTestSchema = z.object({ origin: SourceKey, query: z.string().trim().min(1) }).strict();
 
@@ -335,6 +348,10 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     return ciCall(reply, async () => deps.view(await deps.mergePr(req.params.id, parsed.data.method)));
   });
 
+  app.post<{ Params: { id: string } }>("/api/items/:id/pr/update-branch", async (req, reply) =>
+    ciCall(reply, async () => deps.view(await deps.updatePrBranch(req.params.id))),
+  );
+
   app.put<{ Params: { id: string } }>("/api/items/:id/auto-merge", async (req, reply) => {
     const parsed = AutoMergeSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "body must be {on: boolean}" });
@@ -348,6 +365,17 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       return deps.view(await deps.changePlaybook(req.params.id, parsed.data.playbook));
     } catch (e) {
       if (e instanceof PlaybookChangeError) return reply.code(e.status).send({ error: e.message });
+      throw e;
+    }
+  });
+
+  app.put<{ Params: { id: string } }>("/api/items/:id/agent", async (req, reply) => {
+    const parsed = AgentSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: `body must be {agent: ${AGENT_KINDS.map((k) => `"${k}"`).join(" | ")}}` });
+    try {
+      return deps.view(await deps.changeAgent(req.params.id, parsed.data.agent));
+    } catch (e) {
+      if (e instanceof AgentChangeError) return reply.code(e.status).send({ error: e.message });
       throw e;
     }
   });
@@ -481,17 +509,20 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!body.success) return reply.code(400).send({ error: "body must be {managed: boolean}" });
     const repo = deps.repos.get(req.params.id);
     if (!repo) return reply.code(404).send({ error: "repository not found" });
-    const settings = ConfigSchema.parse({
+    const parsed = ValidConfigSchema.safeParse({
       ...deps.getConfig(),
       sources: withManaged(deps.getConfig().sources, repo.originUrl, body.data.managed),
     });
+    if (!parsed.success) return reply.code(400).send({ error: issuesText(parsed.error.issues) });
+    const settings = parsed.data;
     await deps.saveConfig(settings);
     return { repos: repoViews(), settings };
   });
 
   app.post("/api/sources/test", async (req, reply) => {
     const body = SourceTestSchema.safeParse(req.body ?? {});
-    if (!body.success) return reply.code(400).send({ error: body.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") });
+    if (!body.success) return reply.code(400).send({ error: issuesText(body.error.issues) });
+    if (!connectionFor(connectionsOf(deps.getConfig()), body.data.origin)) return reply.code(400).send({ error: noConnectionFor(body.data.origin) });
     const r = await deps.testSource(body.data.origin, body.data.query);
     if (!r.ok) return reply.code(502).send({ error: r.error });
     return {
@@ -506,6 +537,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     await deps.recheck();
     return deps.status.get();
   });
+
+  connectionRoutes(app, deps);
+  ticketRoutes(app, deps);
 
   app.get("/api/settings", async () => deps.getConfig());
 
@@ -538,7 +572,11 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     }
     const choice = WorktreeChoiceSchema.safeParse(req.query ?? {});
     if (!choice.success) return reply.code(400).send({ error: "worktrees must be move or leave" });
-    const next = ConfigSchema.parse({ ...deps.getConfig(), ...patch.data });
+    const parsed = ValidConfigSchema.safeParse({ ...deps.getConfig(), ...patch.data });
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "invalid settings", issues: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })) });
+    }
+    const next = parsed.data;
     // A new worktree root with worktrees under the old one: nothing is saved until the user chose.
     const atOldRoot = deps.worktreesAtOldRoot(next);
     if (atOldRoot.length && !choice.data.worktrees) {

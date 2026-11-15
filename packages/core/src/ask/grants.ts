@@ -58,8 +58,11 @@ export function rawRule(rule: PermissionRule): string {
   return rule.ruleContent === undefined ? rule.toolName : `${rule.toolName}(${rule.ruleContent})`;
 }
 
-/** `github.com/owner/repo` → `owner/repo`; anything else as it is. */
+/**
+ * `github.com/owner/repo` → `owner/repo`; anything else as it is, so a repository on another GitHub
+ * host keeps its host and is not mistaken for one of the same name on github.com (issue #140).
+ */
 export function repoName(origin: string): string {
   const parts = origin.split("/");
-  return parts.length === 3 ? `${parts[1]}/${parts[2]}` : origin;
+  return parts.length === 3 && parts[0] === "github.com" ? `${parts[1]}/${parts[2]}` : origin;
 }

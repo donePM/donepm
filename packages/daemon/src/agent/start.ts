@@ -1,15 +1,17 @@
 import { existsSync } from "node:fs";
 import {
-  agentFailed, placeholderValues, renderPlaybookBody, resume, selectPlaybook, start,
-  type Ctx, type Playbook, type Transition, type TranscriptMessage, type WorkItem,
+  agentFailed, chooseAgent, placeholderValues, playbookProblems, renderPlaybookBody, resume, selectPlaybook, start,
+  type AgentKind, type Ctx, type Playbook, type Transition, type TranscriptMessage, type WorkItem,
 } from "@donepm/core";
 import type { Config } from "../config/config.js";
+import type { TicketSourceConfig } from "../config/ticket-sources.js";
 import { assignOnStart } from "../gh/assign-on-start.js";
 import type { ItemWriter } from "../items/commit.js";
 import type { ItemStore } from "../items/store.js";
 import type { Log } from "../log.js";
 import { loadPlaybooks } from "../playbooks/load.js";
 import type { Exec } from "../process/exec.js";
+import type { Providers } from "../providers/registry.js";
 import type { RepoStore } from "../repos/store.js";
 import type { TranscriptStore } from "../transcript/store.js";
 import { isManaged } from "../repos/managed.js";
@@ -40,6 +42,7 @@ export interface StartDeps {
   transcript: TranscriptStore;
   push: (type: PushType, payload: unknown) => void;
   exec: Exec;
+  providers: Providers;
   ctx: Ctx;
   log: Log;
   playbooksDir: string;
@@ -47,6 +50,8 @@ export interface StartDeps {
   branchPrefix: () => string;
   /** Per-repository source settings; `assignOnStart` lives there (issue #32). */
   sources: () => Config["sources"];
+  /** Jira searches and their `assignOnStart` (issue #139). */
+  ticketSources?: () => readonly TicketSourceConfig[];
 }
 
 /**
@@ -59,11 +64,14 @@ export async function startItem(deps: StartDeps, itemId: string): Promise<{ item
   if (!stored) throw new StartError(404, "item not found");
   const { item } = stored;
   if (item.state !== "ready" && item.state !== "failed") throw new StartError(409, `item is ${item.state}`);
+  // A ticket of several repositories waits for the user to pick one (issue #139).
+  if (item.repoCandidates && !item.repoOrigin) throw new StartError(409, "choose the repository to work in first");
   // Work starts only in a repository the user chose (D46); a resume finishes what was started.
   if (!isManaged(deps.sources(), stored.originUrl)) throw new StartError(409, `${stored.originUrl} is not managed`);
   const playbook = await playbookFor(deps, item);
+  const agent = agentFor(deps, item, playbook, stored.originUrl);
   const slot = reserve(deps, item.id);
-  const running = deps.writer.commit(start(item, deps.ctx));
+  const running = deps.writer.commit(start(item, deps.ctx, agent));
   const launched = prepareAndLaunch(deps, running, playbook)
     .catch((e: unknown) => {
       const output = e instanceof WorktreeError ? e.output : undefined;
@@ -128,6 +136,16 @@ async function playbookFor(deps: StartDeps, item: WorkItem): Promise<Playbook> {
   return playbook;
 }
 
+/** The item's agent (D49), refused when the playbook asks for something that agent cannot do. */
+function agentFor(deps: StartDeps, item: WorkItem, playbook: Playbook, origin: string): AgentKind {
+  const repo = deps.sources()[origin];
+  const agent = chooseAgent({ item, playbook, ...(repo ? { repo } : {}) });
+  const settings = { permissionMode: playbook.permissionMode, ...(playbook.effort ? { effort: playbook.effort } : {}) };
+  const problems = playbookProblems(settings, agent);
+  if (problems.length > 0) throw new StartError(409, `playbook "${playbook.name}": ${problems.join("; ")}`);
+  return agent;
+}
+
 function reserve(deps: StartDeps, itemId: string): { release: () => void } {
   try {
     return deps.runner.reserve(itemId);
@@ -140,7 +158,7 @@ function reserve(deps: StartDeps, itemId: string): { release: () => void } {
 async function prepareAndLaunch(deps: StartDeps, item: WorkItem, playbook: Playbook): Promise<void> {
   const repo = deps.repos.get(item.repoId!)!;
   const review = item.source === "github-pr";
-  const wtInput = { exec: deps.exec, item, repo, worktreeRoot: deps.worktreeRoot(), branchPrefix: deps.branchPrefix() };
+  const wtInput = { exec: deps.exec, providers: deps.providers, item, repo, worktreeRoot: deps.worktreeRoot(), branchPrefix: deps.branchPrefix() };
   // A pull request to review is checked out at its head and compared against its own base (D41).
   const wt = review ? await ensureReviewWorktree(wtInput) : { ...(await ensureWorktree(wtInput)), baseBranch: undefined };
   if (wt.path !== item.worktreePath || wt.branch !== item.branch || wt.baseBranch !== item.baseBranch) {

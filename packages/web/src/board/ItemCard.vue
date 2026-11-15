@@ -9,7 +9,9 @@ import CloneButton from "./CloneButton.vue";
 import CiPendingDot from "../ci/CiPendingDot.vue";
 import { repoOf } from "../markdown/render";
 import { diffFiles, diffStats, type DiffStats } from "../diff/files";
-import { agentElapsed, clock, money } from "../time/duration";
+import { AGENT_CAPABILITIES, agentOf, type AgentKind } from "@donepm/core";
+import { status } from "../status/status";
+import { agentElapsed, clock, money, usageLabel } from "../time/duration";
 import { since } from "../time/relative";
 import IconAlert from "../icons/IconAlert.vue";
 import IconCheck from "../icons/IconCheck.vue";
@@ -18,12 +20,14 @@ import IconPlay from "../icons/IconPlay.vue";
 import IconPullRequest from "../icons/IconPullRequest.vue";
 import IconShield from "../icons/IconShield.vue";
 import IconStop from "../icons/IconStop.vue";
+import SourceLink from "../sourcelink/SourceLink.vue";
 import { checkBadges } from "../ci/check-badges";
 import { cardBadge } from "./card-badge";
 import { upsert } from "./items";
 import { loadPlaybookEntries, playbookEntries, playbookOptions } from "./playbook-options";
 import { columnOf, displayId, shortId } from "./columns";
 import { isFinished } from "./finished";
+import { repoName } from "./lanes";
 import { mergeNote } from "./merge-note";
 import { priorityBadge } from "./priority-badge";
 import { prKind } from "./pr-kind";
@@ -51,8 +55,15 @@ const startable = computed(() => (props.item.state === "ready" || props.item.sta
 /** The user removes a finished or failed item's worktree; only a merged PR's goes on its own (D33). */
 const removable = computed(() => (props.item.state === "done" || props.item.state === "failed") && !!props.item.worktreePath && !props.item.agent.running && !finished.value);
 const merge = computed(() => mergeNote(props.item, props.removeOnMerge ?? false));
-/** Cost shows on the card (#89); tokens are on the item page. */
-const cost = computed(() => (props.item.agent.costUsd ? money(props.item.agent.costUsd) : undefined));
+/**
+ * Cost shows on the card (#89); tokens are on the item page. An agent that reports no price shows
+ * its tokens instead, never "$0.00" (issue #137).
+ */
+const cost = computed(() => {
+  const { costUsd, usage } = props.item.agent;
+  if (costUsd) return money(costUsd);
+  return AGENT_CAPABILITIES[agentOf(props.item)].reportsCost ? undefined : usageLabel(usage);
+});
 const elapsed = computed(() => {
   const ms = agentElapsed(props.item.agent, props.now);
   return ms === undefined ? undefined : clock(ms);
@@ -72,12 +83,46 @@ const checks = computed(() => checkBadges(props.item.ci?.checks ?? [], props.now
 /** "worktree removed" once a started item has none left. */
 const worktreeGone = computed(() => props.item.state === "done" && !!props.item.startedAt && !props.item.worktreePath);
 
+/** A ticket of several repositories: the user picks one before the first start (issue #139). */
+const repoChoices = computed(() =>
+  props.item.repoCandidates && props.item.repoCandidates.length > 1 && !props.item.startedAt && (props.item.state === "ready" || props.item.state === "failed")
+    ? props.item.repoCandidates
+    : [],
+);
+const needsRepo = computed(() => props.item.repoCandidates !== undefined && !props.item.repoOrigin);
+async function chooseRepo(origin: string) {
+  error.value = undefined;
+  try {
+    upsert(await api.chooseRepo(props.item.id, origin));
+  } catch (e) {
+    error.value = errorText(e);
+  }
+}
+
 /** The playbook a Ready item runs; it can change until the first start. */
 const choosable = computed(() => props.item.state === "ready" && !props.item.startedAt && !noClone.value);
-const playbooks = computed(() => playbookOptions(playbookEntries.value, props.item.repo?.id, props.item.playbook));
+const playbooks = computed(() => playbookOptions(playbookEntries.value, props.item.repo?.id, props.item.playbook, props.item.allowedPlaybooks));
+/** Nothing to choose: the playbook shows as a plain label (issue #153). */
+const onePlaybook = computed(() => playbooks.value.length <= 1);
 onMounted(() => {
   if (choosable.value) void loadPlaybookEntries();
 });
+/** The agent dropdown (issue #137): only once Codex is installed, or when the item already runs with it. */
+const AGENT_LABELS: Record<AgentKind, string> = { "claude-code": "Claude Code", codex: "Codex" };
+const agentChoice = computed(() => props.item.runsWith ?? agentOf(props.item));
+const agentChoosable = computed(() => {
+  const codex = status.value?.codex?.state;
+  return (codex !== undefined && codex !== "not_installed") || agentChoice.value === "codex";
+});
+async function chooseAgent(agent: string) {
+  error.value = undefined;
+  try {
+    upsert(await api.setAgent(props.item.id, agent as AgentKind));
+  } catch (e) {
+    error.value = errorText(e);
+  }
+}
+
 async function choosePlaybook(name: string) {
   error.value = undefined;
   try {
@@ -143,14 +188,13 @@ async function act(fn: (id: string) => Promise<void>) {
 <template>
   <article class="card item" :class="{ running: item.state === 'running', attn: column === 'needs_you' && !noClone, ghost: noClone || (closedUpstream && item.state !== 'done'), done: column === 'done', finished }">
     <div class="meta">
-      <a
-        :href="item.externalUrl"
-        target="_blank"
-        rel="noreferrer"
+      <SourceLink
+        :source="item.source"
+        :url="item.externalUrl"
+        :label="displayId(item.externalId)"
         class="ext"
-        :title="hideRepo ? displayId(item.externalId) : undefined"
         :aria-label="hideRepo ? displayId(item.externalId) : undefined"
-      >{{ hideRepo ? shortId(item.externalId) : displayId(item.externalId) }}</a>
+      >{{ hideRepo ? shortId(item.externalId) : displayId(item.externalId) }}</SourceLink>
       <span v-if="item.state === 'running'" class="live primary"><span class="dot primary" aria-hidden="true"></span>running<template v-if="elapsed"> · {{ elapsed }}</template></span>
       <span v-else-if="item.state === 'checking'" class="live attn"><CiPendingDot />waiting for CI</span>
       <span v-else-if="badge" class="badge" :class="badge.tone" :title="badge.title">
@@ -169,7 +213,7 @@ async function act(fn: (id: string) => Promise<void>) {
       <CloneButton v-if="item.clone" :clone="item.clone" />
     </div>
     <div v-if="closedUpstream" class="note">
-      Closed on GitHub
+      Closed {{ item.source === "jira-issue" ? "in Jira" : item.source === "ado-work-item" ? "in Azure Boards" : "on GitHub" }}
       <button
         v-if="dismissable"
         class="btn ghost sm dismiss"
@@ -193,10 +237,12 @@ async function act(fn: (id: string) => Promise<void>) {
       :ask-id="attention.askId"
       :tool-name="attention.toolName"
       :input="attention.input"
+      :subject="attention.subject"
       :rules="attention.rules"
       :reason="attention.reason"
       :worktree="item.worktreePath"
       :repo="repoOf(item.externalId)"
+      :agent-kind="item.agentKind"
       compact
     />
     <template v-else-if="attention?.kind === 'draft'">
@@ -281,9 +327,39 @@ async function act(fn: (id: string) => Promise<void>) {
       <span></span>
       <span class="dim"><template v-if="worktreeGone">worktree removed</template><template v-if="worktreeGone && cost"> · </template>{{ cost }}</span>
     </div>
-    <div v-if="startable" class="acts">
-      <label :for="`pb-${item.id}`" class="sr">Playbook</label>
+    <div v-if="repoChoices.length" class="acts">
+      <label :for="`repo-${item.id}`" class="sr">Repository</label>
       <select
+        :id="`repo-${item.id}`"
+        class="select"
+        :class="{ attn: needsRepo }"
+        :value="item.repoOrigin ?? ''"
+        :disabled="busy"
+        title="The repository the agent works in; it is fixed once the agent started"
+        @change="chooseRepo(($event.target as HTMLSelectElement).value)"
+      >
+        <option v-if="needsRepo" value="" disabled>Choose a repository…</option>
+        <option v-for="o in repoChoices" :key="o" :value="o">{{ repoName(o) }}</option>
+      </select>
+    </div>
+    <div v-if="startable" class="acts">
+      <template v-if="agentChoosable">
+        <label :for="`agent-${item.id}`" class="sr">Agent</label>
+        <select
+          :id="`agent-${item.id}`"
+          class="select agent"
+          :value="agentChoice"
+          :disabled="busy"
+          :title="item.agentSessionId ? 'Agent; another one starts a fresh session' : 'Agent'"
+          @change="chooseAgent(($event.target as HTMLSelectElement).value)"
+        >
+          <option v-for="(label, kind) in AGENT_LABELS" :key="kind" :value="kind">{{ label }}</option>
+        </select>
+      </template>
+      <span v-if="onePlaybook" class="pb-label" title="Playbook">{{ playbooks[0]?.label ?? item.playbook }}</span>
+      <label v-if="!onePlaybook" :for="`pb-${item.id}`" class="sr">Playbook</label>
+      <select
+        v-if="!onePlaybook"
         :id="`pb-${item.id}`"
         class="select"
         :value="item.playbook"
@@ -293,7 +369,7 @@ async function act(fn: (id: string) => Promise<void>) {
       >
         <option v-for="p in playbooks" :key="p.name" :value="p.name">{{ p.label }}</option>
       </select>
-      <button class="btn primary" type="button" :disabled="busy" @click="act(startAgent)">
+      <button class="btn primary" type="button" :disabled="busy || needsRepo" :title="needsRepo ? 'Choose the repository first' : undefined" @click="act(startAgent)">
         <IconPlay class="ic-sm" />{{ item.state === "failed" ? "Retry" : "Start" }}
       </button>
     </div>
@@ -351,6 +427,8 @@ h3 { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; overflow-wr
 .acts { display: flex; gap: 8px; align-items: center; margin-top: 2px; min-width: 0; }
 .acts.wrap { flex-wrap: wrap; }
 .acts .select { flex: 1; min-width: 0; }
+.acts .select.agent { flex: 0 1 auto; }
+.acts .pb-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--fg-2); }
 .acts .btn { text-decoration: none; }
 .end { margin-left: auto; }
 </style>

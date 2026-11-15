@@ -1,7 +1,8 @@
-import { normalizeOriginUrl, type Ctx, type Repo } from "@donepm/core";
+import { join } from "node:path";
+import { normalizeOriginUrl, parseCloneOrigin, type Ctx, type Repo } from "@donepm/core";
 import type { Exec } from "../process/exec.js";
 import type { Log } from "../log.js";
-import { cloneableOrigin, cloneTarget, hasGitDir } from "./clone.js";
+import { cloneTarget, hasGitDir } from "./clone.js";
 import { readDefaultBranch, readOrigin } from "./git.js";
 import { findGitRepos } from "./scan.js";
 import type { RepoStore } from "./store.js";
@@ -54,8 +55,11 @@ async function clonedOutsideScan(repos: RepoStore, root: string, scanned: readon
   const seen = new Set(scanned);
   const found: string[] = [];
   for (const repo of repos.all()) {
-    const origin = cloneableOrigin(repo.originUrl);
-    if (!origin || seen.has(repo.path) || repo.path !== cloneTarget(root, origin)) continue;
+    const origin = parseCloneOrigin(repo.originUrl);
+    if (!origin || seen.has(repo.path)) continue;
+    // Clones on other hosts made before issue #141 landed at `<root>/<owner>/<repo>` too.
+    const targets = [cloneTarget(root, origin), join(root, ...origin.path)];
+    if (!targets.includes(repo.path)) continue;
     if (await hasGitDir(repo.path)) found.push(repo.path);
   }
   return found;

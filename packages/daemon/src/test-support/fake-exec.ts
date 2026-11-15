@@ -5,6 +5,7 @@ import type { Exec, ExecResult } from "../process/exec.js";
 export interface FakeCall {
   cmd: string;
   args: string[];
+  opts?: Parameters<Exec>[2];
 }
 
 type Responder = ExecResult | ((call: FakeCall) => ExecResult);
@@ -15,8 +16,8 @@ type Responder = ExecResult | ((call: FakeCall) => ExecResult);
  */
 export function fakeExec(routes: Record<string, Responder>): Exec & { calls: FakeCall[] } {
   const calls: FakeCall[] = [];
-  const fn = (async (cmd: string, args: string[]) => {
-    const call = { cmd, args };
+  const fn = (async (cmd: string, args: string[], opts?: Parameters<Exec>[2]) => {
+    const call: FakeCall = opts ? { cmd, args, opts } : { cmd, args };
     calls.push(call);
     const line = [cmd, ...args].join(" ");
     const key = Object.keys(routes)

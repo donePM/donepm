@@ -1,4 +1,6 @@
-export type DraftType = "pr" | "push" | "comment" | "review";
+import type { BranchUpdateVia } from "../pr/update-branch.js";
+
+export type DraftType = "pr" | "push" | "comment" | "review" | "update_branch" | "ticket_comment" | "ticket_transition";
 export type DraftState = "pending" | "approved" | "rejected" | "executed" | "failed";
 
 export interface PrDraftPayload {
@@ -96,6 +98,60 @@ export interface ReviewDraftResult {
   url: string;
 }
 
+/**
+ * Bring someone else's pull request up to date with its base (issue #148): `draft_update_branch`.
+ * The daemon fills in the PR and how (`@dependabot rebase` or `gh pr update-branch`); the user
+ * approves, the daemon asks as the user.
+ */
+export interface UpdateBranchDraftPayload {
+  number: number;
+  url: string;
+  base: string;
+  via: BranchUpdateVia;
+  /** The agent's word on why, shown to the user. */
+  reason: string;
+}
+
+export interface UpdateBranchDraftResult {
+  via: BranchUpdateVia;
+  /** The posted `@dependabot rebase` comment. */
+  url?: string;
+}
+
+/**
+ * A comment on the item's ticket (issue #139): `draft_ticket_comment`. The daemon adds the ticket's
+ * link; the user approves, the daemon posts it as the user, and the agent goes on.
+ */
+export interface TicketCommentDraftPayload {
+  /** `APP-123` */
+  key: string;
+  url: string;
+  /** Markdown; the daemon turns it into what the site takes (ADF on Cloud, wiki markup on Data Center). */
+  body: string;
+}
+
+export interface TicketCommentDraftResult {
+  id: string;
+  url?: string;
+}
+
+/**
+ * Moving the item's ticket to another status (issue #139): `draft_ticket_transition`. The transition
+ * was offered by Jira when the draft was made; `toStatus` is its target, shown to the user.
+ */
+export interface TicketTransitionDraftPayload {
+  key: string;
+  url: string;
+  transitionId: string;
+  toStatus: string;
+  /** Posted with the transition, in Markdown. */
+  comment?: string;
+}
+
+export interface TicketTransitionDraftResult {
+  status: string;
+}
+
 interface DraftBase {
   id: string;
   itemId: string;
@@ -128,7 +184,34 @@ export interface ReviewDraft extends DraftBase {
   result?: ReviewDraftResult;
 }
 
-export type Draft = PrDraft | PushDraft | CommentDraft | ReviewDraft;
+export interface UpdateBranchDraft extends DraftBase {
+  type: "update_branch";
+  payload: UpdateBranchDraftPayload;
+  result?: UpdateBranchDraftResult;
+}
+
+export interface TicketCommentDraft extends DraftBase {
+  type: "ticket_comment";
+  payload: TicketCommentDraftPayload;
+  result?: TicketCommentDraftResult;
+}
+
+export interface TicketTransitionDraft extends DraftBase {
+  type: "ticket_transition";
+  payload: TicketTransitionDraftPayload;
+  result?: TicketTransitionDraftResult;
+}
+
+export type Draft = PrDraft | PushDraft | CommentDraft | ReviewDraft | UpdateBranchDraft | TicketCommentDraft | TicketTransitionDraft;
+
+/** Drafts that change the ticket, not the code: approving one lets the agent go on (issue #139). */
+export const TICKET_DRAFT_TYPES: readonly DraftType[] = ["ticket_comment", "ticket_transition"];
+
+/** "Move APP-123 to In Review, with a comment". */
+export function ticketDraftTitle(d: TicketCommentDraft | TicketTransitionDraft): string {
+  if (d.type === "ticket_comment") return `Comment on ${d.payload.key}`;
+  return `Move ${d.payload.key} to ${d.payload.toStatus}${d.payload.comment ? ", with a comment" : ""}`;
+}
 
 const VERDICT_TITLE: Record<ReviewVerdict, string> = {
   APPROVE: "Approve",
@@ -155,9 +238,16 @@ export function pushTitle(p: Pick<PushDraftPayload, "commits" | "number" | "unco
   return `Push ${n} commit${n === 1 ? "" : "s"} to PR #${p.number}`;
 }
 
+/** "Update the branch of PR #85 (@dependabot rebase)". */
+export function updateBranchTitle(p: Pick<UpdateBranchDraftPayload, "number" | "via">): string {
+  return `Update the branch of PR #${p.number}${p.via === "dependabot" ? " (@dependabot rebase)" : ""}`;
+}
+
 /** The title a card shows for any draft. */
 export function draftTitle(d: Draft): string {
   if (d.type === "pr") return (d.userEdits ?? d.payload).title;
+  if (d.type === "update_branch") return updateBranchTitle(d.payload);
+  if (d.type === "ticket_comment" || d.type === "ticket_transition") return ticketDraftTitle(d);
   if (d.type === "comment") return repliesTitle(d.payload);
   if (d.type === "review") return reviewTitle(d.payload);
   const replies = d.payload.replies?.length ?? 0;

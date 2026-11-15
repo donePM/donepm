@@ -99,7 +99,7 @@ describe("toRows", () => {
     const answer = (id: string, response: object) =>
       msg("raw", { type: "control_response", response: { request_id: id, subtype: "success", response } });
     const stored = (requestId: string, state: PermissionAsk["state"]): PermissionAsk => ({
-      id: `ask-${requestId}`, itemId: "i1", requestId, toolName: "Bash", input: {}, state, rules: [],
+      id: `ask-${requestId}`, itemId: "i1", agentKind: "claude-code", requestId, toolName: "Bash", input: {}, subject: { kind: "tool", name: "Bash", input: {} }, state, rules: [],
     });
     type AskRow = Extract<Row, { type: "ask" }>;
 
@@ -139,7 +139,7 @@ describe("toRows", () => {
     });
 
     it("adds the reason an ask ended without the user's answer", () => {
-      const stored: PermissionAsk = { id: "a1", itemId: "i1", requestId: "q1", toolName: "Bash", input: {}, state: "expired", rules: [], outcomeReason: "donePM was not running when this was asked" };
+      const stored: PermissionAsk = { id: "a1", itemId: "i1", agentKind: "claude-code", requestId: "q1", toolName: "Bash", input: {}, subject: { kind: "tool", name: "Bash", input: {} }, state: "expired", rules: [], outcomeReason: "donePM was not running when this was asked" };
       const rows = toRows([asked("q1")], [stored]) as AskRow[];
       expect(askOutcomeText(rows[0]!)).toBe("expired: donePM was not running when this was asked");
     });

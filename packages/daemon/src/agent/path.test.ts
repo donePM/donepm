@@ -36,4 +36,12 @@ describe("filteredPath", () => {
     const dir = await filteredPath(brew, shims);
     expect((await readdir(dir)).sort()).toEqual(["node", "pnpm"]);
   });
+
+  it("leaves az out, so an agent cannot reach Azure DevOps (issue #141)", async () => {
+    const root = await mkdtemp(join(tmpdir(), "donepm-path-"));
+    const sdk = await bin(root, "azure-cli-bin", ["az", "python3"]);
+    const dir = await filteredPath(sdk, join(root, "shims"));
+    expect(dir).not.toBe(sdk);
+    expect(await readdir(dir)).toEqual(["python3"]);
+  });
 });

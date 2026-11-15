@@ -25,7 +25,11 @@ Labels: {{ labels }}
 2. Read the changed files, and enough of the code around them to judge the change.
 3. Look for bugs, missing or weak tests, security problems, unclear code, and changes the
    description does not mention. Say briefly what is good, too.
-4. Call the `draft_review` tool once, at the end, with:
+4. If the branch is behind `origin/{{ base }}` (`git log HEAD..origin/{{ base }}` lists commits)
+   and the base must be merged in before the pull request can be merged, you may call
+   `draft_update_branch` with a short `reason`. The user approves it and donePM updates the branch
+   (Dependabot is asked to rebase). Do not wait for it; go on with your review.
+5. Call the `draft_review` tool once, at the end, with:
    - `verdict`: `APPROVE`, `REQUEST_CHANGES` or `COMMENT`.
    - `body`: your summary in Markdown.
    - `comments`: inline comments, each with the file's `path`, the `line` in the new version of

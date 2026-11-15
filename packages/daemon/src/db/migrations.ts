@@ -221,4 +221,21 @@ export const MIGRATIONS: readonly Migration[] = [
   `ALTER TABLE items ADD COLUMN pr_status TEXT;`,
   // The user's per-item auto-merge choice for someone else's pull request (D47); NULL: the repo's default.
   `ALTER TABLE items ADD COLUMN auto_merge INTEGER;`,
+  // Auto-merge held after a refusal that passes (issue #146, D47), as JSON `{ head, mergeState }`.
+  `ALTER TABLE items ADD COLUMN auto_merge_held TEXT;`,
+  // The coding agent an item runs with (issue #136, D49), fixed once it has a session. NULL: not started
+  // yet, or started before there was a choice, which was Claude Code.
+  `ALTER TABLE items ADD COLUMN agent_kind TEXT;`,
+  // The agent that asked and what it asked about, in neutral words (issue #136). NULL: asked before,
+  // by Claude Code; the store derives the subject from the tool name and input.
+  `
+  ALTER TABLE asks ADD COLUMN agent_kind TEXT;
+  ALTER TABLE asks ADD COLUMN subject TEXT;
+  `,
+  // Whose protocol a transcript line is in (issue #136). NULL: the daemon's own line, or Claude Code's
+  // from before agents had a kind.
+  `ALTER TABLE transcript ADD COLUMN agent_kind TEXT;`,
+  // A ticket's repositories as a JSON array (issue #139); its origin_url is the one chosen, '' until then.
+  // NULL: an item of one repository, a GitHub issue or pull request.
+  `ALTER TABLE items ADD COLUMN repo_candidates TEXT;`,
 ];

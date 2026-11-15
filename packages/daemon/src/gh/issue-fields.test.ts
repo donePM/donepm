@@ -23,7 +23,7 @@ describe("fetchPriorityFields", () => {
       ["I_kwDOredacted12", null],
     ]);
     expect(exec.calls).toHaveLength(1);
-    expect(exec.calls[0]!.args).toEqual(["api", "graphql", "-f", `query=${issueFieldsQuery(ids)}`]);
+    expect(exec.calls[0]!.args).toEqual(["api", "graphql", "--hostname", "github.com", "-f", `query=${issueFieldsQuery(ids)}`]);
   });
 
   it("asks once per 100 issues", async () => {
@@ -68,7 +68,29 @@ describe("withPriorityFields", () => {
       [5, undefined, undefined],
     ]);
     expect(out.every((i) => !("nodeId" in i))).toBe(true);
-    expect(exec.calls[0]!.args[3]).not.toContain("PR_x");
+    expect(exec.calls[0]!.args[5]).not.toContain("PR_x");
+  });
+
+  it("asks each GitHub host for its own issues (issue #140)", async () => {
+    const exec = fakeExec({
+      "gh api graphql --hostname github.com": ok(fixture("gh/issue-fields.json")),
+      // A GitHub Enterprise Server without issue fields.
+      "gh api graphql --hostname github.acme.com": {
+        code: 1, stdout: fixture("gh/issue-fields-unsupported.json"), stderr: "gh: Field 'issueFieldValues' doesn't exist on type 'Issue'",
+      },
+    });
+    const ghe = issue(7, { nodeId: "I_kwDOghe7", repository: "team/app", url: "https://github.acme.com/team/app/issues/7" });
+    const out = await withPriorityFields(exec, [issue(161), ghe]);
+    expect(exec.calls.map((c) => c.args.slice(0, 4))).toEqual([
+      ["api", "graphql", "--hostname", "github.com"],
+      ["api", "graphql", "--hostname", "github.acme.com"],
+    ]);
+    expect(exec.calls[1]!.args[5]).toContain("I_kwDOghe7");
+    expect(exec.calls[1]!.args[5]).not.toContain("I_kwDOredacted161");
+    expect(out.map((i) => [i.number, i.priorityField, i.priorityUnread])).toEqual([
+      [161, "Medium", undefined],
+      [7, undefined, undefined],
+    ]);
   });
 
   it("marks issues whose fields could not be read", async () => {

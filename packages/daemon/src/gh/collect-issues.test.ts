@@ -1,4 +1,6 @@
 import type { WorkItem } from "@donepm/core";
+import { gitHubCliConnection, githubProviders } from "./adapter.js";
+import { providerRegistry } from "../providers/registry.js";
 import type { Config } from "../config/config.js";
 import { describe, expect, it } from "vitest";
 import { openDb } from "../db/database.js";
@@ -35,7 +37,7 @@ function setup(exec: Exec, log: Log = silentLog, sources: Config["sources"] = {}
   const pushed: WorkItem[] = [];
   const all = managedSources(sources);
   const deps = {
-    db, exec, log, ctx: testCtx(), sources: () => all,
+    db, exec, providers: githubProviders(exec), log, ctx: testCtx(), sources: () => all,
     items: new ItemStore(db), events: new EventStore(db), repos: new RepoStore(db), status: new StatusStore("0.0.0", "2026-09-01T00:00:00.000Z"),
     onItemUpdated: (i: WorkItem) => pushed.push(i),
   };
@@ -243,6 +245,17 @@ describe("collectIssues", () => {
       expect(deps.items.byExternalId("vuejs/core#15766")!.item.author).toBe("edison1105");
     });
 
+    it("starts pull requests with a playbook the repository offers them (#153)", async () => {
+      const exec = fakeExec({
+        ...ready,
+        "gh search issues": ok(fixture("gh/search-issues-empty.json")),
+        "gh search prs": ok(fixture("gh/search-prs.json")),
+      });
+      const { deps } = setup(exec);
+      await collectIssues({ ...deps, allowedPlaybooks: (_origin, source) => (source === "github-pr" ? ["audit"] : ["implement"]) });
+      expect(deps.items.all().map((s) => s.item.playbook)).toEqual(["audit", "audit"]);
+    });
+
     it("keeps the issues and skips missing checks when the review request search fails", async () => {
       let out = fixture("gh/search-issues.json");
       const exec = fakeExec({ ...ready, "gh search issues": () => ok(out), "gh search prs --review-requested=@me": fail("HTTP 502") });
@@ -351,7 +364,9 @@ describe("collectIssues", () => {
       // The recorded answer resolves the first pull request asked (#88, collected first) and not the second.
       const graphql = exec.calls.filter((c) => c.args[1] === "graphql");
       expect(graphql).toHaveLength(1);
-      expect(deps.items.byExternalId("donePM/donepm#88")!.item.prStatus).toEqual({ state: "OPEN", mergeable: "UNKNOWN", base: "main", checks: "SUCCESS" });
+      expect(deps.items.byExternalId("donePM/donepm#88")!.item.prStatus).toEqual({
+        state: "OPEN", mergeable: "MERGEABLE", mergeState: "BEHIND", head: "66d876d7066588704d137b3a93a093df60c4bd39", base: "main", checks: "SUCCESS",
+      });
       expect(deps.items.byExternalId("donePM/donepm#87")!.item.prStatus).toBeUndefined();
 
       // A reviewed pull request that left the searches is still read.
@@ -393,7 +408,7 @@ describe("collectIssues", () => {
       const repos = new RepoStore(db);
       repos.upsert({ id: "r1", path: "/c/widgets", originUrl: "github.com/acme/widgets", defaultBranch: "main" }, "t");
       const deps = {
-        db, exec, log: silentLog, ctx: testCtx(), sources: () => ({}),
+        db, exec, providers: githubProviders(exec), log: silentLog, ctx: testCtx(), sources: () => ({}),
         items: new ItemStore(db), events: new EventStore(db), repos, status: new StatusStore("0.0.0", "2026-09-01T00:00:00.000Z"),
         onItemUpdated: () => {},
       };
@@ -464,6 +479,94 @@ describe("collectIssues", () => {
       await collectIssues(deps);
       expect(Object.fromEntries(deps.items.all().map((s) => [s.item.externalId, s.item.id]))).toEqual(ids);
       expect(deps.items.all().map((s) => deps.events.forItem(s.item.id).length)).toEqual(eventsBefore);
+    });
+  });
+});
+
+describe("collectIssues on several GitHub hosts (issue #140)", () => {
+  const HOSTS = ["github.com", "github.acme.com", "acme.ghe.com"];
+  const GHE_SOURCES: Config["sources"] = {
+    "github.acme.com/team/app": { assignOnStart: false },
+    "acme.ghe.com/team/app": { assignOnStart: false },
+  };
+
+  /** gh answering per `GH_HOST` (searches) or `--hostname` (auth, graphql). */
+  function hostExec(loggedOut: () => readonly string[] = () => []) {
+    const hostOf = (args: string[], env?: Record<string, string>) => env?.GH_HOST ?? args[args.indexOf("--hostname") + 1]!;
+    const searched: Record<string, string> = { "github.com": "gh/search-issues.json", "github.acme.com": "gh/ghe-search-issues.json" };
+    const graphql: Record<string, string> = { "github.com": "gh/issue-fields.json", "acme.ghe.com": "gh/ghe-pr-status.json" };
+    return fakeExec({
+      "which gh": ok("/opt/homebrew/bin/gh\n"),
+      "gh auth status": ({ args }) =>
+        loggedOut().includes(hostOf(args)) ? fail(fixture("gh/auth-status-logged-out.stderr")) : ok(fixture("gh/auth-status-ok.stdout")),
+      "gh search issues": ({ args, opts }) => ok(fixture(searched[hostOf(args, opts?.env)] ?? "gh/search-issues-empty.json")),
+      "gh search prs": ({ args, opts }) =>
+        ok(fixture(hostOf(args, opts?.env) === "acme.ghe.com" && args[2] === "--review-requested=@me" ? "gh/ghe-search-prs.json" : "gh/search-prs-empty.json")),
+      "gh api graphql": ({ args }) => ok(fixture(graphql[hostOf(args)] ?? "gh/issue-fields-unsupported.json")),
+      "gh issue view": ok(fixture("gh/issue-view-open.json")),
+    });
+  }
+
+  /** One `gh` connection per host, as `connections` will configure them (issue #138). */
+  const onHosts = (exec: Exec) => providerRegistry(HOSTS.map((host, i) => gitHubCliConnection(exec, host, `github-${i}`)));
+
+  it("searches every host with GH_HOST and keeps the same repository name apart by host", async () => {
+    const exec = hostExec();
+    const { deps } = setup(exec, silentLog, GHE_SOURCES);
+    await collectIssues({ ...deps, providers: onHosts(exec) });
+
+    const searches = exec.calls.filter((c) => c.args[0] === "search").map((c) => [c.args[1], c.args[2], c.opts?.env?.GH_HOST]);
+    expect(searches).toEqual(HOSTS.flatMap((host) => [
+      ["issues", "--assignee=@me", host],
+      ["prs", "--review-requested=@me", host],
+      ["prs", "--assignee=@me", host],
+    ]));
+    expect(exec.calls.filter((c) => c.args[0] === "auth").map((c) => c.args)).toEqual(HOSTS.map((host) => ["auth", "status", "--hostname", host]));
+
+    const ids = deps.items.all().map((s) => [s.item.externalId, s.item.source, s.originUrl]);
+    expect(ids).toEqual(expect.arrayContaining([
+      ["github.acme.com/team/app#7", "github-issue", "github.acme.com/team/app"],
+      ["acme.ghe.com/team/app#42", "github-pr", "acme.ghe.com/team/app"],
+    ]));
+    expect(ids).toHaveLength(6);
+
+    // Issue fields asked of the host of each issue; the pull request's status of its own host.
+    expect(exec.calls.filter((c) => c.args[0] === "api").map((c) => c.args[3])).toEqual(["github.com", "github.acme.com", "acme.ghe.com"]);
+    const pr = deps.items.all().find((s) => s.item.externalId === "acme.ghe.com/team/app#42")!.item;
+    expect(pr.prStatus).toMatchObject({ state: "OPEN", checks: "PENDING", reviewDecision: "REVIEW_REQUIRED" });
+    expect(deps.status.get().ghHosts).toEqual({
+      "github.acme.com": { state: "ready", path: "/opt/homebrew/bin/gh", account: "octocat" },
+      "acme.ghe.com": { state: "ready", path: "/opt/homebrew/bin/gh", account: "octocat" },
+    });
+    expect(deps.status.get().lastPoll).toMatchObject({ ok: true, issues: 6 });
+  });
+
+  it("polls the other hosts when one is logged out, and asks nothing about the missing items of that host", async () => {
+    let loggedOut: string[] = [];
+    const exec = hostExec(() => loggedOut);
+    const { deps } = setup(exec, silentLog, GHE_SOURCES);
+    const poll = () => collectIssues({ ...deps, providers: onHosts(exec) });
+    await poll();
+    expect(deps.items.all()).toHaveLength(6);
+
+    // github.acme.com logs out: its issue is not seen, but not taken for closed either.
+    loggedOut = ["github.acme.com"];
+    deps.status.update({ ghHosts: { ...deps.status.get().ghHosts, "github.acme.com": { state: "not_logged_in" } } });
+    exec.calls.length = 0;
+    await poll();
+    expect(exec.calls.some((c) => c.opts?.env?.GH_HOST === "github.acme.com")).toBe(false);
+    expect(exec.calls.filter((c) => c.args[0] === "issue")).toEqual([]);
+    expect(deps.status.get().ghHosts?.["github.acme.com"]?.state).toBe("not_logged_in");
+    expect(deps.status.get().lastPoll).toMatchObject({ ok: false, error: "gh not_logged_in on github.acme.com", issues: 5 });
+    expect(deps.items.all().every((s) => !s.item.closedUpstream)).toBe(true);
+  });
+
+  it("does not poll when no host is ready", async () => {
+    const exec = hostExec(() => HOSTS);
+    const { deps } = setup(exec, silentLog, GHE_SOURCES);
+    await collectIssues({ ...deps, providers: onHosts(exec) });
+    expect(deps.status.get().lastPoll).toMatchObject({
+      ok: false, error: "gh not_logged_in on github.com; gh not_logged_in on github.acme.com; gh not_logged_in on acme.ghe.com",
     });
   });
 });

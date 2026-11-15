@@ -41,7 +41,7 @@ describe("isRuleOfferable", () => {
   });
 
   it("refuses the blocked commands in any spelling", () => {
-    for (const c of ["gh *", "gh", "gh:*", "gh pr list", "glab *", "jira *", "gh*", "/opt/homebrew/bin/gh *"]) {
+    for (const c of ["gh *", "gh", "gh:*", "gh pr list", "glab *", "jira *", "gh*", "/opt/homebrew/bin/gh *", "az boards *", "acli *", "security find-generic-password *", "/usr/bin/security *"]) {
       expect(isRuleOfferable(bash(c)), c).toBe(false);
     }
   });

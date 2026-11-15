@@ -36,8 +36,15 @@ SSO, unreachable from a SaaS. Ingest and agents must run where the developer sit
 module keeps an append-only event log so a later server is a sync, not a rewrite.
 
 **D8. Sources are accessed through logged-in CLIs (`gh`, later `glab`, `jira`).** They already
-work behind the developer's VPN and SSO. donePM stores no tokens. Token login is a fallback behind
-the same adapter interface.
+work behind the developer's VPN and SSO. Token login is a fallback behind the same adapter interface.
+
+Amended for API backends (#138, #139): a source reached over its REST API (Jira, Azure DevOps) needs
+a token that no CLI holds. That token lives in the macOS Keychain, one item per connection, written
+by the user through the settings or the CLI. Only the daemon reads it, at call time; it is never
+written to the config, the database, events or logs, and never passed to an agent (D9). The UI shows
+only whether a token is set. CLI backends keep their own login, as before. Why the Keychain: it is
+encrypted, bound to the user's login and reachable with the built-in `security` tool, while an
+environment variable would sit in the launchd plist and a config entry in plain text.
 
 **D9. Agents must not reach `gh`, `glab`, `jira` or `git push`.** Filtered `PATH` plus deny rules
 in the session, both. Otherwise Claude Code will use `gh` the moment it sees the binary and bypass
@@ -427,11 +434,284 @@ and it is mergeable, the card offers Merge; the click is the user's approval, li
 per-item "merge automatically" checkbox, defaulting to a per-repo setting that is off, lets the
 daemon merge as soon as those three hold; turning it on is the approval given in advance (D2). The
 merge leaves the author's branch alone (no `--delete-branch`). A refused auto-merge turns the
-item's checkbox off instead of retrying every poll. A reviewed PR stays on the board until GitHub
+item's checkbox off instead of retrying every poll. Issue #146 narrowed that: a branch behind its
+base (`mergeStateStatus` `BEHIND`) blocks the merge like failing checks, and a refusal that passes
+on its own (behind, checks pending, a branch moved) keeps the checkbox on, held until the PR's
+head commit or merge state changes, since Dependabot or the author usually updates the branch and
+the user expects the merge then. Issue #148 lets the user, or the review agent through a draft,
+ask for that update from donePM: Dependabot gets `@dependabot rebase` (a push by anyone else ends
+its maintenance of the PR), any other PR GitHub's "Update branch", a merge of the base, never a
+rebase of the author's commits. Both are requests to GitHub as the user; donePM still never pushes
+to someone else's branch. The agent's draft does not end its run, so its review still follows. A reviewed PR stays on the board until GitHub
 says it is merged or closed, so the merge stays in reach.
+
+**D48. Each repository chooses which playbooks each ingest offers; pull requests only read-only
+ones.** Issue #153. A repository's `sources` entry may list `playbooks.issue` and `playbooks.pr`.
+The card's dropdown and `PUT /api/items/:id/playbook` only take a playbook from the item's list, and
+a newly collected item starts with one of them. Without a list, issues get every playbook that is
+not read-only and pull requests get `review`, which is what the defaults (D40, D43, D47) already
+implied; a user who adds a second playbook to the global folder sees it offered on issue cards
+without configuring anything. Pull requests take only read-only playbooks even when a writing one
+is listed, because donePM never pushes to someone else's branch (D47): a writing playbook on a
+pull request would produce a PR draft it can never execute. The rule is a pure function in `core`
+(`allowedPlaybooks`), and `playbookChanged` throws for a name outside the set, so the daemon does
+not decide it. The daemon keeps each repository's loaded playbooks in memory, refreshed on start
+and on each poll, so the item view stays synchronous.
+
+**D49. The coding agent is chosen per item and fixed once a session exists.** Issue #136. Claude
+Code is the first of several coding agents behind one runner seam (`agent/adapter.ts`). The kind
+comes from the item, else its playbook's `agent`, else the repository source's `agent`, else
+`claude-code` (`chooseAgent` in `core`). `start` writes it onto the item, and from then on every
+resume and every new turn uses that kind: a session id means nothing to another agent, so mixing
+them would lose the conversation. Items started before #136 have a session and no kind; they read
+as `claude-code`, which is what ran them. Switching an item to another agent is a transition
+(`agentKindChanged`) the user takes only on a ready or failed item, and it drops the session, so the
+next start begins a new conversation; a running or waiting item has a live process and is stopped
+first. A playbook is checked against the agent it names, and again against the chosen agent when
+the item starts, because permission modes and effort levels are the agent's (`AGENT_CAPABILITIES`).
+
+**D50. Provider adapters: CLI or API per connection; credentials.** Issue #138. The daemon talks to
+a provider only through three roles: `TicketSource` (searches, a repository's query, fields, state,
+assign), `CodeHost` (clone, pull requests, reviews, merge) and `CiSource` (checks, failed logs,
+rerun). Each role is an interface in `daemon/src/providers/`. A *connection* in the config names
+one provider instance with `id`, `kind`, `host` and `backend`. Nothing outside an adapter runs a
+provider's CLI or calls its API. The daemon finds a connection by the host of an origin or URL.
+- `cli` uses the logged-in tool (`gh`, later `glab`, `acli`, `az`). It keeps D8's reasons: VPN,
+  SSO and the user's own login.
+- `api` uses REST through an injected `HttpClient`, with a token from the Keychain (D8 as
+  amended). It is for providers without a usable CLI login.
+
+Both backends sit behind the same interfaces and pass the same contract suites
+(`test-support/contracts/`). A second backend therefore cannot change what the daemon decides.
+
+Without a `connections` key, there is one connection: github.com through `gh`. Existing configs
+mean exactly what they did. With the key, the list is the whole set. A `sources` key and a clone
+need a connection for their host. The list is read at start, so a change saved through
+`PUT /api/settings` answers `restartRequired` and applies after a restart. Settings offers each
+host `gh auth status --json hosts` reports as logged in (never with `--show-token`) as one more
+`github` connection. Enabling a host does not add it to `allowedWebFetchDomains`: what the agent
+may fetch stays a separate choice (D31).
+
+Tokens: one Keychain item per connection, service `donepm` and account the connection's `id`.
+- Reading is `security find-generic-password -w`, on the daemon's own pipe. It is not cached past
+  the call.
+- Writing is `security -i`, with the command on stdin, so the token never shows in `ps`. A token
+  with blanks, quotes or backslashes is refused, because the interactive parser would mangle it,
+  and `security` echoes such input in its errors. Error text is scrubbed of the token.
+- Status and the UI learn only whether a token is set, from `find-generic-password` without `-w`.
+
+The agent's side gets more blocks:
+- `security`, `az` and `acli` join the deny list and the filtered `PATH` (D9).
+- `AZURE_DEVOPS_EXT_PAT` and `ATLASSIAN_API_TOKEN` are dropped from its environment.
+- `AZURE_CONFIG_DIR` points at the empty config directory.
+
+An item that `security` created trusts `security`, so an agent that spells out
+`/usr/bin/security` would get past both the deny rule and `PATH`; the token `gh` keeps in the
+Keychain is exposed the same way. The agent's sandbox closes that (#170), not a rule:
+- Claude Code's `--settings` sets `sandbox.filesystem.denyRead` to `~/Library/Keychains` (and the
+  absolute path under the agent's `HOME`). The Security framework reads the login keychain file in
+  the calling process, so inside the sandbox every lookup comes back "item not found". Tested with
+  `sandbox-exec` and a profile shaped like the one Claude Code generates: `/usr/bin/security` by
+  path, through `env`, `bash -c` and `osascript`'s `do shell script`, Python calling
+  `SecKeychainFindGenericPassword`, and `cp` or `ln` of the keychain file all fail. The same profile
+  without the deny hands the item out.
+- `Read(~/Library/Keychains/**)` is denied too: Read, Grep and Glob do not run in the sandbox.
+- Codex (#137) gets the same deny through a permission profile on its command line:
+  `default_permissions="donepm"`, `permissions.donepm.extends` set to `:workspace` or
+  `:read-only`, and `permissions.donepm.filesystem` mapping `~/Library/Keychains` and the absolute
+  path to `deny`. Codex's legacy `sandbox_mode` policies cannot deny a read; a profile can. Tested
+  with Codex 0.133.0 and no model turn: under `codex sandbox macos` a denied directory, including
+  the real `~/Library/Keychains`, fails with "Operation not permitted" in both spellings, while the
+  same command without the profile reads it; app-server's `command/exec` with these flags fails the
+  same way, the worktree stays writable and the network stays off. `thread/start` then reports
+  `activePermissionProfile` `donepm`; sending `sandbox` on `thread/start` drops the profile, so
+  donePM sends no `sandbox` and no `sandboxPolicy`. Not tested: a `security` lookup inside Codex's
+  sandbox (we rely on the same seatbelt mechanism tested above for Claude Code), and a real turn's
+  commands (the live test covers that).
+- Deny rules for `/usr/bin/security`, `env security`, `/usr/bin/env security`, `command`, `exec`
+  and `xcrun` stay as defence in depth. They are bypassable and are not the fix. Codex has no
+  such rules; donePM declines an escalation that runs a blocked command, but commands inside the
+  sandbox run without asking.
+
+What remains open:
+- Claude Code's sandbox always allows the mach lookups of `com.apple.SecurityServer` and
+  `com.apple.securityd.xpc`, and no setting removes them. Denying them would also stop the read,
+  but we cannot. Items in the data protection keychain (iCloud Keychain, apps with an access group)
+  are served by `securityd` over that channel, not from a file; a command-line tool without the
+  entitlement gets none of them, and neither donePM's tokens nor `gh`'s live there.
+- A tool that does not run in the sandbox and is not the Read family, such as an MCP server the
+  user configured, is not covered. MCP servers stay behind their permission asks (D27).
+- A git credential helper backed by the Keychain (`osxkeychain`) fails inside the sandbox, so an
+  agent's `git fetch` over https from a private remote fails. That is intended.
+- Whether Codex's seatbelt profile also allows the `securityd` mach lookups is not checked; the
+  same data protection keychain caveat applies at most. Codex is assumed to start MCP servers
+  outside its sandbox, as Claude Code does, so the same MCP caveat holds; not checked either.
+- The live checks (`DONEPM_LIVE=1`, `runner.live.test.ts`, `runner.codex.live.test.ts`) are the
+  proof against the real CLIs; they are not run in CI.
+
+The PR and CI watchers work per connection: a PR is watched while its own host is ready, so one
+logged-out host no longer stops the watching of the others.
+
+Status reports one `ConnectionStatus` per connection: `not_installed`, `not_logged_in`,
+`unreachable`, `unauthorized` or `ready`. `status.gh` stays for the UI and the CLI. Items keep
+their ids: GitHub's stay `owner/repo#N` (`host/owner/repo#N` off github.com, #140). A future kind
+names its own ids with a prefix such as `jira:KEY`, so no stored id changes meaning.
+
+**D51. Jira auth: the deployment is set, not guessed.** Issue #139. A `jira` connection has
+`backend: "api"`, a `baseUrl` and a `deployment`, and is never matched to a repository origin.
+- `cloud`: REST API v3, Basic auth with the account's `email` and an Atlassian API token. The
+  email is required in the config.
+- `datacenter`: REST API v2, a personal access token as `Bearer`.
+- Username and password, OAuth and Connect apps are out of scope.
+
+The deployment is a setting rather than a probe on every call: a proxy or an SSO page can answer
+`serverInfo` with something misleading, and the two auth schemes fail differently. "Test" in
+Settings (`POST /api/connections/:id/test`) reads `/rest/api/2/serverInfo` and says when the
+setting does not match the site, then checks the token against `/myself`. Health uses `/myself`
+alone: `ready`, `unauthorized` (also without a token) or `unreachable`.
+
+The base URL must be https, without query, fragment or user info. It may carry a context path
+(`https://jira.acme.com/jira`). Its host is the connection's host, and two connections may not
+share one.
+
+The token is set, replaced and deleted with `PUT`/`DELETE /api/connections/:id/token`, from
+Settings or `donepm token set|delete <id>` (stdin or a prompt that does not echo, never argv). The
+endpoint accepts the token once, writes it to the Keychain (D50) and answers only `tokenSet`. A
+`cli` connection refuses a token. `JIRA_TOKEN`, `JIRA_PAT`, `JIRA_PERSONAL_TOKEN` and
+`ATLASSIAN_TOKEN` join the variables dropped from the agent's environment.
+
+**D52. Azure Repos: one organization per connection, `az rest` or a PAT, clones below the host.**
+Issue #141. An `azure-devops` connection serves one organization on `dev.azure.com`, because
+organizations share the host and a PAT belongs to one organization. It is matched to an origin by
+host and organization.
+
+- Both backends speak the same REST API. `cli` goes through `az rest` with the Azure DevOps
+  resource id, signed in with `az login`, rather than `az repos pr create` or `az devops invoke`:
+  one request mapping and one set of fixtures serve both backends, and `az repos` would need the
+  `azure-devops` extension and its own login. `api` sends a personal access token from the
+  Keychain (D50) as Basic auth. The token is read at call time and never logged or answered.
+- Clones off github.com go to `<repoRoot>/<host>/<path…>`, GitHub Enterprise included, because an
+  Azure origin has four segments and `owner/repo` on two hosts can collide. github.com keeps
+  `<repoRoot>/<owner>/<repo>`; earlier GitHub Enterprise clones at that path are still recognised.
+- A PR description longer than Azure DevOps' 4000 characters is shortened with a note rather than
+  refused, so an approved draft is not lost to the limit.
+- What Azure DevOps has no adapter for yet (feedback, replies, reviews, merging others' PRs,
+  updating a branch) answers "not supported on Azure DevOps yet" instead of
+  pretending to succeed. The contract tests list these parts per adapter.
+
+**D53. Azure Pipelines: the code host judges, the build's organization explains.** Issue #143. A
+PR's checks come from its code host alone (`gh pr checks`, or the PR's policy evaluations on Azure
+Repos), never from both sides, so one build is never counted twice by asking two systems.
+
+- The same build still reaches GitHub through several checks (the pipeline, each job, an older
+  "Azure Pipelines" status on `visualstudio.com`). `countOnce` makes the build, or the build and
+  job, one check; the attempt that started last wins, so a rerun replaces the failure it reruns.
+- Logs and rerun of a failed Azure Pipelines check go to the `azure-devops` connection serving the
+  organization in its link, whatever hosts the PR. GitHub has neither for a build it only shows.
+- Rerun retries the failed stages without `forceRetryAllJobs`, which reruns the failed jobs only,
+  like `gh run rerun --failed`. Requeueing the policy would rebuild everything.
+- `partiallySucceeded` counts as passed: only steps marked to continue on error failed; an
+  unknown completed result counts as failed rather than passing silently.
+- Only Build and Status policies count as CI on Azure Repos; reviewer and work item policies are
+  review, not CI, and a disabled policy does not block.
+- Pipelines that do not report to the host are an opt-in per repository (`sources[origin].ci`)
+  naming their definitions; donePM does not guess which pipelines belong to a repository. Their
+  builds are read by branch and the worktree's `HEAD`, the commit the PR was pushed from, and
+  replace the PR's checks rather than adding to them.
+
+**D54. Codex runs through `codex app-server`, with what it cannot do refused.** Issue #137. Codex is
+the second agent behind the adapter of D49 (`daemon/src/agent/codex/`).
+
+- **App server, not `codex exec`.** `exec` runs one prompt and exits. Its approvals cannot be
+  answered from outside, and it has no steering or interrupt. `app-server --listen stdio://` is
+  JSON-RPC with the same lifecycle as Claude Code's stream-json:
+  - one process per item;
+  - `thread/start` or `thread/resume`, then `turn/start`;
+  - `turn/steer` for the composer;
+  - `turn/interrupt` for Stop;
+  - server requests for approvals, which become asks with the neutral subject.
+
+  Unknown messages are stored raw, as for Claude Code.
+- **Permission modes:**
+  - `default` maps to the `:read-only` permission profile and `acceptEdits` to `:workspace`. Both
+    use approval policy `on-request`, with the reviewer `user`.
+  - `plan` and `bypassPermissions` are refused, not widened. Codex has no plan mode, and bypass
+    would mean `never` with full access, which opens the network.
+  - Network is off in both profiles. D50 has the Keychain deny that rides on the same profile.
+- **Asks:**
+  - "Allow for this run" is Codex's own `acceptForSession`, so it needs no rules
+    (`runAccept`).
+  - "Always allow" is not offered, because Codex has no rule grammar donePM could write per
+    repository (D38).
+  - A decline carries no text, so the user's reason follows as a `turn/steer`.
+  - The daemon declines an escalation that would run `gh`, `git push`, `az`, `acli` or `security`.
+    That is defence in depth; the sandbox is the barrier.
+- **MCP registration:**
+  - donePM's draft tools reach Codex as the server `donepm-draft-gate`, through
+    `-c mcp_servers.donepm-draft-gate.*`.
+  - The name is one nobody types. `-c` merges into a user's server of the same name leaf by leaf,
+    and Codex reports such a mix as healthy.
+  - Its tools run without a question (`default_tools_approval_mode="approve"`), because they only
+    create drafts the user approves anyway.
+- **Token:** the bridge token is never on argv, because the agent can run `ps`. The daemon writes it
+  to a 0600 file and passes only the path (`DONEPM_TOKEN_FILE`) to the shim, which reads it. The
+  file is removed when the process exits.
+- **Cost:** Codex reports tokens and no price. Cards and the item page show tokens for it, never
+  "$0.00" (`reportsCost`).
+- **Choosing Codex:** the card picks the agent on a Ready or Failed item (`PUT /api/items/:id/agent`,
+  through `agentKindChanged`). The dropdown appears once Codex is installed. Playbooks and
+  repositories can name it too (D49).
+
+**D55. Jira tickets: ids carry the connection, the user picks among several repositories.** Issue
+#139. A ticket's id is `<connection>:<KEY>` (`jira:APP-123`), so it never collides with a GitHub id
+and names the connection its updates and drafts go through, even with two Jira sites. A Jira
+project does not map to one repository, so each ticket source lists its `repos`. With one the
+ticket goes there; with several the user picks per ticket, as an event (`item.repo_chosen`) through
+a core transition, because guessing from components or labels would put an agent in the wrong
+repository. The choice is open until the first start and fixed afterwards, like the playbook. The
+ticket keeps its candidates (`repo_candidates`) and the chosen origin in `origin_url`, which is
+empty until then; the board shows such tickets when any candidate is managed.
+
+The description comes from `renderedFields` and is turned into Markdown (`turndown`), not from the
+ADF or wiki source: one path serves Cloud and Data Center, and the UI sanitises Markdown already.
+Priority goes by the priority's name, since its ids differ per site. Closed detection batches
+`key in (…)` and falls back to single reads when Jira rejects a batch for one deleted key; a key
+Jira no longer knows stays undecided rather than closed. A 429 skips that connection for the poll
+instead of waiting inside it.
+
+**D56. Ticket drafts name a transition Jira offers, and the agent goes on after them.** Issue #139.
+The agent can propose a comment on its ticket or a move to another status, as drafts like any
+other outward effect; the key always comes from the item, so a draft cannot touch another ticket.
+The agent names a move by id, name or target status, because workflows differ per project and an
+agent knows "In Review" rather than "31"; the daemon resolves it against the transitions Jira
+offers when the draft is created, so the user approves a concrete transition id and a typo is
+refused at once with the list. A transition whose screen requires fields (a resolution, say) is
+refused: donePM would have to guess their values, and the user can move such a ticket in Jira.
+The move and its comment go in one request, so both land or neither does. Comments are written in
+Markdown and converted per deployment with established libraries (`marklassian` for Cloud's ADF,
+`jira2md` for Data Center's wiki markup). Neither draft ends the agent's work, so after one the
+agent goes on, as after `update_branch` (D47).
+
+**D57. Azure Boards work items: the same ticket source, categories decide what is finished.**
+Issue #142. A work item's id is `<connection>:<id>` (`ado:1234`) as for Jira (D55); a numeric key
+tells it apart and shows as `#1234`. Boards uses the `azure-devops` connection of D52 and its
+transport: `az rest` rather than `az boards`, so both backends send the same REST calls, the
+fixtures serve both, and no extension is needed.
+
+- WIQL cannot ask for a state category, so the default query leaves out the common finished
+  state names and the results are filtered by the category of their state, read per type and
+  kept. `Completed` and `Removed` are finished; an unknown category counts as open, so a custom
+  process loses nothing silently.
+- A work item is linked to its PR by the host's own mechanism: `AB#<id>` in a GitHub PR's
+  description, `workItemRefs` on an Azure Repos PR of the same organization. The agent's PR title
+  is left alone.
+- A state change with a comment is two calls (state patch, then the Markdown comments API), not
+  atomic: a failed comment says the state already moved.
+- Comments and state changes reach Azure Boards only as the ticket drafts of D56. Boards lets a
+  work item go to any state of its type, so every other state is offered as a transition, its
+  id the state's name.
 
 ## Open (not decided)
 
 - Whether the playbook should tell the agent to commit. D25 covers what it leaves behind.
-- Jira Cloud vs Server auth details. Decide when the Jira adapter starts.
 - Team/server component. Not before a second user asks.

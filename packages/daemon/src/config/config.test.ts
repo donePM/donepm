@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ConfigError, DEFAULT_CONFIG, loadConfig, parseConfig, providerOf } from "./config.js";
+import { ConfigError, DEFAULT_CONFIG, loadConfig, parseConfig } from "./config.js";
 import { expandHome, pathsFor } from "./paths.js";
 
 describe("config", () => {
@@ -19,6 +19,7 @@ describe("config", () => {
       archiveAfterHours: 24,
       deleteAfterDays: 7,
       sources: {},
+      ticketSources: [],
       allowedWebFetchDomains: ["github.com", "raw.githubusercontent.com", "docs.github.com", "nodejs.org", "developer.mozilla.org", "npmjs.com"],
     });
   });
@@ -90,6 +91,25 @@ describe("sources", () => {
     expect(parseConfig('{"sources":{"github.com/o/r":{}}}').sources["github.com/o/r"]).not.toHaveProperty("ignored");
   });
 
+  it("accepts the playbooks offered per ingest (#153)", () => {
+    const c = parseConfig(JSON.stringify({
+      sources: { "github.com/o/r": { playbook: "fix", playbooks: { issue: ["implement", "fix"], pr: ["review"] } } },
+    }));
+    expect(c.sources["github.com/o/r"]).toEqual({
+      playbook: "fix",
+      playbooks: { issue: ["implement", "fix"], pr: ["review"] },
+      assignOnStart: false,
+    });
+  });
+
+  it("rejects empty or unknown ingest lists and a default outside the issue playbooks (#153)", () => {
+    expect(() => parseConfig('{"sources":{"github.com/o/r":{"playbooks":{"issue":[]}}}}')).toThrow(/playbooks/);
+    expect(() => parseConfig('{"sources":{"github.com/o/r":{"playbooks":{"mr":["x"]}}}}')).toThrow(ConfigError);
+    expect(() => parseConfig('{"sources":{"github.com/o/r":{"playbook":"fix","playbooks":{"issue":["implement"]}}}}')).toThrow(
+      /default playbook must be one of/,
+    );
+  });
+
   it("rejects an ignored flag that is not a boolean", () => {
     expect(() => parseConfig('{"sources":{"github.com/o/r":{"ignored":"yes"}}}')).toThrow(/ignored/);
   });
@@ -97,15 +117,18 @@ describe("sources", () => {
   it("rejects keys that are not normalised, other providers and unknown fields", () => {
     expect(() => parseConfig('{"sources":{"https://github.com/o/r":{}}}')).toThrow(/normalised origin/);
     expect(() => parseConfig('{"sources":{"GitHub.com/o/r":{}}}')).toThrow(/normalised origin/);
-    expect(() => parseConfig('{"sources":{"gitlab.com/o/r":{}}}')).toThrow(/only github.com/);
+    expect(() => parseConfig('{"sources":{"gitlab.com/o/r":{}}}')).toThrow(/sources.gitlab.com\/o\/r: no connection for gitlab.com/);
     expect(() => parseConfig('{"sources":{"github.com/o/r":{"query":""}}}')).toThrow(/query/);
     expect(() => parseConfig('{"sources":{"github.com/o/r":{"jql":"x"}}}')).toThrow(ConfigError);
   });
 
-  it("derives the provider from the host", () => {
-    expect(providerOf("github.com/o/r")).toBe("github");
-    expect(providerOf("gitlab.com/o/r")).toBeUndefined();
-    expect(providerOf("constructor/o/r")).toBeUndefined();
+  it("takes sources on the hosts its connections serve", () => {
+    const connections = '[{"id":"acme","kind":"github","host":"github.acme.com"}]';
+    const c = parseConfig(`{"connections":${connections},"sources":{"github.acme.com/team/app":{"managed":true}}}`);
+    expect(c.connections).toEqual([{ id: "acme", kind: "github", backend: "cli", host: "github.acme.com" }]);
+    // A connections list is the whole set: github.com is no longer implied.
+    expect(() => parseConfig(`{"connections":${connections},"sources":{"github.com/o/r":{}}}`)).toThrow(/no connection for github.com/);
+    expect(() => parseConfig('{"sources":{"constructor/o/r":{}}}')).toThrow(/no connection for constructor/);
   });
 });
 

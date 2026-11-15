@@ -58,8 +58,10 @@ functions. `daemon` calls them and persists the result.
 | field | type | notes |
 |---|---|---|
 | id | uuid | |
-| source | `github-issue` \| `github-pr` | `github-pr`: a pull request that requests the user's review (D40) |
-| externalId | string | `owner/repo#123` |
+| source | `github-issue` \| `github-pr` \| `jira-issue` \| `ado-work-item` | `github-pr`: a pull request that requests the user's review (D40); `jira-issue`: a Jira ticket (6.12); `ado-work-item`: an Azure Boards work item (6.13) |
+| externalId | string | `owner/repo#123`; `host/owner/repo#123` on a GitHub host other than github.com (6.10); `<connection>:<KEY>` for a ticket (`jira:APP-123`, 6.12; `ado:1234`, 6.13) |
+| repoCandidates | string[]? | a ticket's repositories by normalised origin, the union of its ticket sources' `repos` (6.12); absent for GitHub items |
+| repoOrigin | string? | a ticket's repository: the only candidate, or the user's choice (`item.repo_chosen`); fixed once the agent started |
 | externalUrl | string | |
 | repoId | uuid | |
 | title | string | |
@@ -78,6 +80,7 @@ functions. `daemon` calls them and persists the result.
 | author | string? | `github-pr`: the PR author's login, `dependabot[bot]` for Dependabot (D47) |
 | prStatus | object? | `github-pr`: `{ state, closedAt?, mergeable, base, reviewDecision?, viewerReview?, checks? }` in GitHub's words, read each poll (6.2, D47) |
 | autoMerge | boolean? | `github-pr`: the card's "Merge automatically"; absent: the repo's `autoMerge` decides (6.2, D47) |
+| autoMergeHeld | object? | `github-pr`: `{ head, mergeState }` of the PR when an auto-merge failed for a passing reason; it waits until either changes (6.2, D47) |
 | archivedAt | datetime? | set once by `archived` (6.8); an archived item is off the board and in the Archive (12.5) |
 | createdAt, updatedAt | datetime | |
 
@@ -138,10 +141,13 @@ stays) and `worktree.remove_skipped` (merged, but the worktree has uncommitted c
 6.5, `ci.started`, `ci.passed`, `ci.failed` and `ci.marked_done` (see 6.6), `pr.conflicted`,
 `pr.conflict_resolved` and `pr.conflict_dismissed` (see 6.7), `pr.feedback` and
 `pr.feedback_dismissed` (see 6.9), `pr.commented` (actor `user`, payload `{ body }`: the user posted a
-comment on someone else's PR from its card, 6.2, D47), `pr.merged` (payload `{ method, auto }`;
+comment on someone else's PR from its card, 6.2, D47), `pr.branch_updated` (actor `user`, payload
+`{ via }`: the user clicked Update branch on the card, 6.2, D47), `pr.merged` (payload `{ method, auto }`;
 actor `user` for the card's Merge, `system` for auto-merge), `pr.merge_failed` (actor `system`,
-payload `{ method, auto, error }`: auto-merge failed and was turned off for the item) and
-`pr.auto_merge_set` (actor `user`, payload `{ on }`), all 6.2 and D47, `item.archived` (actor `system`,
+payload `{ method, auto, error, staysOn }`: auto-merge failed; `staysOn` false: it was turned off
+for the item, true: the reason passes and it stays on, held) and
+`pr.auto_merge_set` (actor `user`, payload `{ on }`), all 6.2 and D47, `item.repo_chosen` (actor
+`user`, payload `{ origin }`: the user picked a ticket's repository, 6.12), `item.archived` (actor `system`,
 payload `{ finishedAt }`, see 6.8), `item.refreshed` (actor `system`, payload `{ changed: {
 priority?, title?, labels? } }`, each `{ from, to }` and only the fields that changed, see 6.2). `agent.resumed` carries
 `reason: "ci_failed"` when the user let the agent fix a red CI, `reason: "pr_conflict"` when it
@@ -153,11 +159,11 @@ resolves a merge conflict, `reason: "pr_feedback"` when it addresses review feed
 |---|---|---|
 | id | uuid | |
 | itemId | uuid | |
-| type | `pr` \| `push` \| `comment` \| `review` | |
-| payload | JSON | for `pr`: `{ title, body, base }`; for `push`: `{ summary, number, url, branch, commits, uncommitted, replies? }`; for `comment`: `{ number, url, replies }`. A reply is `{ body, inReplyTo? }` (6.9); for `review`: `{ number, url, commitId, verdict, body, comments }`, a comment `{ path, line, body }` (D43) |
+| type | `pr` \| `push` \| `comment` \| `review` \| `update_branch` \| `ticket_comment` \| `ticket_transition` | |
+| payload | JSON | for `pr`: `{ title, body, base }`; for `push`: `{ summary, number, url, branch, commits, uncommitted, replies? }`; for `comment`: `{ number, url, replies }`. A reply is `{ body, inReplyTo? }` (6.9); for `review`: `{ number, url, commitId, verdict, body, comments }`, a comment `{ path, line, body }` (D43); for `update_branch`: `{ number, url, base, via, reason }`, `via` `dependabot` \| `update-branch` (6.2, D47); for `ticket_comment`: `{ key, url, body }`; for `ticket_transition`: `{ key, url, transitionId, toStatus, comment? }` (6.12) |
 | state | `pending` \| `approved` \| `rejected` \| `executed` \| `failed` | |
 | userEdits | JSON? | the payload after user edits |
-| result | JSON? | for `pr`: `{ url, number }`; for `push`: `{ sha, posted? }`; for `comment`: `{ posted }`; for `review`: `{ id, url }`. `posted` lists `{ index, url }` per reply out, written after each one so a retry skips them |
+| result | JSON? | for `pr`: `{ url, number }`; for `push`: `{ sha, posted? }`; for `comment`: `{ posted }`; for `review`: `{ id, url }`; for `update_branch`: `{ via, url? }` (`url` of the Dependabot comment); for `ticket_comment`: `{ id, url? }`; for `ticket_transition`: `{ status }`. `posted` lists `{ index, url }` per reply out, written after each one so a retry skips them |
 
 ### 4.5 PermissionAsk
 
@@ -189,7 +195,7 @@ resolves a merge conflict, `reason: "pr_feedback"` when it addresses review feed
 |---|---|---|
 | id | uuid | |
 | path | string | local clone |
-| originUrl | string | normalised: `github.com/owner/repo` |
+| originUrl | string | normalised: `github.com/owner/repo`; Azure Repos: `dev.azure.com/org/project/repo`, lower case, blanks kept (6.11) |
 | defaultBranch | string | from `git symbolic-ref refs/remotes/origin/HEAD` |
 | setup | JSON? | from `.donepm/setup.yml`, see 7.3 |
 
@@ -203,10 +209,14 @@ config under `sources`, keyed by `originUrl`, not in `.donepm/` (see 14). Per re
 | managed | boolean | default `false`: donePM collects and starts work only in managed repos (D46) |
 | autoMerge | boolean? | default `false`: default of the card's "Merge automatically" for others' PRs (6.2, D47) |
 | mergeMethod | `squash` \| `merge` \| `rebase`? | default `squash`: how others' PRs are merged here (6.2, D47) |
-| playbook | string? | default playbook of issues newly collected here (8.3); absent: chosen by `match`. Pull requests keep `review` (D40) |
+| playbook | string? | default playbook of issues newly collected here (8.3); absent: chosen by `match`. Must be one of `playbooks.issue` when that is set. Pull requests keep `review` (D40) |
+| agent | `claude-code` \| `codex`? | the coding agent items here run with, unless the playbook names one (D49). Absent: `claude-code` |
+| playbooks | `{ issue?: string[], pr?: string[] }`? | the playbooks each ingest may run here (8.3, D48). Absent `issue`: every playbook that is not read-only. Absent `pr`: `["review"]`. `pr` only ever takes read-only playbooks (D47) |
+| ci | `{ source: "azure-pipelines", definitions: number[], organization?, project? }`? | pipelines that run in Azure Pipelines without reporting to the host: CI is read from their builds by branch instead of the PR's checks (6.6, D53). `organization` and `project` default to an Azure Repos origin's own; any other origin names them, and a connection must serve the organization. Only the config file sets it; the settings form keeps it |
 
-The provider follows from the host. Only `github.com` is supported; GitLab (issue list params via
-`glab api`) and Jira (JQL) can be added without changing the format. Other hosts are rejected.
+The provider follows from the host: a `sources` key is accepted only when a connection (14, D50)
+serves its host, and for `dev.azure.com` its organization. Without a `connections` config that is `github.com` alone. GitLab (issue list
+params via `glab api`) and Jira (JQL) can be added without changing the format.
 
 ### 4.7 Transcript message
 
@@ -236,17 +246,37 @@ Keep the raw line always. Decode what is known. Never fail on unknown event type
 - Clone (issue #37): for a `github.com` origin, the daemon (never the agent)
   runs `gh repo clone <owner>/<repo> <repoRoot>/<owner>/<repo>`. Read-only towards GitHub and the
   user's click, so no draft. `gh` uses the user's auth and protocol and sets `upstream` for forks.
+  Every other host clones below its host name, so equal names on two hosts never meet:
+  `gh repo clone <host>/<owner>/<repo> <repoRoot>/<host>/<owner>/<repo>` for GitHub Enterprise,
+  `git clone https://dev.azure.com/<org>/<project>/_git/<repo> <repoRoot>/dev.azure.com/<org>/<project>/<repo>`
+  for Azure Repos (6.11, D52). A GitHub Enterprise clone made before #141 at
+  `<repoRoot>/<owner>/<repo>` is still recognised as its origin's clone.
   - Target exists: a clone of the same origin is registered without cloning; an empty folder is
     cloned into; anything else (a clone of another origin, a repo without origin, a folder with
     files, a file) is refused with 409 and never touched.
   - Success: the clone is registered directly in `repos`, independent of the scan rules, and every
     item of the origin is relinked. A rescan keeps a stored clone that sits at
-    `<repoRoot>/<owner>/<repo>` of its own origin even where the scan does not look (an owner
+    its clone path (above) of its own origin even where the scan does not look (an owner
     named `vendor` or starting with `.`).
   - Failure: nothing is registered; the stderr tail stays on the items until the next try.
   - One clone per origin at a time. `.donepm/setup.yml` (7.3) applies per worktree, not here.
 
 ## 6. GitHub adapter
+
+The daemon reaches providers through three roles, each an interface in `daemon/src/providers/`
+(D50):
+
+- `TicketSource`: the default searches, a repository's query, fields, ticket state, assign.
+- `CodeHost`: clone, pull requests, review feedback, replies, reviews, merge, update branch.
+- `CiSource`: checks, failed logs, rerun.
+
+A connection (14) picks the adapter and its backend: `cli` (a logged-in tool) or `api` (REST with a
+Keychain token, D8). The registry finds a role by the host of an origin or URL. A host with no
+connection gets "no connection for <host>". GitHub through `gh` is the first adapter, and it
+implements all three roles. The rest of this section is that adapter. Status lists one entry per
+connection, `{ id, kind, backend, state, detail? }`, where `state` is one of `not_installed`,
+`not_logged_in`, `unreachable`, `unauthorized` or `ready`. `status.gh` stays as it was. An `api`
+connection's entry also has `tokenSet`; without a token it is `unauthorized` and nothing is sent.
 
 ### 6.1 Detection
 
@@ -256,6 +286,8 @@ On start and on Settings open:
 - `gh auth status` → logged in or not.
 - Show state in Settings: `not installed` / `not logged in` / `ready`. Show `brew install gh`
   and `gh auth login` as copyable hints. Button: "Check again".
+- Alongside, `claude` (`which`, `--version`, `auth status`) and the optional helpers (`which <cmd>`,
+  `<cmd> --version`; today `playwright-cli`). A missing helper only shows as such (12.4).
 
 ### 6.2 Polling
 
@@ -284,7 +316,7 @@ On start and on Settings open:
   still read:
   ```
   gh api graphql -f query='query { pr0: repository(owner: "o", name: "r") { pullRequest(number: 88) {
-    number state closedAt mergeable reviewDecision viewerLatestReview { state } baseRefName
+    number state closedAt mergeable mergeStateStatus headRefOid reviewDecision viewerLatestReview { state } baseRefName
     commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } } ... }'
   ```
   The answer becomes the item's `prStatus`; a changed one is saved and pushed, without an event
@@ -292,12 +324,26 @@ On start and on Settings open:
   used. A failure leaves the stored status as it is.
 - Merge (D47). Someone else's PR may be merged once nothing blocks it (`mergeBlockers` in `core`):
   state `OPEN`, the item `ready` or `done`, the user's own review `APPROVED`, checks (if any)
-  `SUCCESS`, and `mergeable` `MERGEABLE`, all as of the last poll. The card's Merge runs
+  `SUCCESS`, `mergeable` `MERGEABLE`, and `mergeStateStatus` not `BEHIND` (branch protection wants
+  the branch up to date with its base: "the branch is behind <base>; waiting for it to be updated"),
+  all as of the last poll. The card's Merge runs
   `gh pr merge N --repo host/o/r --squash|--merge|--rebase` as the user, without
   `--delete-branch` (the author's branch is theirs), and commits `reviewedPrMerged`. After the PR
   status and the CI watch, each poll merges every such PR whose item has auto-merge on (its own
   `autoMerge`, else the repo's), with the repo's `mergeMethod`. A failed auto-merge records
-  `pr.merge_failed` and turns `autoMerge` off for that item, so it is not retried every poll.
+  `pr.merge_failed`. A refusal that passes on its own (`mergeFailurePasses` in `core`: not up to
+  date with the base branch, base or head branch modified, required checks pending or expected,
+  mergeability unknown) keeps `autoMerge` as it was and sets `autoMergeHeld` to the PR's `head`
+  and `mergeStateStatus`; it is tried again once either differs (`autoMergeDue`), or when the user
+  ticks the box again. Any other refusal turns `autoMerge` off for that item, so it is not retried
+  every poll.
+- Update branch (issue #148, D47). While the last poll read someone else's open PR as `BEHIND`
+  (`branchUpdateBlocker` in `core`), the card offers Update branch; the click is the approval. A
+  Dependabot PR (author `dependabot[bot]`) gets the comment `@dependabot rebase` (`gh pr comment`),
+  since a push by anyone else makes Dependabot stop maintaining it. Any other PR gets
+  `gh pr update-branch N --repo host/o/r`, GitHub's "Update branch", a merge of the base (not
+  `--rebase`, which rewrites the author's commits). It records `pr.branch_updated`; the state stays.
+  The review agent can propose the same with `draft_update_branch` (6.3).
 - Validate output with a schema (zod). On schema failure: log the raw output, do not crash, show
   an error badge in Settings.
 - Priority (D45). After all sources answered, one call per 100 polled issues reads GitHub's
@@ -382,13 +428,21 @@ gh api --hostname <host> --method POST repos/<o>/<r>/pulls/<n>/reviews --input <
 `<tmp>` (0600) holds `{ commit_id, event, body, comments: [{ path, line, side: "RIGHT", body }] }`.
 Result `{ id, url }`, `draft.executed`, item `done`. A failure stops the draft with step `review`.
 
+An `update_branch` draft (issue #148) updates the branch like the card's Update branch (6.2):
+`@dependabot rebase` for Dependabot, else `gh pr update-branch`. Result `{ via, url? }`, then
+`draft.executed` moves the item `needs_you` → `running` and the agent is told to go on with its
+review: a live process hears it, otherwise its session is resumed. The review draft still comes
+after it. A failure stops the draft with step `update_branch`. Rejected, the agent is told to leave
+the branch and finish the review.
+
 ### 6.4 Assign on start
 
 When the item's repo has `assignOnStart`, `start` also runs
 `gh issue edit <n> --repo <owner/repo> --add-assignee @me` in the background and records
 `item.assigned` or `item.assign_failed` (with the reason). Neither changes the state; a failure does
 not stop the agent. The daemon runs this, never the agent (decision D28). Only for `github-issue`
-items: a PR under review is someone else's.
+items: a PR under review is someone else's. Jira tickets (6.12) and Azure Boards work items (6.13)
+are assigned through their ticket source when its entry has `assignOnStart`.
 
 ### 6.5 PR state
 
@@ -441,6 +495,33 @@ every check finished.
   - **Mark done**: `ci.marked_done`, item `done`. Also offered while `checking`.
 
 A failed `gh` call is logged and retried on the next poll; the item stays `checking`.
+
+Azure Pipelines (issue #143, D53). The PR's code host is the one authority for its checks: `gh pr
+checks` on GitHub and GitHub Enterprise, the PR's policy evaluations on Azure Repos (6.11). Every
+check then goes through `countOnce` before the verdict: checks linking to the same Azure Pipelines
+build (`dev.azure.com/<org>/<project>/_build/results?buildId=N` or `<org>.visualstudio.com/...`,
+project name or id), and the same job when the link has `jobId`, are one check; the attempt that
+started last wins, then a finished one, then the one finished last. Other checks stay as they are.
+
+- A failed check linking to an Azure Pipelines build gets its log and rerun from the
+  `azure-devops` connection serving that build's organization, whatever hosts the PR; without one
+  it has no log and its rerun says "no connection for the Azure DevOps organization …". Every other
+  failed check goes to the host as above.
+- Logs: `GET {project}/_apis/build/builds/{id}/timeline`, the failed `Task` records with a log, in
+  order, only those under the link's job when it names one; then `GET .../logs/{logId}` per task
+  (text, or JSON `{ value: [lines] }`), last 40 lines, timestamps, ANSI and BOM stripped. A check
+  with several failed tasks gets each under a `── <task> ──` header.
+- Rerun: from the timeline, the failed `Stage` records; `PATCH .../builds/{id}/stages/{identifier}`
+  with `{ state: "retry", forceRetryAllJobs: false }` per stage, which reruns the failed jobs only.
+  A build without a failed stage says so. The run key in `ci.failed`/`ci.started` is the build's
+  canonical URL; GitHub Actions runs keep their id.
+- `sources[origin].ci` (4.6): pipelines that do not report to the host. For such a repository the
+  watch never reads the PR's checks; it lists `GET {project}/_apis/build/builds?definitions=…&
+  branchName=refs/heads/<branch>&queryOrder=queueTimeDescending&$top=50`, keeps the newest build
+  per definition of the worktree's `HEAD` commit (any commit when `HEAD` cannot be read), and maps
+  `status`/`result`: not `completed` → pending, `succeeded`/`partiallySucceeded` → pass, `canceled`
+  → cancel, anything else → fail. A definition without such a build has no check yet, so the 60 s
+  grace applies as for late checks.
 
 ### 6.7 Merge conflicts
 
@@ -529,6 +610,147 @@ gh api --hostname <host> --method POST repos/<o>/<r>/pulls/<n>/comments/<thread>
 
 `inReplyTo` must be a thread from a `pr.feedback` of this item; anything else is refused when the
 draft is created, so a reply cannot land on an unrelated thread.
+
+### 6.10 Other GitHub hosts
+
+GitHub Enterprise Server and GHE.com work like github.com, through the same `gh` (issue #140).
+Each host is one `github` connection with its `host` (`gitHubCliConnection(exec, host, id)`);
+github.com is the one there is without a `connections` config. Which hosts the user enables is
+configured with connections (issue #138).
+
+- An item off github.com keeps its host in `externalId`: `github.acme.com/team/app#7`, so two
+  repositories of the same name on two hosts never merge. github.com ids stay `owner/repo#N`.
+- `gh` is logged in to each host on its own: detection runs `gh auth status --hostname <host>` per
+  host. github.com's state is `status.gh`, the others are `status.ghHosts[host]`; Settings shows a
+  row per host with `gh auth login --hostname <host>` as the hint.
+- `gh search` takes no `--hostname`: the poll sets `GH_HOST=<host>` for the searches of each
+  host. `gh api` takes `--hostname <host>` (issue fields, PR status, feedback, replies, reviews).
+  Every `--repo` names the host off github.com (`host/owner/repo`), and so does `gh repo clone`.
+- A host that is not logged in, or whose searches fail, is skipped and reported; the other hosts
+  are polled. Its items are not checked for closing until it answers again. CI, auto-merge and PR
+  watching go per host too: a PR waits while its own host is not ready.
+- Settings > Tools lists the connections with their `ConnectionStatus`, and offers every host
+  `gh auth status --json hosts` reports as logged in as one more `github` connection. Using one
+  saves `connections` and applies after a restart. It does not touch `allowedWebFetchDomains`.
+- The agent's environment drops `GH_HOST` and the tokens, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` included, and `gh` stays
+  behind the same shim and empty config directory as on github.com: GitHub Enterprise is no way
+  out either.
+
+### 6.11 Azure DevOps Repos
+
+Azure Repos on Azure DevOps Services is a code host (issue #141, D52). One `azure-devops`
+connection serves one organization on `dev.azure.com`; several organizations are several
+connections. Azure DevOps Server (on premises) is out of scope.
+
+- Origins: `https://dev.azure.com/org/project/_git/repo`, `https://org@dev.azure.com/...`,
+  `git@ssh.dev.azure.com:v3/org/project/repo` and `https://org.visualstudio.com/project/_git/repo`
+  all normalise to `dev.azure.com/org/project/repo`, lower case, `%20` decoded to a blank. A PR's
+  web URL is `https://dev.azure.com/org/project/_git/repo/pullrequest/<id>`.
+- Backends: `cli` calls the REST API through `az rest --resource 499b84ac-…` with the user's
+  `az login`; `api` calls it with a personal access token from the Keychain (D50) as Basic auth.
+  The REST calls are the same either way, `api-version=7.1`. A 401 or a 203 sign-in page is
+  `unauthorized`, no answer is `unreachable`.
+- Health: `cli` runs `az --version` (else `not_installed`) and `az account show` (else
+  `not_logged_in`, "run az login"); `api` reads `_apis/connectionData` and shows the token's user.
+  The watchers skip a `cli` connection whose last health check was not ready.
+- Clone (5): `git clone` of the https URL by the daemon, `GIT_TERMINAL_PROMPT=0`, with the user's
+  git credential helper.
+- PR draft (6.3): the daemon pushes the branch, then `POST
+  {project}/_apis/git/repositories/{repo}/pullrequests` with `refs/heads/` source and target, the
+  title, and the body as `description`, shortened to Azure DevOps' 4000 characters with a note.
+  The result is `{url, number}` from `pullRequestId`.
+- PR state (6.5): `GET .../pullrequests/{id}`. `status` `active` → `OPEN`, `completed` →
+  `MERGED` (`closedDate` as `mergedAt`), `abandoned` → `CLOSED`; `mergeStatus` `conflicts` →
+  `CONFLICTING`, `succeeded` → `MERGEABLE`, anything else `UNKNOWN`. An unknown `status` throws.
+- CI (6.6, issue #143): `GET .../pullrequests/{id}` for the project id, then `GET
+  {project}/_apis/policy/evaluations?artifactId=vstfs:///CodeReview/CodeReviewId/{projectId}/{id}`
+  (`api-version=7.1-preview.1`). Enabled Build and Status policies are checks; reviewer and other
+  policies are not. `approved` → pass, `rejected`/`broken` → fail, `notApplicable` → skipping,
+  anything else pending. A build policy is named by its `displayName`, else its pipeline, and links
+  to its build; a status policy by `genre/name`.
+- Not yet: review feedback (6.9), replies, posting reviews, merging others' PRs and updating a
+  branch say "not supported on Azure DevOps yet"; others' PRs (D47) are not read there.
+- The agent never reaches it: `az` is filtered from `PATH` and denied (`Bash(az *)`), `git push`
+  is denied whatever the remote, `AZURE_DEVOPS_EXT_PAT` is dropped and `AZURE_CONFIG_DIR` points at
+  an empty directory.
+
+### 6.12 Jira tickets
+
+Issue #139, D51, D55. A `jira` connection is a ticket source only: code and pull requests stay on
+the repository's code host.
+
+- **Ticket sources.** `ticketSources` (14) lists queries against a Jira connection, each with the
+  repositories its tickets are worked in. Each poll runs every entry's JQL (default
+  `assignee = currentUser() AND statusCategory != Done`) with paging: Cloud `GET
+  /rest/api/3/search/jql` with `nextPageToken`, Data Center `GET /rest/api/2/search` with
+  `startAt`/`maxResults`, 100 a page, at most 10 pages. Fields are listed explicitly, with
+  `expand=renderedFields`.
+- **Mapping.** `externalId` `<connection>:<KEY>`, `externalUrl` `<baseUrl>/browse/<KEY>`. The body is
+  the rendered description HTML turned into Markdown with scripts, styles, frames and forms
+  dropped; the UI sanitises it again (12.2) and links no `@name` or `#123` in it. Labels are the
+  labels, components and the issue type. Priority by name: Highest/Blocker 0, High/Critical 1,
+  Medium/Major 2, Low/Lowest/Minor/Trivial 3, anything else 2. Done tickets
+  (`statusCategory.key = done`) are not collected.
+- **Repository.** A ticket's candidates are the union of the `repos` of the entries that found it.
+  With one, the item is linked to it. With several, it waits in a "Choose a repository" lane
+  until the user picks one on the card (`POST /api/items/:id/repo`, core `repoChosen`, event
+  `item.repo_chosen`); Start answers 409 until then. The choice can change until the agent first
+  starts. A ticket is on the board when its chosen repository, or any candidate before the
+  choice, is managed (D46).
+- **Naming.** Branch `dp/<KEY>-<slug>`; the PR title starts with the key (`APP-123: …`).
+- **Closed upstream.** Missing tickets are checked in batches of 100 with `key in (…)`,
+  `fields=status`; `done` closes them as in 6.2. When Jira refuses the batch (400, e.g. a deleted
+  key), each key is read alone (`GET /issue/<KEY>?fields=status`); a 404 stays undecided.
+- **Assign on start** (6.4): when the entry for the item's repository has `assignOnStart`, `PUT
+  /issue/<KEY>/assignee` with the `accountId` (Cloud) or `name` (Data Center) of `/myself`.
+- **Errors.** A 429 ends that connection's searches for the poll, with the `Retry-After` in the
+  error; its items are left as they are. Other failures are a source error as in 6.2.
+- **Ticket drafts** (D56). A playbook with `ticket` in `drafts` gives the agent
+  `draft_ticket_comment` and `draft_ticket_transition` (10), always for the item's own ticket.
+  A transition is named by id, name or target status and checked when the draft is created against
+  `GET /issue/<KEY>/transitions?expand=transitions.fields`; one Jira does not offer is refused with
+  the list it does, and so is one with required fields that have no default (other than a comment).
+  Nothing goes to Jira before approval. Approved, the daemon posts `POST /issue/<KEY>/comment`, or
+  `POST /issue/<KEY>/transitions` with the comment in the same call; the body is Markdown turned
+  into ADF for Cloud (v3) and wiki markup for Data Center (v2). Like `update_branch` (6.3), the
+  draft needs no worktree, `draft.executed` moves the item `needs_you` → `running` and the agent
+  goes on. A failure stops the draft with step `ticket`.
+- The agent never reaches Jira: the daemon holds the token (D51); outward effects are drafts.
+
+### 6.13 Azure Boards work items
+
+Issue #142, D57. An `azure-devops` connection (6.11) is also a ticket source: `ticketSources` (14)
+entries may name it like a Jira connection. All calls go through the connection's transport
+(`az rest` or the REST API with the Keychain token), `api-version=7.1`.
+
+- **Ticket sources.** Each entry's WIQL (default: assigned to `@Me`, state not `Closed`, `Done`,
+  `Removed`, `Completed` or `Cut`, newest change first) runs as `POST {project}/_apis/wit/wiql?$top=200`,
+  in the entry's `project` when it has one (the default then adds `[System.TeamProject] =
+  @project`), else across the organization. A link query's targets are the work items. The ids
+  of all entries are read together with `POST _apis/wit/workitemsbatch`, 200 at a time,
+  `errorPolicy: omit` (a work item that cannot be read is left out), with the fields listed.
+- **Finished.** A state's category, read once per project and work item type from `GET
+  {project}/_apis/wit/workitemtypes/{type}/states`, decides: `Completed` and `Removed` are
+  finished, anything else is open, also a category donePM does not know. Finished work items are
+  not collected and close their item upstream (6.2); one whose category cannot be read stays
+  undecided.
+- **Mapping.** `externalId` `<connection>:<id>`, shown as `#1234`; `externalUrl` the work item's
+  `_links.html`, else `https://dev.azure.com/{org}/{project}/_workitems/edit/{id}`. The body is the
+  description, then the acceptance criteria and the repro steps under their own headings, each
+  HTML turned into Markdown as for Jira. Labels are the tags and the work item type.
+  `Microsoft.VSTS.Common.Priority` 1–4 is tier 0–3, anything else 2.
+- **Repository and naming** as for Jira (6.12): candidates from the entries' `repos`, branch
+  `dp/<id>-<slug>`. The PR title is the agent's; the work item is linked instead: a GitHub PR's
+  description gets `AB#<id>` on its own line (the Azure Boards app for GitHub links it), an Azure
+  Repos PR of the same organization is created with `workItemRefs`.
+- **Assign on start** (6.4): `GET _apis/connectionData` for the signed-in user's account, then
+  `PATCH _apis/wit/workitems/{id}` (`application/json-patch+json`) setting `System.AssignedTo`.
+- **Ticket drafts** (`draft_ticket_comment`, `draft_ticket_transition`, D56) work on work items
+  too. `ticket_transitions` lists every other state of the work item's type, each with the state's
+  name as its id. Approved, a comment is `POST
+  {project}/_apis/wit/workItems/{id}/comments?format=markdown` (`7.1-preview.4`); a move is a
+  `System.State` patch, then its comment as a second call. Nothing reaches Azure DevOps before the
+  user approves, and the agent never reaches it (6.11).
 
 ## 7. Worktrees
 
@@ -652,11 +874,12 @@ Frontmatter fields:
 | field | required | values |
 |---|---|---|
 | name | yes | unique |
+| agent | no | the coding agent that runs it: `claude-code` or `codex` (D49, D54). Absent: the repo's `agent`, else `claude-code`. The other fields are checked against that agent's capabilities |
 | model | yes | passed to `--model` |
 | effort | no | passed to `--effort` |
 | permission_mode | yes | `default` \| `acceptEdits` \| `plan` \| `bypassPermissions` |
 | read_only | no | `true`: no edit or web tools, project settings not loaded (9.1, D42); needs `permission_mode: default` and no `pr` draft |
-| drafts | yes | list of allowed draft types: `[pr]`, `[review]`; `pr` also allows `draft_push` and `draft_comment` |
+| drafts | yes | list of allowed draft types: `[pr]`, `[review]`, `[pr, ticket]`; `pr` also allows `draft_push` and `draft_comment`, `ticket` allows `draft_ticket_comment`, `draft_ticket_transition` and `ticket_transitions` (6.12). The default `implement` has `[pr, ticket]` |
 | match.source | no | source filter |
 | match.labels | no | any of these labels |
 
@@ -672,9 +895,31 @@ default branch).
   `choosePlaybook(item, candidates)` with providers (rules, jev.ai, Claude). Not in MVP.
 - A repo's `sources[origin].playbook` (4.6) wins for its newly collected issues; existing items
   keep theirs.
-- User changes via dropdown → `item.playbook_changed` event.
+- A repo's `sources[origin].playbooks` (4.6, D48) limits what each ingest may run: issues get the
+  listed ones (default: every playbook that is not read-only), pull requests the listed read-only
+  ones (default: `review`). A new item starts with the repo's default playbook if it is allowed,
+  else the built-in default (`implement`, `review`) if allowed, else the first allowed by name.
+  Core's `allowedPlaybooks` computes the set; the item view carries it as `allowedPlaybooks`.
+- User changes via dropdown → `item.playbook_changed` event. The transition throws for a playbook
+  outside the allowed set.
 
 ## 9. Agent runner
+
+The runner speaks to every coding agent through one seam (issue #136, D49). An adapter
+(`daemon/src/agent/adapter.ts`) builds the process's arguments and maps each stdout line to neutral
+events (`AgentEvent` in `core`): session bound, turn started, message, raw, live, tool started and
+finished, ask, usage, turn ended. It also puts user turns and ask answers into the agent's own words.
+The runner acts on those events only; it holds no agent's protocol, tool names or program name.
+Asks are stored with the agent that asked and a neutral subject (command, file change, network,
+question, tool) that the ask panel draws from; transcript lines carry the agent whose protocol they
+are in. "Allow for this run" rules, "Always allow" grants and the WebFetch auto-allow apply only to
+an agent that reports rules or a fetch host and has the capability; any other agent asks every time.
+Claude Code is the first adapter (`agent/claude/`); the rest of this section describes it. Codex
+(`agent/codex/`, issue #137) is the second: `codex app-server --listen stdio://` over JSON-RPC, its
+sandbox a permission profile on the command line, `plan` and `bypassPermissions` refused, "Allow for
+this run" its own `acceptForSession`, no "Always allow", and donePM's MCP server registered as
+`donepm-draft-gate` with the token in a 0600 file (D54, D50). Its transcript lines get their own
+presenter in the web (`transcript/codex-rows.ts`).
 
 ### 9.1 Start
 
@@ -705,7 +950,10 @@ Notes:
   `PATH` to a filtered copy without the directories that contain them. Also add deny rules via
   `--settings` for `Bash(gh *)`, `Bash(git push*)`. Both together.
 - The same `--settings` enables the Bash sandbox (D27): `enabled`, `autoAllowBashIfSandboxed`,
-  `allowUnsandboxedCommands: false`, and `filesystem.allowWrite` for the user's cache directories.
+  `allowUnsandboxedCommands: false`, `filesystem.allowWrite` for the user's cache directories, and
+  `filesystem.denyRead` for `~/Library/Keychains` (D50, #170). The permissions also deny
+  `Read(~/Library/Keychains/**)` and, as defence in depth only, `security` spelled out by path or
+  behind `env`, `command`, `exec` or `xcrun`.
   A network connection from Bash arrives as a `can_use_tool` ask with `tool_name`
   `SandboxNetworkAccess` and input `{ host }`; the UI shows it as "Network access".
   `GH_CONFIG_DIR` and `GLAB_CONFIG_DIR` point at an empty directory under the data dir.
@@ -912,6 +1160,10 @@ Tools in MVP:
 | `draft_push` | `{ summary, replies? }` | only after the item's PR exists; the daemon adds the PR, branch and the commits the PR lacks (`git log origin/<branch>..HEAD`); creates Draft `push`, item → `needs_you`. Refused without a PR, or with no commits and nothing uncommitted. `replies`: `[{ body, inReplyTo? }]`, posted after the push (6.9) |
 | `draft_comment` | `{ replies }` | replies to review feedback without a push; only after the item's PR exists; creates Draft `comment`, item → `needs_you`. Refused without a PR, without replies, or with an `inReplyTo` that is no known thread (6.9) |
 | `draft_review` | `{ verdict, body, comments? }` | only for a `github-pr` item; `verdict` `APPROVE` \| `REQUEST_CHANGES` \| `COMMENT`, a comment `{ path, line, body }`. The daemon adds the PR and the reviewed commit; creates Draft `review`, item → `needs_you`. Refused without a body (except `APPROVE`) or with a line that is not on the new side of `git diff origin/<base>...HEAD` (D43) |
+| `draft_update_branch` | `{ reason }` | only for a `github-pr` item the last poll read as `BEHIND` its base; creates Draft `update_branch`, item → `needs_you`. Approved, the daemon updates the branch (6.2, 6.3) and the agent goes on with its review. Allowed where the playbook allows `review` drafts |
+| `draft_ticket_comment` | `{ body }` | only for a ticket item (6.12); creates Draft `ticket_comment` on the item's own ticket, item → `needs_you`. Approved, the daemon posts it and the agent goes on. Allowed where the playbook allows `ticket` drafts |
+| `draft_ticket_transition` | `{ to, comment? }` | only for a ticket item; `to` is a transition's id or name, or the status it leads to, checked against Jira now; creates Draft `ticket_transition`, item → `needs_you`. Approved, the daemon moves the ticket and the agent goes on |
+| `ticket_transitions` | – | lists the transitions the item's ticket offers now, read-only. Allowed with `ticket` drafts |
 | `whoami` | – | returns item id, branch, worktree path, repo, and `baseBranch` for a review |
 
 A tool call not allowed by the playbook returns an error result (`isError: true`) with text, not a
@@ -927,7 +1179,7 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | GET | `/api/archive` | archived items, newest archived first (12.5) |
 | GET | `/api/items/:id` | item + events + drafts + asks; archived items too |
 | POST | `/api/items/:id/start` | create worktree, run setup, start agent; 409 when the repo is not managed (D46) |
-| PUT | `/api/items/:id/playbook` | `{ playbook }`: the card's playbook choice, `item.playbook_changed`; only on a `ready` item that never started (409 otherwise), 400 for a playbook the item's repo does not have |
+| PUT | `/api/items/:id/playbook` | `{ playbook }`: the card's playbook choice, `item.playbook_changed`; only on a `ready` item that never started (409 otherwise), 400 for a playbook the item's repo does not have, 409 for one the repo does not offer the item's ingest (D48) |
 | POST | `/api/items/:id/say` | `{ text }`: a note from the user to the running agent, written to its stdin as the next user message; it joins the running turn. 409 when the agent is not running, 400 for an empty or too long note |
 | GET | `/api/items/:id/transcript?after=<id>` | paged transcript |
 | POST | `/api/asks/:id/answer` | `{ behavior: allow\|deny, scope?: run\|always, answers?, message? }` |
@@ -946,6 +1198,7 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/items/:id/feedback/address` | waiting review feedback with a worktree and session; fetches the PR branch, resumes the agent with it (6.9). 202 |
 | POST | `/api/items/:id/feedback/dismiss` | waiting review feedback → `done` (6.9) |
 | POST | `/api/items/:id/pr/comment` | `{body}`: `gh pr comment` on a `github-pr` item's PR as the user, `pr.commented`; 502 with gh's message when it fails (D47) |
+| POST | `/api/items/:id/pr/update-branch` | Update branch on a `github-pr` item's PR as the user (`@dependabot rebase` or `gh pr update-branch`), `pr.branch_updated`; 409 unless the last poll read it `BEHIND`, 502 with gh's message (6.2, D47) |
 | POST | `/api/items/:id/pr/merge` | `{method}`: `gh pr merge` on a `github-pr` item's PR, `pr.merged`; 409 with the blockers, 502 with gh's message (6.2, D47) |
 | PUT | `/api/items/:id/auto-merge` | `{on}`: the item's "Merge automatically", `pr.auto_merge_set` (D47) |
 | POST | `/api/items/:id/dismiss` | closed upstream, not running → `done` (D32); 409 otherwise |
@@ -955,10 +1208,15 @@ Base: `http://127.0.0.1:6174`. Bind to localhost only.
 | POST | `/api/repos/rescan` | |
 | POST | `/api/repos/clone` | `{ origin }`; clones into `<repoRoot>/<owner>/<repo>` (5). 202 `{ origin, path, result: "started" }`, the outcome arrives as `repo.*` pushes; 200 with `result: "cloned"` when a clone of the origin was at the target already; 400 for an origin donePM cannot clone; 409 while it clones, when it has a clone, or the target is occupied. A clone makes the origin managed (D46) |
 | PUT | `/api/repos/:id` | `{ managed: boolean }`; manages or stops managing the repo's origin (D46). Managing polls at once |
+| PUT | `/api/connections/:id/token` | `{ token }`: writes the `api` connection's token to the Keychain (D51); answers `{ id, tokenSet: true }`, never the token. 400 for a `cli` connection, 404 for an unknown id, 502 when the Keychain refuses |
+| DELETE | `/api/connections/:id/token` | removes it: `{ id, tokenSet: false }` |
+| POST | `/api/connections/:id/test` | checks a saved connection now, before a restart: `{ id, ok, state, detail?, tokenSet?, deployment? }` (Jira: `serverInfo`, then `/myself`) |
 | GET/PUT | `/api/settings` | PUT is partial; `sources` is replaced as a whole. A new `worktreeRoot` with item worktrees under the old one needs `?worktrees=move\|leave`, else 409 `{ worktreesAtOldRoot }` and nothing saved; with move the answer has `worktrees: { moved, skipped }` (7.1) |
 | POST | `/api/sources/test` | `{ origin, query }`; runs the query once: `{ count, issues }` (first 10) |
-| GET | `/api/status` | CLI detection, daemon version, pid, `startedAt`, running agents, last poll and scan, `pollErrors` (the last 5 failed polls, newest first) |
-| GET | `/api/playbooks` | `{ globalDir, playbooks, problems }`: global playbooks, then each repo's own with `scope` and `overridesGlobal`; broken files as problems (12.4) |
+| POST | `/api/items/:id/repo` | `{ origin }`: a ticket's repository among its candidates, `item.repo_chosen` (6.12). 400 for an origin that is no candidate, 409 once the agent started, 404 for an unknown item |
+| POST | `/api/ticket-sources/test` | `{ connection, query? }`: runs the JQL once: `{ ok: true, count, issues }` (first 10, `{ externalId, title, url }`) or `{ ok: false, error }`; 409 when the connection is not running yet |
+| GET | `/api/status` | CLI detection (`gh`, `claude`, and `helpers` by id: installed, path, version), daemon version, pid, `startedAt`, running agents, last poll and scan, `pollErrors` (the last 5 failed polls, newest first) |
+| GET | `/api/playbooks` | `{ globalDir, playbooks, problems }`: global playbooks, then each repo's own with `scope` and `overridesGlobal`; each with its frontmatter, `match`, `body`, the MCP `tools` its drafts offer, its starting `permissions` (`allow`, `deny`), and for a global copy of a shipped playbook `builtIn` (`default` or `edited`); broken files as problems (12.4) |
 | GET | `/api/daemon` | version, pid, port, `startedAt`, `service` (`launchd` \| `manual`), config, database path and size, log file (launchd only), playbooks folder |
 | POST | `/api/daemon/restart` | 202, then exits with 75 so launchd starts it again (13); 409 when started by hand |
 | POST | `/api/daemon/open` | `{ what: logs\|playbooks }`: opens the log file or the global playbooks folder in Finder; 409 when there is none |
@@ -1024,7 +1282,8 @@ for the whole view on a phone). Every scroll container is positioned, so visuall
   asked for (PR draft, push draft, replies draft, review draft, permission, CI failed, conflict,
   review, interrupted, failed), else merged / closed upstream / done, else "PR · <author>" on a
   `github-pr` item, else the first label (bug red, feature indigo). Then the title and the other
-  labels. Cost (`$0.41`) shows on cards; tokens only on the item page and in the Agents view.
+  labels. Cost (`$0.41`) shows on cards; tokens only on the item page and in the Agents view. An
+  agent that reports no price (Codex) shows its tokens on the card instead, never `$0.00` (D54).
 - Card variants: running (indigo border, "running · 6:12" with a dot, branch and current tool in
   mono, Transcript / Stop, cost); waiting for CI (pulsing dot, one badge per check, green with a
   tick when passed, "name · 1:20" while pending, PR link); PR draft (amber card, "waiting 14 min",
@@ -1033,9 +1292,12 @@ for the whole view on a phone). Every scroll container is positioned, so visuall
   merged (green badge, PR link, "worktree removed · $0.65"); no clone and closed upstream are ghost
   cards with a dashed border.
 - Ready card: a select "implement · opus" (global playbooks plus the repo's own, a repo playbook
-  overriding a global one of the same name) and "Start" with a play icon. The select is enabled
+  overriding a global one of the same name, limited to the item's `allowedPlaybooks`, D48; a plain
+  label when there is only one) and "Start" with a play icon. The select is enabled
   only on a ready item that never started; a change is saved at once (`PUT
-  /api/items/:id/playbook`). Cards without local repo: greyed out, with
+  /api/items/:id/playbook`). Once Codex is installed, a second select picks the agent ("Claude
+  Code" or "Codex", showing the one the next start uses) on a ready or failed item; a change is
+  saved at once (`PUT /api/items/:id/agent`) and drops the item's session (D49). Cards without local repo: greyed out, with
   "No local clone under <repoRoot>" and a Clone button (5) whose tooltip names the target. While
   it clones the button reads "Cloning…" and is disabled; a refused or failed clone shows its
   message under it. Once cloned the card links the clone and Start appears, no rescan needed.
@@ -1160,7 +1422,7 @@ for the whole view on a phone). Every scroll container is positioned, so visuall
 
 Routes `/settings/<section>`, `/settings` opens General. A section nav on the left, grouped
 Workspace (General, Repositories with the number of clones), Agents (Agents & access, Playbooks) and
-System (Tools with a status dot, Daemon); below 820 px it sits above the content. Each section is a
+System (Tools, Daemon); Agents & access and Tools each carry a status dot; below 820 px it sits above the content. Each section is a
 page with a title, one lead line and panels; each panel saves on its own.
 
 - **General.** "Folders and branches": repo root, worktree root, branch prefix. Saving a new
@@ -1177,16 +1439,21 @@ page with a title, one lead line and panels; each panel saves on its own.
   managed clones (D46) with a filter, "Show ignored (n)" for the unmanaged ones (muted, badge
   "ignored"; shown without asking while nothing is managed, so a fresh install can pick) and
   Rescan. Columns: repository with its path, base branch, source query (or "assigned to you") with
-  the last poll's result or error, options as badges (assigns on start, the default playbook, merges
-  automatically, `setup.yml`), the number of worktrees, Edit. Edit opens a row below with the query
+  the last poll's result or error, options as badges (assigns on start, the default playbook, the
+  playbooks offered per ingest when not the default, merges automatically, `setup.yml`), the number of worktrees, Edit. Edit opens a row below with the query
   field, Test (count) and "Open in GitHub" (the repo's issue list with this query, to refine it
-  there and paste it back), the default playbook (8.3), and switches for assign on start (6.4),
+  there and paste it back), the default playbook (8.3, only among those offered for issues),
+  checkboxes for the playbooks offered for issues (any) and for pull requests (read-only ones,
+  D48), and switches for assign on start (6.4),
   "Ignore this repository" (= not managed), and for others' PRs "Merge automatically" with the merge
   method (D47); Save and Cancel. "Without a clone" lists managed repos that have no local clone
   ("Stop managing") and repos the poll found on GitHub without a clone, with their item count and
   "Clone and manage". "Worktrees without an item" (hidden when empty) lists orphaned worktrees,
   former roots included, with size, branch, last commit and Remove.
-- **Agents & access.** "Running agents": max agents, poll interval, `removeWorktreeOnMerge` (6.5:
+- **Agents & access.** "Coding agents": `claude` with path, version, login and hints, and "Check
+  again"; `codex` the same way, muted while not installed because it is optional (#137). Its dot
+  is amber while a coding agent is not ready.
+  "Running agents": max agents, poll interval, `removeWorktreeOnMerge` (6.5:
   removes the worktree on the next poll after the merge, never with uncommitted changes), and the
   notifications switch (below). "Permissions" (D38): the active grants with the rule, its repo
   (`owner/repo`), when it was granted, how often it was used, and Revoke, which stops it matching at
@@ -1195,11 +1462,21 @@ page with a title, one lead line and panels; each panel saves on its own.
   with an input to add one; a host covers its subdomains. Saved on each change.
 - **Playbooks.** One table of the playbooks (8.1) with name and file, model, effort, permission
   mode, drafts (and "read only"), and origin: global, "in owner/repo", or "overridden in
-  owner/repo". "Open folder" opens the global folder. Files that fail to load are listed with
-  their error. Editing happens in the files.
-- **Tools.** `gh` and `claude` with path, version, login and hints, and "Check again"; a muted row
-  for Jira (after the MVP). "Polling": what is collected, how often, the last poll's result, and the
-  last failed polls since the daemon started.
+  owner/repo"; a shipped playbook the user changed is marked "edited". "Open folder" opens the
+  global folder. View opens a row below with the playbook's content, read-only (#154): the file,
+  where it comes from (built-in unchanged, built-in edited, the user's own file, or a repository's
+  `.donepm/playbooks`), what it fits (`match`), model and effort, permission mode, read-only access
+  (D42), the donePM MCP tools its drafts offer, the permission rules the agent starts with (allowed
+  without asking, always denied), and the prompt rendered as Markdown with its placeholders. Files
+  that fail to load are listed with their error. Editing happens in the files; an editor in the UI
+  is a later step.
+- **Tools.** One panel with "Check again", grouped: "Source clients", the CLIs work is collected and
+  drafts are executed with (`gh` with path, login and hints; muted rows for Jira, #139, and Azure
+  DevOps, #141), and "Helpers", optional CLIs an agent may use (`playwright-cli` with path and
+  version; missing is muted, with its install command, never a problem). Every tool has one
+  category (coding agent, source client, helper) and is shown on one page only: coding agents under
+  Agents & access (#152). "Polling": what is collected, how often, the last poll's result, and the
+  last failed polls since the daemon started. Its dot covers the source clients and the last poll.
 - **Daemon.** Version, service (launchd or by hand), address, pid and uptime, database path and
   size, config file, log. "Open logs" and "Restart" only under launchd. The port, applied after a
   restart.
@@ -1237,6 +1514,10 @@ daemon after a crash but not after `stop`. The plist records the current `node`,
 and `PATH`, because launchd starts jobs with a bare `PATH` and the daemon needs `gh`, `git` and
 `claude`.
 
+`donepm token set <connection>` reads an `api` connection's token from stdin, or from a prompt
+that does not echo, and hands it to the daemon; `donepm token delete <connection>` removes it
+(D51). The token is never an argument.
+
 ## 14. Configuration
 
 `~/.config/donepm/config.json`. Created on first start with defaults.
@@ -1261,8 +1542,46 @@ and `PATH`, because launchd starts jobs with a bare `PATH` and the daemon needs 
 
 ```json
 "sources": {
-  "github.com/spatie/bloom": { "managed": true, "query": "is:issue state:open no:assignee", "assignOnStart": true }
+  "github.com/spatie/bloom": { "managed": true, "query": "is:issue state:open no:assignee", "assignOnStart": true },
+  "github.com/acme/widgets": { "managed": true, "assignOnStart": false, "playbook": "fix", "playbooks": { "issue": ["implement", "fix"], "pr": ["review"] } },
+  "github.acme.com/team/api": { "managed": true, "assignOnStart": false, "ci": { "source": "azure-pipelines", "organization": "acme", "project": "Platform", "definitions": [41, 77] } }
 }
+```
+
+`connections` (6, D50): optional, read at start. `PUT /api/settings` takes it and answers
+`restartRequired: true` when it changed; the running daemon keeps its connections until then.
+Absent, it means one connection, github.com through `gh`:
+
+```json
+"connections": [
+  { "id": "github", "kind": "github", "backend": "cli", "host": "github.com" },
+  { "id": "acme", "kind": "github", "backend": "cli", "host": "github.acme.com" },
+  { "id": "jira", "kind": "jira", "backend": "api", "baseUrl": "https://acme.atlassian.net", "deployment": "cloud", "email": "dana@acme.com" },
+  { "id": "ado", "kind": "azure-devops", "backend": "cli", "organization": "acme" }
+]
+```
+
+`id` is lower case letters, digits and dashes, and unique. The host (`host`, or the host of
+`baseUrl`) is unique, except that `azure-devops` connections share `dev.azure.com` and their
+`organization` is unique instead. `kind` is `github`, `jira` or `azure-devops`. `backend` is `cli`
+or `api`, and each kind takes only the backends it has: for `github`, only `cli`; for `jira`, only
+`api`; for `azure-devops`, both (D52). An `azure-devops` connection has an `organization` (lower
+cased) and `host` `dev.azure.com`, which is its default. A `jira`
+connection has an https `baseUrl` (a context path is fine), `deployment` `cloud` or `datacenter`,
+and for `cloud` the `email` the API token belongs to (D51). An `api` connection's token is in the macOS Keychain, service `donepm`, account `id`.
+It is never in this file.
+
+`ticketSources` (6.12, 6.13): default `[]`. Each entry names a `jira` or `azure-devops`
+connection, an optional `query` (JQL or WIQL; absent: the tickets assigned to me that are not
+done), for Azure Boards an optional `project` the query runs in, its `repos` (normalised origins,
+at least one, each served by a code host connection) and `assignOnStart`. Changes apply at once
+and poll now.
+
+```json
+"ticketSources": [
+  { "connection": "jira", "query": "project = APP AND sprint in openSprints()", "repos": ["github.com/acme/app", "github.com/acme/api"], "assignOnStart": true },
+  { "connection": "ado", "project": "Platform", "repos": ["dev.azure.com/acme/platform/web"] }
+]
 ```
 
 `archiveAfterHours` and `deleteAfterDays` (6.8): whole numbers of 0 or more; `deleteAfterDays:
@@ -1281,6 +1600,11 @@ Database: `~/.local/share/donepm/donepm.db`.
   `Tests/fixtures/session-basic.jsonl`; record own fixtures with a cheap model). Fake process
   factory so runner tests do not spawn `claude`.
 - `gh` adapter: tests against recorded JSON output.
+- Provider adapters (D50): every adapter passes the contract suite of each role it implements
+  (`daemon/src/test-support/contracts/`), in two scenarios: the provider answers with recorded
+  fixtures, and the provider refuses every call. CLI backends run on `fakeExec` and API backends on
+  `fakeHttp`, which records each request's method, path and body. The Keychain store is tested
+  with `fakeExec`, never against the real Keychain.
 - One optional live test behind `DONEPM_LIVE=1` that runs a real agent on a tiny fixture
   repo. Costs money. Not in CI.
 

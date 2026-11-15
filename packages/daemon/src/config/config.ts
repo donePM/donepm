@@ -1,17 +1,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { DEFAULT_WEB_FETCH_DOMAINS, isDomain, MERGE_METHODS, normalizeOriginUrl } from "@donepm/core";
+import { AGENT_KINDS, DEFAULT_WEB_FETCH_DOMAINS, isDomain, MERGE_METHODS, normalizeOriginUrl, parseAzureDevOpsOrigin } from "@donepm/core";
 import { z } from "zod";
-
-/** Hosts donePM can run a source query against. GitLab and Jira come later (issue #32). */
-export const SOURCE_PROVIDERS = { "github.com": "github" } as const;
-export type SourceProvider = (typeof SOURCE_PROVIDERS)[keyof typeof SOURCE_PROVIDERS];
-
-/** The provider for a normalised origin (`github.com/owner/repo`), or undefined if unsupported. */
-export function providerOf(origin: string): SourceProvider | undefined {
-  const host = origin.split("/")[0] ?? "";
-  return Object.hasOwn(SOURCE_PROVIDERS, host) ? SOURCE_PROVIDERS[host as keyof typeof SOURCE_PROVIDERS] : undefined;
-}
+import { connectionFor, connectionsOf, ConnectionsSchema } from "./connections.js";
+import { CiOptInSchema, pipelinesOptIn } from "./pipelines.js";
+import { ticketSourceProblem, TicketSourcesSchema } from "./ticket-sources.js";
 
 /**
  * Per repository: which issues donePM collects (spec 4.6). `query` is the provider's search
@@ -24,26 +17,53 @@ export const SourceSchema = z
     assignOnStart: z.boolean().default(false),
     /** Playbook new issues of this repository start with, instead of `implement` (issue #127). */
     playbook: z.string().trim().min(1).optional(),
+    /**
+     * The playbooks each ingest may run here (issue #153). Missing: every playbook that is not
+     * read-only for issues, `review` for pull requests (core `allowedPlaybooks`).
+     */
+    playbooks: z
+      .object({
+        issue: z.array(z.string().trim().min(1)).min(1).optional(),
+        pr: z.array(z.string().trim().min(1)).min(1).optional(),
+      })
+      .strict()
+      .optional(),
+    /** The coding agent items of this repository run with, unless their playbook names one (D49). */
+    agent: z.enum(AGENT_KINDS).optional(),
     /** donePM collects, shows and starts work for this repository only when true (issue #94, D46). */
     managed: z.boolean().optional(),
     /** Default of the per-item "Merge automatically" choice for others' pull requests (D47). Off. */
     autoMerge: z.boolean().optional(),
     /** How donePM merges others' pull requests here, by the card's default and by auto-merge (D47). */
     mergeMethod: z.enum(MERGE_METHODS).optional(),
+    /** Read CI from these Azure Pipelines by branch, not from the pull request's checks (issue #143). */
+    ci: CiOptInSchema.optional(),
     /** Issue #33's flag, replaced by `managed`; only read once to migrate (D46). */
     ignored: z.boolean().optional(),
   })
-  .strict();
+  .strict()
+  .refine((s) => !s.playbook || !s.playbooks?.issue || s.playbooks.issue.includes(s.playbook), {
+    path: ["playbook"],
+    message: "the default playbook must be one of the playbooks offered for issues",
+  });
 
 export type SourceSettings = z.infer<typeof SourceSchema>;
 
-/** A `sources` key: normalised origin of a supported provider. */
-export const SourceKey = z
-  .string()
-  .refine((k) => /^[^/\s]+\/[^/\s]+\/[^/\s]+$/.test(k) && normalizeOriginUrl(k) === k, {
-    message: "must be a normalised origin like github.com/owner/repo",
-  })
-  .refine((k) => providerOf(k) !== undefined, { message: "only github.com repositories are supported for now" });
+/**
+ * A `sources` key: a normalised origin, `host/owner/repo` or `dev.azure.com/org/project/repo`
+ * (issue #141), whose names may have blanks. Its host needs a connection; `ValidConfigSchema`
+ * checks that.
+ */
+export const SourceKey = z.string().refine((k) => normalizeOriginUrl(k) === k && (/^[^/\s]+\/[^/\s]+\/[^/\s]+$/.test(k) || parseAzureDevOpsOrigin(k) !== undefined), {
+  message: "must be a normalised origin like github.com/owner/repo",
+});
+
+/** Why an origin cannot be a source or a clone: no connection serves its host (D50). */
+export function noConnectionFor(origin: string): string {
+  const azure = parseAzureDevOpsOrigin(origin);
+  const place = azure ? `the Azure DevOps organization ${azure.organization}` : origin.split("/")[0];
+  return `no connection for ${place}; add one under "connections"`;
+}
 
 export const ConfigSchema = z
   .object({
@@ -64,8 +84,15 @@ export const ConfigSchema = z
     archiveAfterHours: z.number().int().min(0).default(24),
     /** Days an archived item is kept before it is deleted with its history (D37). `null`: never. */
     deleteAfterDays: z.number().int().min(0).nullable().default(7),
+    /**
+     * The providers donePM talks to, read at start (D50). Absent: github.com through `gh`. A
+     * change through `PUT /api/settings` applies after a restart.
+     */
+    connections: ConnectionsSchema.optional(),
     /** Keyed by normalised origin. Replaced as a whole by `PUT /api/settings`; `PUT /api/repos/:id` changes one entry. */
     sources: z.record(SourceKey, SourceSchema).default({}),
+    /** Searches of ticket providers and the repositories their tickets go to (issue #139). Replaced as a whole. */
+    ticketSources: TicketSourcesSchema.default([]),
     /** WebFetch to these hosts (and their subdomains) is allowed by the daemon, not asked (D31). */
     allowedWebFetchDomains: z
       .array(z.string().trim().toLowerCase().refine(isDomain, { message: "must be a host name like docs.github.com" }))
@@ -75,7 +102,33 @@ export const ConfigSchema = z
 
 export type Config = z.infer<typeof ConfigSchema>;
 
-export const DEFAULT_CONFIG: Config = ConfigSchema.parse({});
+/**
+ * The config with what spans its keys checked: every `sources` key and ticket source repository has
+ * a connection for its host, a `ci` opt-in knows its Azure DevOps project and has a connection for
+ * its organization, and every ticket source has a ticket connection.
+ */
+export const ValidConfigSchema = ConfigSchema.superRefine((config, ctx) => {
+  const connections = connectionsOf(config);
+  for (const [origin, source] of Object.entries(config.sources)) {
+    if (!connectionFor(connections, origin)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["sources", origin], message: noConnectionFor(origin) });
+    if (!source.ci) continue;
+    const pipelines = pipelinesOptIn(origin, source.ci);
+    if (!pipelines) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["sources", origin, "ci"], message: "name the Azure DevOps organization and project the pipelines are in" });
+    } else if (!connectionFor(connections, `dev.azure.com/${pipelines.organization}`)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["sources", origin, "ci"], message: `no connection for the Azure DevOps organization ${pipelines.organization}; add one under "connections"` });
+    }
+  }
+  config.ticketSources.forEach((entry, i) => {
+    const problem = ticketSourceProblem(entry, connections);
+    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ticketSources", i, "connection"], message: problem });
+    entry.repos.forEach((origin, j) => {
+      if (!connectionFor(connections, origin)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ticketSources", i, "repos", j], message: noConnectionFor(origin) });
+    });
+  });
+});
+
+export const DEFAULT_CONFIG: Config = ValidConfigSchema.parse({});
 
 export class ConfigError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
@@ -92,7 +145,7 @@ export function parseConfig(text: string, file = "config"): Config {
   } catch (e) {
     throw new ConfigError(`${file}: not valid JSON: ${(e as Error).message}`, { cause: e });
   }
-  const result = ConfigSchema.safeParse(raw);
+  const result = ValidConfigSchema.safeParse(raw);
   if (!result.success) {
     const detail = result.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
     throw new ConfigError(`${file}: ${detail}`);

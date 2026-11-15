@@ -1,4 +1,4 @@
-import type { ItemState, WorkItem } from "@donepm/core";
+import { isAgentKind, type ItemState, type WorkItem } from "@donepm/core";
 import type { Db } from "../db/database.js";
 
 interface ItemRow {
@@ -23,7 +23,10 @@ interface ItemRow {
   author: string | null;
   pr_status: string | null;
   auto_merge: number | null;
+  auto_merge_held: string | null;
   agent_session_id: string | null;
+  agent_kind: string | null;
+  repo_candidates: string | null;
   closed_upstream: number;
   created_at: string;
   updated_at: string;
@@ -61,7 +64,15 @@ function fromRow(r: ItemRow): StoredItem {
   if (r.author !== null) item.author = r.author;
   if (r.pr_status !== null) item.prStatus = JSON.parse(r.pr_status) as WorkItem["prStatus"];
   if (r.auto_merge !== null) item.autoMerge = r.auto_merge === 1;
+  if (r.auto_merge_held !== null) item.autoMergeHeld = JSON.parse(r.auto_merge_held) as WorkItem["autoMergeHeld"];
   if (r.agent_session_id !== null) item.agentSessionId = r.agent_session_id;
+  // NULL: never started, or started before #136 and so Claude Code's (`agentOf`).
+  if (r.agent_kind !== null && isAgentKind(r.agent_kind)) item.agentKind = r.agent_kind;
+  // A ticket's repositories (issue #139); the chosen one is the row's origin.
+  if (r.repo_candidates !== null) {
+    item.repoCandidates = JSON.parse(r.repo_candidates) as string[];
+    if (r.origin_url) item.repoOrigin = r.origin_url;
+  }
   if (r.closed_upstream) item.closedUpstream = true;
   if (r.archived_at !== null) item.archivedAt = r.archived_at;
   return { item, originUrl: r.origin_url };
@@ -89,7 +100,10 @@ function params(item: WorkItem) {
     author: item.author ?? null,
     pr_status: item.prStatus ? JSON.stringify(item.prStatus) : null,
     auto_merge: item.autoMerge === undefined ? null : item.autoMerge ? 1 : 0,
+    auto_merge_held: item.autoMergeHeld ? JSON.stringify(item.autoMergeHeld) : null,
     agent_session_id: item.agentSessionId ?? null,
+    agent_kind: item.agentKind ?? null,
+    repo_candidates: item.repoCandidates ? JSON.stringify(item.repoCandidates) : null,
     closed_upstream: item.closedUpstream ? 1 : 0,
     created_at: item.createdAt,
     updated_at: item.updatedAt,
@@ -140,22 +154,25 @@ export class ItemStore {
     this.db
       .prepare(
         `INSERT INTO items (id, source, external_id, external_url, origin_url, repo_id, title, body, labels, state,
-           playbook, priority, issue_created_at, started_at, state_since, worktree_path, branch, base_branch, author, pr_status, auto_merge, agent_session_id,
-           closed_upstream, created_at, updated_at, archived_at)
+           playbook, priority, issue_created_at, started_at, state_since, worktree_path, branch, base_branch, author, pr_status, auto_merge, auto_merge_held, agent_session_id, agent_kind,
+           repo_candidates, closed_upstream, created_at, updated_at, archived_at)
          VALUES (:id, :source, :external_id, :external_url, :origin_url, :repo_id, :title, :body, :labels, :state,
-           :playbook, :priority, :issue_created_at, :started_at, :state_since, :worktree_path, :branch, :base_branch, :author, :pr_status, :auto_merge, :agent_session_id,
-           :closed_upstream, :created_at, :updated_at, :archived_at)`,
+           :playbook, :priority, :issue_created_at, :started_at, :state_since, :worktree_path, :branch, :base_branch, :author, :pr_status, :auto_merge, :auto_merge_held, :agent_session_id, :agent_kind,
+           :repo_candidates, :closed_upstream, :created_at, :updated_at, :archived_at)`,
       )
       .run({ ...params(item), origin_url: originUrl });
   }
 
+  /** A ticket's chosen repository is its origin (issue #139); any other item keeps the one it was collected with. */
   update(item: WorkItem): void {
-    const { external_id: _ignored, created_at: _created, ...p } = params(item);
+    const { external_id: _ignored, created_at: _created, ...rest } = params(item);
+    const p = { ...rest, origin_url: item.repoCandidates ? (item.repoOrigin ?? "") : null };
     this.db
       .prepare(
         `UPDATE items SET source = :source, external_url = :external_url, repo_id = :repo_id, title = :title,
            body = :body, labels = :labels, state = :state, playbook = :playbook, priority = :priority,
-           issue_created_at = :issue_created_at, started_at = :started_at, state_since = :state_since, worktree_path = :worktree_path, branch = :branch, base_branch = :base_branch, author = :author, pr_status = :pr_status, auto_merge = :auto_merge, agent_session_id = :agent_session_id,
+           issue_created_at = :issue_created_at, started_at = :started_at, state_since = :state_since, worktree_path = :worktree_path, branch = :branch, base_branch = :base_branch, author = :author, pr_status = :pr_status, auto_merge = :auto_merge, auto_merge_held = :auto_merge_held, agent_session_id = :agent_session_id, agent_kind = :agent_kind,
+           repo_candidates = :repo_candidates, origin_url = COALESCE(:origin_url, origin_url),
            closed_upstream = :closed_upstream, updated_at = :updated_at, archived_at = :archived_at
          WHERE id = :id`,
       )

@@ -1,4 +1,4 @@
-import type { SourceIssue } from "@donepm/core";
+import { GITHUB_COM, hostOfUrl, type SourceIssue } from "@donepm/core";
 import { z } from "zod";
 import type { Exec } from "../process/exec.js";
 import type { FetchedIssue } from "./schema.js";
@@ -42,12 +42,12 @@ function isUnsupported(text: string): boolean {
  * resolve); its item keeps the priority it has. One `gh api graphql` call per 100 issues, so the
  * poll costs the same number of calls however many issues it brings.
  */
-export async function fetchPriorityFields(exec: Exec, ids: readonly string[]): Promise<Map<string, string | null>> {
+export async function fetchPriorityFields(exec: Exec, ids: readonly string[], host: string = GITHUB_COM): Promise<Map<string, string | null>> {
   const read = new Map<string, string | null>();
   const valid = [...new Set(ids)].filter((id) => NODE_ID.test(id));
   for (let i = 0; i < valid.length; i += FIELDS_BATCH) {
     const batch = valid.slice(i, i + FIELDS_BATCH);
-    const r = await exec("gh", ["api", "graphql", "-f", `query=${issueFieldsQuery(batch)}`]);
+    const r = await exec("gh", ["api", "graphql", "--hostname", host, "-f", `query=${issueFieldsQuery(batch)}`]);
     if (r.code !== 0 && isUnsupported(`${r.stdout}\n${r.stderr}`)) {
       for (const id of batch) read.set(id, null);
       continue;
@@ -71,11 +71,18 @@ export async function fetchPriorityFields(exec: Exec, ids: readonly string[]): P
 
 /**
  * The polled issues with their "Priority" issue field (D45). Pull requests have no issue fields and
- * keep the labels. An issue whose fields could not be read is marked `priorityUnread`.
+ * keep the labels. An issue whose fields could not be read is marked `priorityUnread`. Node ids are
+ * asked of the host the issue lives on (issue #140); a host without issue fields answers none.
  */
 export async function withPriorityFields(exec: Exec, issues: readonly FetchedIssue[]): Promise<SourceIssue[]> {
-  const ids = issues.flatMap((i) => (i.source !== "github-pr" && i.nodeId ? [i.nodeId] : []));
-  const fields = ids.length ? await fetchPriorityFields(exec, ids) : new Map<string, string | null>();
+  const idsByHost = new Map<string, string[]>();
+  for (const i of issues) {
+    if (i.source === "github-pr" || !i.nodeId) continue;
+    const host = hostOfUrl(i.url) ?? GITHUB_COM;
+    idsByHost.set(host, [...(idsByHost.get(host) ?? []), i.nodeId]);
+  }
+  const fields = new Map<string, string | null>();
+  for (const [host, ids] of idsByHost) for (const [id, value] of await fetchPriorityFields(exec, ids, host)) fields.set(id, value);
   return issues.map(({ nodeId, ...issue }) => {
     if (issue.source === "github-pr" || nodeId === undefined) return issue;
     if (!fields.has(nodeId)) return { ...issue, priorityUnread: true };

@@ -1,0 +1,12 @@
+{
+  "self": "https://acme.atlassian.net/rest/api/3/user?accountId=5f0000000000000000000a01",
+  "accountId": "5f0000000000000000000a01",
+  "accountType": "atlassian",
+  "emailAddress": "dana@acme.com",
+  "displayName": "Dana Developer",
+  "active": true,
+  "timeZone": "Europe/Berlin",
+  "locale": "en_US",
+  "groups": { "size": 1, "items": [] },
+  "applicationRoles": { "size": 1, "items": [] }
+}

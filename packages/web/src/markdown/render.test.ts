@@ -87,6 +87,10 @@ describe("renderMarkdown", () => {
   it("leaves #123 as text without a repository", () => {
     expect(renderMarkdown("#12 is it")).toBe("<p>#12 is it</p>\n");
   });
+
+  it("links no @name or #123 in a ticket's text (issue #139)", () => {
+    expect(renderMarkdown("ask @dana about #12", undefined, { noReferences: true })).toBe("<p>ask @dana about #12</p>\n");
+  });
 });
 
 describe("renderMarkdown with embedded HTML", () => {
@@ -196,5 +200,19 @@ describe("repoOf", () => {
   it("reads owner and name from an external id", () => {
     expect(repoOf("acme/shop#12")).toEqual(repo);
     expect(repoOf("PROJ-12")).toBeUndefined();
+  });
+
+  it("keeps the host of an issue off github.com (issue #140)", () => {
+    expect(repoOf("github.acme.com/team/app#7")).toEqual({ owner: "team", name: "app", host: "github.acme.com" });
+    expect(repoOf("a/b/c/d#1")).toBeUndefined();
+  });
+
+  it("links references and relative links to that host", () => {
+    const out = renderMarkdown("Fixes #12, see other/lib#3, ask @jdoe, [readme](docs/README.md)", repoOf("github.acme.com/team/app#7"));
+    expect(out).toContain('href="https://github.acme.com/team/app/issues/12"');
+    expect(out).toContain('href="https://github.acme.com/other/lib/issues/3"');
+    expect(out).toContain('href="https://github.acme.com/jdoe"');
+    expect(out).toContain('href="https://github.acme.com/team/app/blob/HEAD/docs/README.md"');
+    expect(out).not.toContain("https://github.com");
   });
 });

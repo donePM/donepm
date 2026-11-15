@@ -1,0 +1,1 @@
+[{"body":"The export drops rows with an empty region.","createdAt":"2026-09-30T09:14:02Z","id":"I_kwDOghe7","labels":[{"color":"d73a4a","description":"Something is not working","id":"LA_ghe0","name":"bug"}],"number":7,"repository":{"name":"app","nameWithOwner":"team/app"},"title":"Export skips rows without a region","url":"https://github.acme.com/team/app/issues/7"}]

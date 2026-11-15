@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ciFixPrompt, ciVerdict, failedRuns, runIdOf, type CiCheck } from "./checks.js";
+import { ciFixPrompt, ciVerdict, countOnce, failedRuns, isAzureRun, runIdOf, runOf, type CiCheck } from "./checks.js";
 
 const since = "2026-10-04T10:00:00Z";
 const later = (s: number) => new Date(Date.parse(since) + s * 1000).toISOString();
@@ -56,6 +56,70 @@ describe("runIdOf and failedRuns", () => {
         { name: "d" },
       ]),
     ).toEqual(["1"]);
+  });
+});
+
+describe("runOf", () => {
+  const build = "https://dev.azure.com/acme/platform/_build/results?buildId=812";
+
+  it("names an Azure Pipelines build by its URL, whatever host form or job the link has", () => {
+    expect(runOf("https://dev.azure.com/acme/Platform/_build/results?buildId=812&view=logs&jobId=AB-1")).toBe(build);
+    expect(runOf("https://acme.visualstudio.com/Platform/_build/results?buildId=812")).toBe(build);
+    expect(runOf("https://github.com/o/r/actions/runs/5/job/6")).toBe("5");
+    expect(runOf("https://ci.example.com/x")).toBeUndefined();
+    expect(isAzureRun(build)).toBe(true);
+    expect(isAzureRun("5")).toBe(false);
+  });
+
+  it("puts Azure builds among the failed runs, once each", () => {
+    expect(
+      failedRuns([
+        { name: "a", link: `${build}&view=logs&jobId=1` },
+        { name: "b", link: `${build}&view=logs&jobId=2` },
+        { name: "c", link: "https://github.com/o/r/actions/runs/1/job/2" },
+      ]),
+    ).toEqual([build, "1"]);
+  });
+});
+
+describe("countOnce", () => {
+  const link = "https://dev.azure.com/acme/platform/_build/results?buildId=812";
+  const az = (bucket: string, startedAt: string, over: Partial<CiCheck> = {}): CiCheck => ({ name: "ci", bucket, state: bucket, link, startedAt, ...over });
+
+  it("counts one build once, its latest attempt winning", () => {
+    const first = az("fail", later(10), { completedAt: later(40) });
+    const retry = az("pass", later(100), { completedAt: later(160) });
+    expect(countOnce([first, retry])).toEqual([retry]);
+    expect(countOnce([retry, first])).toEqual([retry]);
+  });
+
+  it("lets a retry that still runs win over the attempt it retries", () => {
+    const first = az("fail", later(10), { completedAt: later(40) });
+    const running = az("pending", later(100));
+    expect(countOnce([first, running])).toEqual([running]);
+    expect(ciVerdict(countOnce([first, running]), since, later(300))).toEqual({ kind: "pending" });
+  });
+
+  it("takes the finished view of one attempt, then the one that finished last", () => {
+    const running = az("pending", later(10));
+    const finished = az("fail", later(10), { completedAt: later(40) });
+    const stale = az("pass", later(10), { completedAt: later(30) });
+    expect(countOnce([running, finished])).toEqual([finished]);
+    expect(countOnce([finished, running])).toEqual([finished]);
+    expect(countOnce([stale, finished])).toEqual([finished]);
+  });
+
+  it("keys by build across host forms, and keeps jobs of one build and other checks apart", () => {
+    const legacy = az("fail", later(50), { link: "https://acme.visualstudio.com/Platform/_build/results?buildId=812" });
+    const job = az("fail", later(5), { link: `${link}&view=logs&jobId=j1` });
+    const actions = check("fail", { link: "https://github.com/o/r/actions/runs/1/job/2" });
+    const actions2 = check("fail", { link: "https://github.com/o/r/actions/runs/1/job/3" });
+    expect(countOnce([az("pass", later(10)), legacy, job, actions, actions2, check("pass")])).toEqual([legacy, job, actions, actions2, check("pass")]);
+  });
+
+  it("feeds a verdict over a mixed list that counts the build once", () => {
+    const checks = [check("pass", { name: "lint" }), az("fail", later(5), { completedAt: later(20) }), az("fail", later(5), { completedAt: later(20) })];
+    expect(ciVerdict(countOnce(checks), since, later(300))).toEqual({ kind: "failed", failed: [{ name: "ci", link }] });
   });
 });
 

@@ -1,4 +1,4 @@
-import { autoMergeOn, executedPr, finishedAt, mergeBlockers, prConflictOf, prMergeOf, type CiCheck, type Ctx, type PrConflict, type WorkItem } from "@donepm/core";
+import { allowedPlaybooks, autoMergeOn, chooseAgent, executedPr, finishedAt, mergeBlockers, prConflictOf, prMergeOf, type CiCheck, type Ctx, type ItemSource, type Playbook, type PrConflict, type WorkItem } from "@donepm/core";
 import type { FastifyInstance } from "fastify";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,11 +12,12 @@ import { resumeItem, startItem, type StartDeps } from "./agent/start.js";
 import { GrantStore } from "./asks/grants.js";
 import { revokeGrant } from "./asks/revoke.js";
 import { AskStore } from "./asks/store.js";
-import { writeMcpConfig } from "./bridge/mcp-config.js";
 import { listenBridge } from "./bridge/server.js";
 import { BridgeSessions } from "./bridge/sessions.js";
-import { detectClaude } from "./claude/detect.js";
+import { detectClaude } from "./agent/claude/detect.js";
+import { detectCodex } from "./agent/codex/detect.js";
 import { loadConfig, saveConfig, type Config } from "./config/config.js";
+import { connectionsOf } from "./config/connections.js";
 import { expandHome, pathsFor } from "./config/paths.js";
 import { openDb, type Db } from "./db/database.js";
 import { editDraft, rejectDraft } from "./drafts/actions.js";
@@ -25,14 +26,23 @@ import { DraftStore } from "./drafts/store.js";
 import { itemDiff } from "./diff/item-diff.js";
 import { EventStore } from "./events/store.js";
 import { collectIssues } from "./gh/collect-issues.js";
-import { detectGh } from "./gh/detect.js";
-import { fetchQueryIssues } from "./gh/issues.js";
+import { detectHosts } from "./gh/host-status.js";
+import { githubHosts } from "./gh/hosts.js";
+import { ghKnownHosts } from "./gh/known-hosts.js";
+import { detectHelpers } from "./helpers/detect.js";
+import { providersOf } from "./providers/from-config.js";
+import { connectionStatuses, readyProviders } from "./providers/connection-status.js";
+import { testConnection } from "./providers/connection-test.js";
+import { fetchHttp, type HttpClient } from "./providers/http.js";
+import { keychainTokens, type TokenStore } from "./providers/keychain.js";
 import { Poller } from "./gh/poller.js";
 import { buildServer, type WorktreeChoice } from "./http/server.js";
 import { makeGuard } from "./http/guard.js";
 import { itemWriter } from "./items/commit.js";
 import { dismissItem } from "./items/dismiss.js";
+import { chooseRepo } from "./items/repo-choice.js";
 import { changePlaybook } from "./items/playbook.js";
+import { changeAgent } from "./items/agent-choice.js";
 import { sayToAgent } from "./agent/say.js";
 import { ItemStore, type StoredItem } from "./items/store.js";
 import { relinkItems } from "./items/sync.js";
@@ -40,13 +50,15 @@ import { agentHistory, liveHistory } from "./items/agent-info.js";
 import { attentionOf } from "./items/attention.js";
 import { toItemView, type CiCheckView, type CurrentTool, type ItemView, type MergeView } from "./items/view.js";
 import type { Exec } from "./process/exec.js";
-import { ensureDefaultPlaybooks, loadPlaybooks } from "./playbooks/load.js";
+import { noConnection, type Providers } from "./providers/registry.js";
+import { PlaybookCatalog } from "./playbooks/catalog.js";
+import { ensureDefaultPlaybooks } from "./playbooks/load.js";
 import { listPlaybooks } from "./playbooks/list.js";
 import { databaseBytes } from "./system/info.js";
 import { withOrphanDetails } from "./worktrees/orphan-details.js";
 import { RepoCloner } from "./repos/clone.js";
 import { discoverRepos } from "./repos/discover.js";
-import { hiddenUnmanaged, isManaged, managedChanges, migrateManaged, withManaged } from "./repos/managed.js";
+import { hiddenUnmanaged, isManaged, itemManaged, managedChanges, migrateManaged, withManaged } from "./repos/managed.js";
 import { RepoStore } from "./repos/store.js";
 import { applyRetention } from "./retention/retention.js";
 import { StatusStore } from "./status/status.js";
@@ -59,14 +71,23 @@ import { watchPrs } from "./prs/watch.js";
 import { addressFeedback, dismissConflict, dismissFeedback, resolveConflict } from "./prs/actions.js";
 import { commentOnPr } from "./prs/comment.js";
 import { autoMergeReady, mergeDefaults, mergePr, setAutoMerge } from "./prs/merge.js";
+import { updatePrBranch } from "./prs/update-branch.js";
 import { fixCi, markCiDone, rerunCi } from "./ci/actions.js";
 import { watchCi } from "./ci/watch.js";
+import { worktreeHead } from "./ci/head.js";
+import { pipelinesOptIn } from "./config/pipelines.js";
 import { removeItemWorktree, removeOrphan } from "./worktrees/remove.js";
 import { Hub } from "./ws/hub.js";
 
 export interface DaemonOptions {
   home: string;
   exec: Exec;
+  /** The provider adapters (issue #138); github.com through `gh` by default. */
+  providers?: Providers;
+  /** How `api` connections reach their provider; `fetch` by default. Tests pass a fake. */
+  http?: HttpClient;
+  /** API tokens of `api` connections; the macOS Keychain by default. Tests pass a fake. */
+  tokens?: TokenStore;
   ctx: Ctx;
   version: string;
   /** Overrides the configured port (tests use 0). */
@@ -127,6 +148,8 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const bridgeSessions = new BridgeSessions();
   let bridge: { close: () => Promise<void> } | undefined;
   const status = new StatusStore(opts.version, opts.ctx.now());
+  const providerDeps = { exec: opts.exec, http: opts.http ?? fetchHttp, tokens: opts.tokens ?? keychainTokens(opts.exec), ticketSources: () => config.ticketSources };
+  const providers = opts.providers ?? providersOf(connectionsOf(config), providerDeps);
   const boundPort = () => {
     const a = app.server.address();
     return typeof a === "object" && a ? a.port : port;
@@ -143,9 +166,16 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     const stored = items.get(itemId);
     if (stored?.item.state === "checking") pushItem(stored.item);
   };
+  /** Each repository's playbooks in memory, so a view can list what its card offers (issue #153). */
+  const catalog = new PlaybookCatalog(paths.playbooksDir);
+  const refreshCatalog = () => catalog.refresh(repos.all().map((r) => r.path)).catch((e) => app.log.warn({ err: e }, "could not read the playbooks"));
+  const allowedFor = (origin: string, source: ItemSource, loaded: readonly Playbook[]) =>
+    allowedPlaybooks(source, config.sources[origin]?.playbooks, loaded);
+  const repoPathOf = (item: WorkItem, origin: string) => (item.repoId ? repos.get(item.repoId) : repos.byOrigin(origin))?.path;
   const view = (item: WorkItem): ItemView => {
     const repo = item.repoId ? repos.get(item.repoId) : undefined;
-    const origin = repo ? undefined : items.get(item.id)?.originUrl;
+    // A ticket whose repository is still to be chosen has no origin to clone (issue #139).
+    const origin = repo ? undefined : items.get(item.id)?.originUrl || undefined;
     const clone = origin === undefined ? undefined : cloner.state(origin);
     const itemEvents = events.forItem(item.id);
     const itemDrafts = drafts.forItem(item.id);
@@ -168,11 +198,15 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
         events: itemEvents,
       }),
       pr ? { ...pr, ...prMergeOf(itemEvents), ...conflictView(prConflictOf(itemEvents)) } : undefined,
+      allowedFor(items.get(item.id)?.originUrl ?? "", item.source, catalog.get(repo?.path)),
     );
     const merge = item.source === "github-pr" ? mergeView(item, items.get(item.id)?.originUrl) : undefined;
     const checks = item.state === "checking" ? ciChecks.get(item.id) : undefined;
+    const playbook = catalog.get(repo?.path).find((p) => p.name === item.playbook);
+    const repoAgent = config.sources[items.get(item.id)?.originUrl ?? ""];
+    const runsWith = chooseAgent({ item, ...(playbook ? { playbook } : {}), ...(repoAgent ? { repo: repoAgent } : {}) });
     return {
-      ...v, ...(finished ? { finishedAt: finished } : {}), ...(clone ? { clone } : {}), ...(merge ? { merge } : {}), ...(checks ? { ci: { checks } } : {}),
+      ...v, runsWith, ...(finished ? { finishedAt: finished } : {}), ...(clone ? { clone } : {}), ...(merge ? { merge } : {}), ...(checks ? { ci: { checks } } : {}),
     };
   };
   /** Whether the card's Merge button may be used, and the repository's merge defaults (D47). */
@@ -187,7 +221,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   const onBoard = ({ item, originUrl }: StoredItem) =>
     item.archivedAt === undefined &&
     !hiddenUnmanaged({
-      managed: isManaged(config.sources, originUrl),
+      managed: itemManaged(config.sources, item, originUrl),
       state: item.state,
       hasPending: () => drafts.pending(item.id).length > 0 || asks.pending(item.id).length > 0,
     });
@@ -210,7 +244,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     ctx: opts.ctx,
     log: { info: (o, m) => app.log.info(o, m), warn: (o, m) => app.log.warn(o, m), error: (o, m) => app.log.error(o, m) },
     spawn: opts.spawn ?? spawnProcess,
-    claudePath: () => status.get().claude?.path ?? "claude",
+    agentPath: (kind) => (kind === "claude-code" ? status.get().claude?.path : status.get().codex?.path),
     env: () =>
       agentEnv(opts.env ?? process.env, { shimRoot: join(paths.dataDir, "bin-filtered"), emptyConfigDir: join(paths.dataDir, "no-credentials") }),
     maxConcurrent: () => config.maxConcurrentAgents,
@@ -222,15 +256,10 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     },
     mcp: (item, playbook) => {
       const token = bridgeSessions.mint({ itemId: item.id, drafts: playbook.drafts });
-      const file = writeMcpConfig({
-        dir: bridgeDir, itemId: item.id, nodePath: process.execPath, bridgePath: BRIDGE_SCRIPT, socketPath: bridgeSocket, token,
-      });
       return {
-        configPath: file.path,
-        close: () => {
-          bridgeSessions.revoke(token);
-          file.remove();
-        },
+        // `node`, so the shim runs even when the filtered PATH lost it.
+        server: { command: process.execPath, args: [BRIDGE_SCRIPT], env: { DONEPM_SOCKET: bridgeSocket, DONEPM_TOKEN: token }, dir: bridgeDir },
+        close: () => bridgeSessions.revoke(token),
       };
     },
   });
@@ -256,12 +285,13 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     return found;
   };
   const startDeps = (): StartDeps => ({
-    items, repos, writer, runner, transcript, exec: opts.exec, ctx: opts.ctx, log: app.log,
+    items, repos, writer, runner, transcript, exec: opts.exec, providers, ctx: opts.ctx, log: app.log,
     push: (type, payload) => hub.push(type, payload),
     playbooksDir: paths.playbooksDir,
     worktreeRoot,
     branchPrefix: () => config.branchPrefix,
     sources: () => config.sources,
+    ticketSources: () => config.ticketSources,
   });
   /** Starts still preparing their worktree; shutdown waits for them before stopping agents. */
   const track = ({ item, done }: { item: WorkItem; done: Promise<void> }) => {
@@ -272,6 +302,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
 
   const cloner = new RepoCloner({
     exec: opts.exec,
+    providers,
     repos,
     ctx: opts.ctx,
     log: { info: (o, m) => app.log.info(o, m), warn: (o, m) => app.log.warn(o, m), error: (o, m) => app.log.error(o, m) },
@@ -291,19 +322,33 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
   };
 
   const recheck = async () => {
-    const [gh, claude] = await Promise.all([detectGh(opts.exec), detectClaude(opts.exec)]);
-    status.update({ gh, claude });
+    const [gh, ghKnown, claude, codex, helpers] = await Promise.all([
+      detectHosts(opts.exec, githubHosts(providers)), ghKnownHosts(opts.exec), detectClaude(opts.exec), detectCodex(opts.exec), detectHelpers(opts.exec),
+    ]);
+    status.update({ ...gh, ghKnownHosts: ghKnown, claude, codex, helpers });
+    status.update({ connections: await connectionStatuses(providers.connections, status.get(), providerDeps.tokens) });
   };
 
   const poller = new Poller(
     async () => {
-      await collectIssues({ db, exec: opts.exec, items, events, repos, status, ctx: opts.ctx, log: app.log, sources: () => config.sources, onItemUpdated: pushItem });
-      if (status.get().gh?.state === "ready") {
+      // Playbook files may have changed since the last poll; new items start with an allowed one (#153).
+      await refreshCatalog();
+      await collectIssues({
+        db, exec: opts.exec, providers, items, events, repos, status, ctx: opts.ctx, log: app.log, sources: () => config.sources, onItemUpdated: pushItem,
+        allowedPlaybooks: (origin, source) => allowedFor(origin, source, catalog.get(repos.byOrigin(origin)?.path)),
+      });
+      // Each PR is watched through its own host's connection; a host that is not ready waits (#140).
+      const ready = readyProviders(providers, status.get());
+      if (ready.connections.length > 0) {
         for (const id of ciChecks.keys()) if (items.get(id)?.item.state !== "checking") ciChecks.delete(id);
-        await watchCi({ items, events, writer, exec: opts.exec, ctx: opts.ctx, log: app.log, onChecks });
-        await autoMergeReady({ items, events, writer, exec: opts.exec, ctx: opts.ctx, log: app.log }, config.sources, (o) => isManaged(config.sources, o));
+        await watchCi({
+          items, events, writer, providers: ready, ctx: opts.ctx, log: app.log, onChecks,
+          pipelinesOf: (origin) => pipelinesOptIn(origin, config.sources[origin]?.ci),
+          headOf: (item) => worktreeHead(opts.exec, item.worktreePath),
+        });
+        await autoMergeReady({ items, events, writer, providers: ready, ctx: opts.ctx, log: app.log }, config.sources, (o) => isManaged(config.sources, o));
         await watchPrs({
-          items, events, drafts, repos, writer, exec: opts.exec, ctx: opts.ctx, log: app.log,
+          items, events, drafts, repos, writer, exec: opts.exec, providers: ready, ctx: opts.ctx, log: app.log,
           removeOnMerge: () => config.removeWorktreeOnMerge,
           agentActive: (i) => runner.isRunning(i),
         });
@@ -332,12 +377,17 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     const flipped = new Set(managedChanges(prev.sources, next.sources));
     for (const { item, originUrl } of items.all()) if (flipped.has(originUrl)) pushItem(item);
     if ([...flipped].some((origin) => isManaged(next.sources, origin))) void poller.runNow();
+    // A changed ticket source shows its tickets now rather than at the next poll (issue #139).
+    else if (JSON.stringify(next.ticketSources) !== JSON.stringify(prev.ticketSources)) void poller.runNow();
     if (next.repoRoot !== prev.repoRoot) void rescan().catch((e) => app.log.error({ err: e }, "rescan failed"));
-    return { restartRequired: next.port !== prev.port, ...(worktrees ? { worktrees } : {}) };
+    // The connections are read once at start (D50).
+    const connectionsChanged = JSON.stringify(connectionsOf(next)) !== JSON.stringify(connectionsOf(prev));
+    return { restartRequired: next.port !== prev.port || connectionsChanged, ...(worktrees ? { worktrees } : {}) };
   };
 
   const app = buildServer({
     port: boundPort,
+    providers,
     items,
     events,
     repos,
@@ -358,12 +408,14 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       return r;
     },
     recheck,
+    tokens: providerDeps.tokens,
+    testConnection: (connection) => testConnection(connection, providerDeps),
     startItem: async (id) => track(await startItem(startDeps(), id)),
     resumeItem: async (id) => track(await resumeItem(startDeps(), id)),
     removeWorktree: (id) =>
       removeItemWorktree({ items, repos, writer, exec: opts.exec, ctx: opts.ctx, agentActive: (i) => runner.isRunning(i) }, id),
     orphans: async () => withOrphanDetails(opts.exec, await orphans()),
-    playbooks: () => listPlaybooks(paths.playbooksDir, repos.all()),
+    playbooks: () => listPlaybooks(paths.playbooksDir, repos.all(), DEFAULT_PLAYBOOKS),
     daemonInfo: () => ({
       version: opts.version,
       pid: status.get().pid,
@@ -379,8 +431,9 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     ...(opts.service ? { restart: opts.service.restart } : {}),
     removeOrphan: (path) => removeOrphan({ exec: opts.exec, orphans }, path),
     stopItem: (id) => runner.stop(id),
+    chooseRepo: (id, origin) => chooseRepo({ items, repos, writer, ctx: opts.ctx }, id, origin),
     dismissItem: (id) => dismissItem({ items, writer, ctx: opts.ctx, agentActive: (i) => runner.isRunning(i) }, id),
-    rerunCi: (id) => rerunCi({ items, events, writer, ctx: opts.ctx, exec: opts.exec }, id),
+    rerunCi: (id) => rerunCi({ items, events, writer, ctx: opts.ctx, providers }, id),
     markCiDone: (id) => markCiDone({ items, events, writer, ctx: opts.ctx, agentActive: (i) => runner.isRunning(i) }, id),
     fixCi: (id) =>
       fixCi({ items, events, writer, ctx: opts.ctx, resume: async (itemId, how) => track(await resumeItem(startDeps(), itemId, how)) }, id),
@@ -393,21 +446,25 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     addressFeedback: (id) =>
       addressFeedback({ items, events, writer, repos, ctx: opts.ctx, exec: opts.exec, resume: async (itemId, how) => track(await resumeItem(startDeps(), itemId, how)) }, id),
     dismissFeedback: (id) => dismissFeedback({ items, events, writer, ctx: opts.ctx }, id),
-    commentOnPr: (id, body) => commentOnPr({ items, events, writer, ctx: opts.ctx, exec: opts.exec }, id, body),
-    mergePr: (id, method) => mergePr({ items, events, writer, ctx: opts.ctx, exec: opts.exec }, id, method),
+    commentOnPr: (id, body) => commentOnPr({ items, events, writer, ctx: opts.ctx, providers }, id, body),
+    mergePr: (id, method) => mergePr({ items, events, writer, ctx: opts.ctx, providers }, id, method),
+    updatePrBranch: (id) => updatePrBranch({ items, events, writer, ctx: opts.ctx, providers }, id),
     setAutoMerge: (id, on) => setAutoMerge({ items, events, writer, ctx: opts.ctx }, id, on),
     changePlaybook: (id, playbook) =>
       changePlaybook(
         {
           items, writer, ctx: opts.ctx,
-          available: async (item) => {
+          playbooks: async (item) => {
+            const origin = items.get(item.id)?.originUrl ?? "";
             const repo = item.repoId ? repos.get(item.repoId) : undefined;
-            return (await loadPlaybooks(paths.playbooksDir, repo?.path)).playbooks.map((p) => p.name);
+            const loaded = await catalog.load(repo?.path);
+            return { available: loaded.map((p) => p.name), allowed: allowedFor(origin, item.source, loaded) };
           },
         },
         id,
         playbook,
       ),
+    changeAgent: (id, agent) => changeAgent({ items, writer, ctx: opts.ctx, isRunning: (itemId) => runner.isRunning(itemId) }, id, agent),
     sayToAgent: (id, text) =>
       sayToAgent({ item: (i) => items.get(i)?.item, hasProcess: (i) => runner.hasProcess(i), say: (i, t) => runner.say(i, t) }, id, text),
     view,
@@ -415,7 +472,10 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
     grants: () => grants.active(),
     revokeGrant: (id) => revokeGrant({ grants, items, writer, ctx: opts.ctx }, id),
     diff: (input) => itemDiff(opts.exec, input),
-    testSource: (origin, query) => fetchQueryIssues(opts.exec, origin, query),
+    testSource: async (origin, query) => {
+      const tickets = providers.ticketSource(origin);
+      return tickets ? tickets.query(origin, query) : { ok: false, kind: "command", error: noConnection(origin) };
+    },
     openPath: async (path, target) => {
       const r = await opts.exec("open", target === "terminal" ? ["-a", "Terminal", path] : [path]);
       if (r.code !== 0) throw new Error(r.stderr.trim() || `open exited with ${r.code}`);
@@ -425,8 +485,18 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       approveDraft({
         ...draftDeps,
         exec: opts.exec,
+        providers,
         stopAgent: async (itemId) => {
           if (runner.hasProcess(itemId)) await runner.stop(itemId);
+        },
+        continueAgent: async (itemId, how) => {
+          const item = items.get(itemId)?.item;
+          if (item && runner.hasProcess(itemId)) {
+            writer.commit(how.transition(item, opts.ctx));
+            runner.say(itemId, how.prompt);
+          } else {
+            track(await resumeItem(startDeps(), itemId, how));
+          }
         },
       }, id),
     rejectDraft: (id, reason) =>
@@ -460,7 +530,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
         app.log.warn({ err: e }, "could not write the default playbooks"),
       );
       await app.listen({ host: "127.0.0.1", port });
-      bridge = await listenBridge({ ...draftDeps, exec: opts.exec, sessions: bridgeSessions, log: app.log, version: opts.version }, bridgeSocket);
+      bridge = await listenBridge({ ...draftDeps, exec: opts.exec, providers, sessions: bridgeSessions, log: app.log, version: opts.version }, bridgeSocket);
       app.log.info({ configFile: paths.configFile, dbFile: paths.dbFile }, "donepm started");
       await recheck();
       if (status.get().claude?.version) app.log.info({ version: status.get().claude?.version }, "claude cli");
@@ -469,6 +539,7 @@ export async function createDaemon(opts: DaemonOptions): Promise<Daemon> {
       } catch (e) {
         app.log.error({ err: e }, "repo scan failed");
       }
+      await refreshCatalog();
       poller.start();
     },
     async stop() {

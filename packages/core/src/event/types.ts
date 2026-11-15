@@ -10,12 +10,14 @@ export const EVENT_TYPES = [
   "item.pr_merged",
   "item.archived",
   "item.refreshed",
+  "item.repo_chosen",
   "agent.started",
   "agent.resumed",
   "agent.turn_started",
   "agent.turn_ended",
   "agent.failed",
   "agent.interrupted",
+  "agent.kind_changed",
   "permission.asked",
   "permission.answered",
   "permission.auto_allowed",
@@ -43,6 +45,7 @@ export const EVENT_TYPES = [
   "pr.merged",
   "pr.merge_failed",
   "pr.auto_merge_set",
+  "pr.branch_updated",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

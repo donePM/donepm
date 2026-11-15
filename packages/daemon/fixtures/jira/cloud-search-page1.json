@@ -1,0 +1,41 @@
+{
+  "issues": [
+    {
+      "expand": "renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations",
+      "id": "10123",
+      "self": "https://acme.atlassian.net/rest/api/3/issue/10123",
+      "key": "APP-123",
+      "fields": {
+        "summary": "Login fails after password reset",
+        "description": {
+          "type": "doc",
+          "version": 1,
+          "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "After a reset the login form says the password is wrong." }] }]
+        },
+        "priority": { "self": "https://acme.atlassian.net/rest/api/3/priority/2", "iconUrl": "https://acme.atlassian.net/images/icons/priorities/high.svg", "name": "High", "id": "2" },
+        "status": {
+          "self": "https://acme.atlassian.net/rest/api/3/status/3",
+          "description": "",
+          "name": "In Progress",
+          "id": "3",
+          "statusCategory": { "self": "https://acme.atlassian.net/rest/api/3/statuscategory/4", "id": 4, "key": "indeterminate", "colorName": "yellow", "name": "In Progress" }
+        },
+        "labels": ["auth", "regression"],
+        "components": [{ "self": "https://acme.atlassian.net/rest/api/3/component/10000", "id": "10000", "name": "Web" }],
+        "issuetype": { "self": "https://acme.atlassian.net/rest/api/3/issuetype/10004", "id": "10004", "name": "Bug", "subtask": false, "hierarchyLevel": 0 },
+        "project": { "self": "https://acme.atlassian.net/rest/api/3/project/10000", "id": "10000", "key": "APP", "name": "Acme App", "projectTypeKey": "software" },
+        "created": "2026-09-28T09:15:02.123+0200",
+        "updated": "2026-10-02T16:40:11.000+0200",
+        "assignee": { "self": "https://acme.atlassian.net/rest/api/3/user?accountId=5f0000000000000000000a01", "accountId": "5f0000000000000000000a01", "displayName": "Dana Developer", "active": true }
+      },
+      "renderedFields": {
+        "summary": null,
+        "description": "<p>After a reset the login form says the password is <b>wrong</b>.</p><ul><li>Reset the password</li><li>Log in</li></ul><script>alert(1)</script><p><a href=\"https://acme.atlassian.net/browse/APP-100\" class=\"issue-link\">APP-100</a></p>",
+        "created": "28/Sep/26 9:15 AM",
+        "updated": "02/Oct/26 4:40 PM"
+      }
+    }
+  ],
+  "nextPageToken": "Ch0jU3RyaW5nJkFQUA%3D%3D",
+  "isLast": false
+}

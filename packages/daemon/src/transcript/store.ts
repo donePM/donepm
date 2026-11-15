@@ -1,4 +1,4 @@
-import type { TranscriptKind, TranscriptMessage } from "@donepm/core";
+import { isAgentKind, type TranscriptKind, type TranscriptMessage } from "@donepm/core";
 import type { Db } from "../db/database.js";
 
 interface TranscriptRow {
@@ -8,6 +8,7 @@ interface TranscriptRow {
   at: string;
   kind: string;
   raw: string;
+  agent_kind: string | null;
 }
 
 function fromRow(r: TranscriptRow): TranscriptMessage {
@@ -17,6 +18,7 @@ function fromRow(r: TranscriptRow): TranscriptMessage {
     sessionId: r.session_id,
     at: r.at,
     kind: r.kind as TranscriptKind,
+    ...(r.agent_kind !== null && isAgentKind(r.agent_kind) ? { agentKind: r.agent_kind } : {}),
     raw: JSON.parse(r.raw) as unknown,
   };
 }
@@ -29,8 +31,8 @@ export class TranscriptStore {
 
   append(msg: TranscriptMessage): void {
     this.db
-      .prepare("INSERT INTO transcript (id, item_id, session_id, at, kind, raw) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(msg.id, msg.itemId, msg.sessionId, msg.at, msg.kind, JSON.stringify(msg.raw));
+      .prepare("INSERT INTO transcript (id, item_id, session_id, at, kind, agent_kind, raw) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(msg.id, msg.itemId, msg.sessionId, msg.at, msg.kind, msg.agentKind ?? null, JSON.stringify(msg.raw));
   }
 
   /** Up to `limit` messages after the message `after` (exclusive), or from the start. */

@@ -1,0 +1,54 @@
+{
+  "issues": [
+    {
+      "expand": "renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations",
+      "id": "10140",
+      "self": "https://acme.atlassian.net/rest/api/3/issue/10140",
+      "key": "APP-140",
+      "fields": {
+        "summary": "Export the report as CSV",
+        "description": null,
+        "priority": { "self": "https://acme.atlassian.net/rest/api/3/priority/3", "name": "Medium", "id": "3" },
+        "status": {
+          "self": "https://acme.atlassian.net/rest/api/3/status/10000",
+          "name": "To Do",
+          "id": "10000",
+          "statusCategory": { "self": "https://acme.atlassian.net/rest/api/3/statuscategory/2", "id": 2, "key": "new", "colorName": "blue-gray", "name": "To Do" }
+        },
+        "labels": [],
+        "components": [],
+        "issuetype": { "self": "https://acme.atlassian.net/rest/api/3/issuetype/10001", "id": "10001", "name": "Story", "subtask": false, "hierarchyLevel": 0 },
+        "project": { "self": "https://acme.atlassian.net/rest/api/3/project/10000", "id": "10000", "key": "APP", "name": "Acme App" },
+        "created": "2026-09-30T14:00:00.000+0000",
+        "updated": "2026-09-30T14:00:00.000+0000",
+        "assignee": { "accountId": "5f0000000000000000000a01", "displayName": "Dana Developer", "active": true }
+      },
+      "renderedFields": { "description": null }
+    },
+    {
+      "expand": "renderedFields",
+      "id": "10141",
+      "self": "https://acme.atlassian.net/rest/api/3/issue/10141",
+      "key": "APP-141",
+      "fields": {
+        "summary": "Already shipped",
+        "description": null,
+        "priority": null,
+        "status": {
+          "name": "Done",
+          "id": "10001",
+          "statusCategory": { "id": 3, "key": "done", "colorName": "green", "name": "Done" }
+        },
+        "labels": [],
+        "components": [],
+        "issuetype": { "id": "10002", "name": "Task", "subtask": false },
+        "project": { "id": "10000", "key": "APP", "name": "Acme App" },
+        "created": "2026-09-01T08:00:00.000+0000",
+        "updated": "2026-10-01T08:00:00.000+0000",
+        "assignee": null
+      },
+      "renderedFields": { "description": null }
+    }
+  ],
+  "isLast": true
+}

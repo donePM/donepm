@@ -28,7 +28,7 @@ describe("visibleRepos", () => {
 
 describe("playbookChoices", () => {
   const pb = (name: string, scope: PlaybookEntry["scope"]): PlaybookEntry => ({
-    name, model: "opus", permissionMode: "default", drafts: ["pr"], file: `${name}.md`, scope,
+    name, model: "opus", permissionMode: "default", drafts: ["pr"], body: "", tools: [], permissions: { allow: [], deny: [] }, file: `${name}.md`, scope,
   });
   const list = {
     globalDir: "/pb",

@@ -1,0 +1,29 @@
+{
+  "count": 2,
+  "value": [
+    {
+      "evaluationId": "6c4ddb2e-0c6b-4a0e-9e1f-55a2a2f4b021",
+      "status": "running",
+      "startedDate": "2026-10-03T19:48:02.113Z",
+      "configuration": {
+        "id": 14,
+        "isEnabled": true,
+        "isBlocking": true,
+        "type": { "id": "0609b952-1397-4640-95ec-e00a01b2c241", "displayName": "Build" },
+        "settings": { "buildDefinitionId": 41, "displayName": "api CI" }
+      },
+      "context": { "buildId": 812, "buildDefinitionId": 41, "buildDefinitionName": "acme.api", "isExpired": false }
+    },
+    {
+      "evaluationId": "6c4ddb2e-0c6b-4a0e-9e1f-55a2a2f4b022",
+      "status": "queued",
+      "configuration": {
+        "id": 15,
+        "isEnabled": true,
+        "isBlocking": false,
+        "type": { "id": "cbdc66da-9728-4af8-aada-9a5a32e4a226", "displayName": "Status" },
+        "settings": { "statusGenre": "security", "statusName": "scan" }
+      }
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { githubProviders } from "../gh/adapter.js";
 import { existsSync } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -52,7 +53,7 @@ describe("ensureReviewWorktree", () => {
   it("checks out the pull request's head on a review branch and reports its base (D41)", async () => {
     const { repo, worktreeRoot, clone, head } = await setup();
     const exec = withGh(fakeExec({ "gh pr view 7 --repo github.com/acme/widgets": ok(fixture("gh/pr-view-review.json")) }));
-    const wt = await ensureReviewWorktree({ exec, item: item(), repo, worktreeRoot, branchPrefix: "dp/" });
+    const wt = await ensureReviewWorktree({ exec, providers: githubProviders(exec), item: item(), repo, worktreeRoot, branchPrefix: "dp/" });
     expect(wt).toEqual({
       branch: "dp/review-7-add-a-widget", baseBranch: "minor", created: true,
       path: join(worktreeRoot, "acme-widgets", "dp-review-7-add-a-widget"),
@@ -68,10 +69,10 @@ describe("ensureReviewWorktree", () => {
   it("reuses the item's worktree and keeps its base", async () => {
     const { repo, worktreeRoot } = await setup();
     const exec = withGh(fakeExec({ "gh pr view": ok(fixture("gh/pr-view-review.json")) }));
-    const first = await ensureReviewWorktree({ exec, item: item(), repo, worktreeRoot, branchPrefix: "dp/" });
+    const first = await ensureReviewWorktree({ exec, providers: githubProviders(exec), item: item(), repo, worktreeRoot, branchPrefix: "dp/" });
     exec.calls.length = 0;
     const again = await ensureReviewWorktree({
-      exec, item: item({ worktreePath: first.path, branch: first.branch, baseBranch: "minor" }), repo, worktreeRoot, branchPrefix: "dp/",
+      exec, providers: githubProviders(exec), item: item({ worktreePath: first.path, branch: first.branch, baseBranch: "minor" }), repo, worktreeRoot, branchPrefix: "dp/",
     });
     expect(again).toEqual({ ...first, created: false });
     expect(exec.calls).toEqual([]);
@@ -80,13 +81,13 @@ describe("ensureReviewWorktree", () => {
   it("refuses a pull request that is no longer open", async () => {
     const { repo, worktreeRoot } = await setup();
     const exec = withGh(fakeExec({ "gh pr view": ok(fixture("gh/pr-view-merged.json")) }));
-    await expect(ensureReviewWorktree({ exec, item: item(), repo, worktreeRoot, branchPrefix: "dp/" })).rejects.toThrow(/is merged/);
+    await expect(ensureReviewWorktree({ exec, providers: githubProviders(exec), item: item(), repo, worktreeRoot, branchPrefix: "dp/" })).rejects.toThrow(/is merged/);
   });
 
   it("fails with gh's message when gh cannot read the pull request", async () => {
     const { repo, worktreeRoot } = await setup();
     const exec = withGh(fakeExec({ "gh pr view": fail("GraphQL: Could not resolve to a PullRequest") }));
-    const err = await ensureReviewWorktree({ exec, item: item(), repo, worktreeRoot, branchPrefix: "dp/" }).catch((e) => e);
+    const err = await ensureReviewWorktree({ exec, providers: githubProviders(exec), item: item(), repo, worktreeRoot, branchPrefix: "dp/" }).catch((e) => e);
     expect(err).toBeInstanceOf(WorktreeError);
     expect(err.output).toMatch(/Could not resolve/);
   });
@@ -94,7 +95,7 @@ describe("ensureReviewWorktree", () => {
   it("fails with git's output when the head cannot be fetched", async () => {
     const { repo, worktreeRoot } = await setup();
     const exec = withGh(fakeExec({ "gh pr view": ok(fixture("gh/pr-view-review.json")) }));
-    const err = await ensureReviewWorktree({ exec, item: item({ externalId: "acme/widgets#8" }), repo, worktreeRoot, branchPrefix: "dp/" })
+    const err = await ensureReviewWorktree({ exec, providers: githubProviders(exec), item: item({ externalId: "acme/widgets#8" }), repo, worktreeRoot, branchPrefix: "dp/" })
       .catch((e) => e);
     expect(err).toBeInstanceOf(WorktreeError);
     expect(err.message).toMatch(/pull request #8/);

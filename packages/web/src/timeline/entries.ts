@@ -1,4 +1,4 @@
-import { isQuestionTool, parseRules, priorityName, questionsOf, rawRule, repoName, toolSummary, type Event, type PermissionAsk } from "@donepm/core";
+import { isNumberKey, isQuestionTool, parseRules, parseTicketId, priorityName, questionsOf, rawRule, repoName, toolSummary, type Event, type PermissionAsk } from "@donepm/core";
 import { grantText } from "../asks/grant";
 import { askCopyText, askView } from "../asks/view";
 import { tokens } from "../time/duration";
@@ -35,7 +35,7 @@ function askCode(ask: PermissionAsk | undefined, fallbackTool: unknown): string 
 /** The ask's whole input for the tooltip, only when the one-line summary leaves something out. */
 function askFull(ask: PermissionAsk | undefined): { full?: string } {
   if (!ask) return {};
-  const full = askCopyText(askView(ask.toolName, ask.input));
+  const full = askCopyText(askView(ask.toolName, ask.input, undefined, ask.subject));
   return full && full !== toolSummary(ask.toolName, ask.input) ? { full } : {};
 }
 
@@ -72,7 +72,7 @@ const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is
  * `item.refreshed` (D45): "Priority changed on GitHub: P2 → P1" when only the priority changed,
  * else "Changed on GitHub: priority P2 → P1, title, labels +bug −P3"; a changed title in the detail.
  */
-function refreshedEntry(p: Record<string, unknown>): EntryText {
+function refreshedEntry(p: Record<string, unknown>, at = "on GitHub"): EntryText {
   const changed = (typeof p.changed === "object" && p.changed !== null ? p.changed : {}) as Record<string, { from?: unknown; to?: unknown } | undefined>;
   const { priority, title, labels } = changed;
   const parts: string[] = [];
@@ -87,12 +87,15 @@ function refreshedEntry(p: Record<string, unknown>): EntryText {
     const diff = [...to.filter((l) => !from.includes(l)).map((l) => `+${l}`), ...from.filter((l) => !to.includes(l)).map((l) => `−${l}`)];
     parts.push(diff.length ? `labels ${diff.join(" ")}` : "labels");
   }
-  const text = tiers && parts.length === 1 ? `Priority changed on GitHub: ${tiers}` : `Changed on GitHub: ${parts.join(", ")}`;
+  const text = tiers && parts.length === 1 ? `Priority changed ${at}: ${tiers}` : `Changed ${at}: ${parts.join(", ")}`;
   const detail = title && str(title.from) && str(title.to) ? { detail: `“${str(title.from)}” → “${str(title.to)}”` } : {};
   return { tone: "system", text, ...detail };
 }
 
-const DRAFT_NAME: Record<string, string> = { pr: "PR draft", push: "push draft", comment: "reply draft", review: "review draft" };
+const DRAFT_NAME: Record<string, string> = {
+  pr: "PR draft", push: "push draft", comment: "reply draft", review: "review draft", update_branch: "update-branch draft",
+  ticket_comment: "ticket comment draft", ticket_transition: "ticket move draft",
+};
 
 /** "4 s", "11 min", "1 h 5 min". */
 export function spanText(ms: number): string {
@@ -126,7 +129,35 @@ export function splitActor(text: string, actor: Event["actor"]): { actor: string
   return { actor: "System", verb };
 }
 
-function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: ReadonlyMap<string, string>, turnMs: ReadonlyMap<string, number>): EntryText {
+/** Where the item comes from, as its timeline names it: a ticket's tracker, or GitHub (issue #139). */
+interface Origin {
+  site: string;
+  /** "issue", "ticket" or "work item" */
+  noun: string;
+  /** "on GitHub", "in Jira" */
+  at: string;
+}
+
+const GITHUB: Origin = { site: "GitHub", noun: "issue", at: "on GitHub" };
+const JIRA: Origin = { site: "Jira", noun: "ticket", at: "in Jira" };
+const BOARDS: Origin = { site: "Azure Boards", noun: "work item", at: "in Azure Boards" };
+
+function originOf(events: readonly Event[]): Origin {
+  const collected = events.find((e) => e.type === "item.collected");
+  const id = collected && str(collected.payload.externalId);
+  const ticket = id ? parseTicketId(id) : undefined;
+  // A Jira key has letters; an Azure Boards work item is a number (issue #142).
+  if (!ticket) return GITHUB;
+  return isNumberKey(ticket.key) ? BOARDS : JIRA;
+}
+
+function entry(
+  e: Event,
+  asks: ReadonlyMap<string, PermissionAsk>,
+  draftTypes: ReadonlyMap<string, string>,
+  turnMs: ReadonlyMap<string, number>,
+  origin: Origin = GITHUB,
+): EntryText {
   const p = e.payload;
   const ask = e.refId ? asks.get(e.refId) : undefined;
   const type = (e.refId !== undefined && draftTypes.get(e.refId)) || "pr";
@@ -134,21 +165,23 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: R
   const draftName = DRAFT_NAME[type] ?? "draft";
   switch (e.type) {
     case "item.collected":
-      return { tone: "system", text: "Collected from GitHub" };
+      return { tone: "system", text: `Collected from ${origin.site}` };
+    case "item.repo_chosen":
+      return { tone: "user", text: "You chose the repository", ...withCode(str(p.origin)) };
     case "item.playbook_changed":
       return { tone: "user", text: "You changed the playbook", ...withCode(str(p.to) ?? str(p.name)) };
     case "item.assigned":
-      return { tone: "system", text: "Assigned the issue to you on GitHub" };
+      return { tone: "system", text: `Assigned the ${origin.noun} to you ${origin.at}` };
     case "item.closed_upstream":
-      return { tone: "system", text: "Closed on GitHub, moved to Done" };
+      return { tone: "system", text: `Closed ${origin.at}, moved to Done` };
     case "item.dismissed":
-      return { tone: "user", text: "You dismissed it after it was closed on GitHub" };
+      return { tone: "user", text: `You dismissed it after it was closed ${origin.at}` };
     case "item.archived":
       return { tone: "system", text: "Moved to the Archive" };
     case "item.refreshed":
-      return refreshedEntry(p);
+      return refreshedEntry(p, origin.at);
     case "item.assign_failed":
-      return { tone: "attention", text: "Assigning the issue to you failed", ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
+      return { tone: "attention", text: `Assigning the ${origin.noun} to you failed`, ...(str(p.reason) ? { detail: str(p.reason) } : {}) };
     case "agent.started":
       return { tone: e.actor === "user" ? "user" : "system", text: "Agent started" };
     case "agent.resumed":
@@ -228,6 +261,19 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: R
     case "draft.executed":
       if (type === "comment") return { tone: "system", text: `${replies(p.posted)} posted, done` };
       if (type === "review") return { tone: "system", text: "Review posted, done", ...(str(p.url) ? { detail: str(p.url) } : {}) };
+      if (type === "update_branch") {
+        return {
+          tone: "system",
+          text: p.via === "dependabot" ? "Asked Dependabot to rebase, the agent goes on" : "Branch update requested, the agent goes on",
+          ...(str(p.url) ? { detail: str(p.url) } : {}),
+        };
+      }
+      if (type === "ticket_comment") {
+        return { tone: "system", text: "Comment posted on the ticket, the agent goes on", ...(str(p.url) ? { detail: str(p.url) } : {}) };
+      }
+      if (type === "ticket_transition") {
+        return { tone: "system", text: str(p.status) ? `Ticket moved to ${str(p.status)}, the agent goes on` : "Ticket moved, the agent goes on" };
+      }
       if (push) {
         return {
           tone: "system",
@@ -242,6 +288,8 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: R
         text:
           p.step === "reply" ? "Posting the replies failed"
           : p.step === "review" ? "Posting the review failed"
+          : p.step === "update_branch" ? "Updating the branch failed"
+          : p.step === "ticket" ? (type === "ticket_transition" ? "Moving the ticket failed" : "Commenting on the ticket failed")
           : push ? "Pushing failed"
           : "Creating the pull request failed",
         ...(str(p.error) ? { detail: str(p.error) } : {}),
@@ -279,12 +327,16 @@ function entry(e: Event, asks: ReadonlyMap<string, PermissionAsk>, draftTypes: R
       return { tone: "user", text: "You marked the review feedback done" };
     case "pr.commented":
       return { tone: "user", text: "You commented on the pull request", ...(str(p.body) ? { detail: str(p.body) } : {}) };
+    case "pr.branch_updated":
+      return { tone: "user", text: p.via === "dependabot" ? "You asked Dependabot to rebase the branch" : "You updated the branch with its base" };
     case "pr.merged":
       return p.auto
         ? { tone: "system", text: `Merged automatically (${str(p.method)})` }
         : { tone: "user", text: `You merged the pull request (${str(p.method)})` };
     case "pr.merge_failed":
-      return { tone: "danger", text: "Automatic merge failed, turned off for this item", ...(str(p.error) ? { detail: str(p.error) } : {}) };
+      return p.staysOn
+        ? { tone: "attention", text: "Automatic merge failed, stays on and tries again once the pull request changes", ...(str(p.error) ? { detail: str(p.error) } : {}) }
+        : { tone: "danger", text: "Automatic merge failed, turned off for this item", ...(str(p.error) ? { detail: str(p.error) } : {}) };
     case "pr.auto_merge_set":
       return { tone: "user", text: p.on ? "You turned on automatic merge" : "You turned off automatic merge" };
     case "item.pr_merged":
@@ -323,6 +375,7 @@ export function timelineEntries(events: readonly Event[], asks: readonly Permiss
   );
   // How long each turn took: from the start, resume or continuation before it.
   const turnMs = new Map<string, number>();
+  const origin = originOf(events);
   let turnStart: string | undefined;
   for (const e of events) {
     if (e.type === "agent.started" || e.type === "agent.resumed" || e.type === "agent.turn_started") turnStart = e.at;
@@ -335,7 +388,7 @@ export function timelineEntries(events: readonly Event[], asks: readonly Permiss
     .map((e, i) => ({ e, i }))
     .sort((a, b) => b.e.at.localeCompare(a.e.at) || b.i - a.i)
     .map(({ e }) => {
-      const x = entry(e, byId, draftTypes, turnMs);
+      const x = entry(e, byId, draftTypes, turnMs, origin);
       return { id: e.id, at: e.at, ...x, ...splitActor(x.text, e.actor) };
     });
 }

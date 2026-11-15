@@ -1,3 +1,5 @@
+import type { AgentKind } from "../agent/kind.js";
+
 export type TranscriptKind =
   | "user"
   | "assistant_text"
@@ -12,10 +14,15 @@ export type TranscriptKind =
 export interface TranscriptMessage {
   id: string;
   itemId: string;
-  /** Claude `session_id`; empty for messages written before the session exists (setup). */
+  /** The agent's session id; empty for messages written before the session exists (setup). */
   sessionId: string;
   at: string;
   kind: TranscriptKind;
-  /** The full stream-json line. Always kept. */
+  /**
+   * The agent whose line this is, in its own protocol (issue #136). Absent: written by the daemon
+   * (setup), or by Claude Code before agents had a kind.
+   */
+  agentKind?: AgentKind;
+  /** The agent's full line, as it sent it. Always kept. */
   raw: unknown;
 }

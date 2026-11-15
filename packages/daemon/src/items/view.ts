@@ -1,4 +1,4 @@
-import type { MergeMethod, PrDraftResult, PrMerge, Repo, WorkItem } from "@donepm/core";
+import type { AgentKind, MergeMethod, PrDraftResult, PrMerge, Repo, WorkItem } from "@donepm/core";
 import type { CloneState } from "../repos/clone.js";
 import type { AgentHistory } from "./agent-info.js";
 import type { Attention } from "./attention.js";
@@ -35,6 +35,10 @@ export interface ItemView extends WorkItem {
   merge?: MergeView;
   /** While it waits for CI: the checks of the last poll, for the card's badges (spec 12.1). */
   ci?: CiView;
+  /** The playbooks its repository offers the item's ingest, the card's choice (issue #153). */
+  allowedPlaybooks: string[];
+  /** The agent the next start uses: the item's, else its playbook's, else the repository's (D49). */
+  runsWith?: AgentKind;
 }
 
 /** One check as the last `gh pr checks` reported it; `bucket` is gh's: pass, fail, pending, skipping, cancel. */
@@ -63,20 +67,25 @@ export type PrView = PrDraftResult &
     conflict?: { base: string; files: string[]; waiting: boolean };
   };
 
+export const awaitingRepo = (item: WorkItem): boolean => item.repoCandidates !== undefined && !item.repoOrigin;
+
 export function toItemView(
   item: WorkItem,
   repo: Repo | undefined,
   agent: AgentView = { running: false },
   attention?: Attention,
   pr?: PrView,
+  allowedPlaybooks: string[] = [],
 ): ItemView {
   const badges: ItemBadge[] = [];
-  if (!repo) badges.push("no-local-clone");
+  // A ticket of several repositories waits for the user's choice, not for a clone (issue #139).
+  if (!repo && !awaitingRepo(item)) badges.push("no-local-clone");
   if (item.closedUpstream) badges.push("closed-upstream");
   return {
     ...item,
     repo: repo ? { id: repo.id, path: repo.path, originUrl: repo.originUrl, defaultBranch: repo.defaultBranch } : null,
     badges,
+    allowedPlaybooks,
     agent,
     ...(attention ? { attention } : {}),
     ...(pr ? { pr } : {}),

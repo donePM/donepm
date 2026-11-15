@@ -7,7 +7,7 @@ const ev = (type: string, payload: Record<string, unknown> = {}, over: Partial<E
   n++;
   return { id: `e${n}`, itemId: "i", at: `2026-10-03T09:${String(n).padStart(2, "0")}:00Z`, actor: "system", type: type as Event["type"], payload, ...over };
 };
-const ask: PermissionAsk = { id: "a1", itemId: "i", requestId: "r", toolName: "Bash", input: { command: "composer test" }, state: "allowed", rules: [] };
+const ask: PermissionAsk = { id: "a1", itemId: "i", agentKind: "claude-code", requestId: "r", toolName: "Bash", input: { command: "composer test" }, subject: { kind: "command", command: "composer test" }, state: "allowed", rules: [] };
 
 describe("timelineEntries", () => {
   it("lists newest first with text for each event", () => {
@@ -36,7 +36,7 @@ describe("timelineEntries", () => {
   });
 
   it("names the rules of an allow for the run and the daemon's own answers", () => {
-    const web: PermissionAsk = { id: "a2", itemId: "i", requestId: "r2", toolName: "WebFetch", input: { url: "https://nodejs.org/en" }, state: "allowed", rules: [] };
+    const web: PermissionAsk = { id: "a2", itemId: "i", agentKind: "claude-code", requestId: "r2", toolName: "WebFetch", input: { url: "https://nodejs.org/en" }, subject: { kind: "network", host: "nodejs.org", url: "https://nodejs.org/en" }, state: "allowed", rules: [] };
     const events = [
       ev("permission.answered", { behavior: "allow", rules: [{ toolName: "Bash", ruleContent: "curl *" }] }, { refId: "a1", actor: "user" }),
       ev("permission.auto_allowed", { toolName: "WebFetch", host: "nodejs.org", domain: "nodejs.org" }, { refId: "a2" }),
@@ -65,7 +65,8 @@ describe("timelineEntries", () => {
   });
 
   it("keeps a multi-line command whole in the tooltip", () => {
-    const long: PermissionAsk = { ...ask, input: { command: "pnpm build \\\n  && pnpm test" } };
+    const command = "pnpm build \\\n  && pnpm test";
+    const long: PermissionAsk = { ...ask, input: { command }, subject: { kind: "command", command } };
     const [asked] = timelineEntries([ev("permission.asked", { toolName: "Bash" }, { refId: "a1", actor: "agent" })], [long]);
     expect(asked).toMatchObject({ code: "Bash: pnpm build && pnpm test", full: "pnpm build \\\n  && pnpm test" });
     const [short] = timelineEntries([ev("permission.asked", { toolName: "Bash" }, { refId: "a1", actor: "agent" })], [ask]);
@@ -74,8 +75,9 @@ describe("timelineEntries", () => {
 
   it("shows questions and the user's answers", () => {
     const q: PermissionAsk = {
-      id: "q1", itemId: "i", requestId: "r3", toolName: "AskUserQuestion", state: "allowed", rules: [],
+      id: "q1", itemId: "i", agentKind: "claude-code", requestId: "r3", toolName: "AskUserQuestion", state: "allowed", rules: [],
       input: { questions: [{ question: "Which color?", header: "Color", options: [] }, { question: "Which sizes?", options: [] }] },
+      subject: { kind: "question", questions: [{ question: "Which color?", header: "Color", options: [], multiSelect: false }, { question: "Which sizes?", header: "", options: [], multiSelect: false }] },
     };
     const events = [
       ev("permission.asked", { toolName: "AskUserQuestion" }, { refId: "q1", actor: "agent" }),
@@ -174,6 +176,7 @@ describe("timelineEntries", () => {
     const entries = timelineEntries([
       ev("pr.auto_merge_set", { on: true }, { actor: "user" }),
       ev("pr.merge_failed", { method: "squash", auto: true, error: "merge queue required" }),
+      ev("pr.merge_failed", { method: "squash", auto: true, staysOn: true, error: "not up to date with the base branch" }),
       ev("pr.merged", { method: "rebase", auto: false }, { actor: "user" }),
       ev("pr.merged", { method: "squash", auto: true }),
     ], []);
@@ -181,6 +184,7 @@ describe("timelineEntries", () => {
     expect(entries.map((e) => [e.tone, e.text, e.detail])).toEqual([
       ["system", "Merged automatically (squash)", undefined],
       ["user", "You merged the pull request (rebase)", undefined],
+      ["attention", "Automatic merge failed, stays on and tries again once the pull request changes", "not up to date with the base branch"],
       ["danger", "Automatic merge failed, turned off for this item", "merge queue required"],
       ["user", "You turned on automatic merge", undefined],
     ]);
@@ -196,6 +200,40 @@ describe("timelineEntries", () => {
       { tone: "attention", text: "Agent created review draft", detail: "Approve PR #7" },
       { tone: "danger", text: "Posting the review failed", detail: "HTTP 422" },
       { tone: "system", text: "Review posted, done", detail: "https://github.com/o/r/pull/7#pullrequestreview-1" },
+    ]);
+  });
+
+  it("describes updating the branch of someone else's pull request (issue #148)", () => {
+    const events = [
+      ev("draft.created", { type: "update_branch", title: "Update the branch of PR #7" }, { refId: "u", actor: "agent" }),
+      ev("draft.execution_failed", { step: "update_branch", error: "HTTP 422" }, { refId: "u" }),
+      ev("draft.executed", { via: "update-branch" }, { refId: "u" }),
+      ev("pr.branch_updated", { via: "dependabot" }, { actor: "user" }),
+      ev("pr.branch_updated", { via: "update-branch" }, { actor: "user" }),
+    ];
+    expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail })).reverse()).toEqual([
+      { tone: "attention", text: "Agent created update-branch draft", detail: "Update the branch of PR #7" },
+      { tone: "danger", text: "Updating the branch failed", detail: "HTTP 422" },
+      { tone: "system", text: "Branch update requested, the agent goes on", detail: undefined },
+      { tone: "user", text: "You asked Dependabot to rebase the branch", detail: undefined },
+      { tone: "user", text: "You updated the branch with its base", detail: undefined },
+    ]);
+  });
+
+  it("describes ticket drafts (issue #139)", () => {
+    const events = [
+      ev("draft.created", { type: "ticket_comment", title: "Comment on APP-123" }, { refId: "c", actor: "agent" }),
+      ev("draft.executed", { id: "10500", url: "https://acme.atlassian.net/browse/APP-123?focusedCommentId=10500" }, { refId: "c" }),
+      ev("draft.created", { type: "ticket_transition", title: "Move APP-123 to In Review" }, { refId: "t", actor: "agent" }),
+      ev("draft.execution_failed", { step: "ticket", error: "moving APP-123 failed: HTTP 400" }, { refId: "t" }),
+      ev("draft.executed", { status: "In Review" }, { refId: "t" }),
+    ];
+    expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail })).reverse()).toEqual([
+      { tone: "attention", text: "Agent created ticket comment draft", detail: "Comment on APP-123" },
+      { tone: "system", text: "Comment posted on the ticket, the agent goes on", detail: "https://acme.atlassian.net/browse/APP-123?focusedCommentId=10500" },
+      { tone: "attention", text: "Agent created ticket move draft", detail: "Move APP-123 to In Review" },
+      { tone: "danger", text: "Moving the ticket failed", detail: "moving APP-123 failed: HTTP 400" },
+      { tone: "system", text: "Ticket moved to In Review, the agent goes on", detail: undefined },
     ]);
   });
 
@@ -236,6 +274,36 @@ describe("timelineEntries", () => {
     expect(timelineEntries(events, []).map(({ tone, text, detail }) => ({ tone, text, detail }))).toEqual([
       { tone: "attention", text: "Assigning the issue to you failed", detail: "HTTP 403" },
       { tone: "system", text: "Assigned the issue to you on GitHub", detail: undefined },
+    ]);
+  });
+
+  it("names Jira for a ticket, and the user's choice of repository (issue #139)", () => {
+    const events = [
+      ev("item.collected", { externalId: "jira:APP-123", url: "https://acme.atlassian.net/browse/APP-123" }),
+      ev("item.repo_chosen", { origin: "github.com/acme/app" }, { actor: "user" }),
+      ev("item.assigned"),
+      ev("item.refreshed", { changed: { priority: { from: 2, to: 1 } } }),
+      ev("item.closed_upstream"),
+    ];
+    expect(timelineEntries(events, []).map(({ actor, verb, code }) => ({ actor, verb, code }))).toEqual([
+      { actor: "System", verb: "closed in Jira, moved to Done", code: undefined },
+      { actor: "System", verb: "priority changed in Jira: P2 → P1", code: undefined },
+      { actor: "System", verb: "assigned the ticket to you in Jira", code: undefined },
+      { actor: "You", verb: "chose the repository", code: "github.com/acme/app" },
+      { actor: "System", verb: "collected from Jira", code: undefined },
+    ]);
+  });
+
+  it("names Azure Boards for a work item (issue #142)", () => {
+    const events = [
+      ev("item.collected", { externalId: "ado:1234", url: "https://dev.azure.com/acme/Platform/_workitems/edit/1234" }),
+      ev("item.assigned"),
+      ev("item.closed_upstream"),
+    ];
+    expect(timelineEntries(events, []).map(({ verb }) => verb)).toEqual([
+      "closed in Azure Boards, moved to Done",
+      "assigned the work item to you in Azure Boards",
+      "collected from Azure Boards",
     ]);
   });
 

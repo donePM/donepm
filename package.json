@@ -12,7 +12,7 @@
     "dev": "pnpm -F @donepm/core build && pnpm -F @donepm/daemon build && concurrently -k -n core,daemon,web -c blue,green,magenta \"tsc -p packages/core/tsconfig.build.json --watch --preserveWatchOutput\" \"tsc -p packages/daemon/tsconfig.build.json --watch --preserveWatchOutput & DONEPM_DEV_ORIGIN=http://localhost:5173 node --watch packages/daemon/dist/index.js\" \"packages/web/node_modules/.bin/vite packages/web\""
   },
   "devDependencies": {
-    "concurrently": "^10.0.5",
+    "concurrently": "^10.0.6",
     "typescript": "^5.6.0",
     "vitest": "^3.0.0"
   }

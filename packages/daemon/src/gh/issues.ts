@@ -1,13 +1,14 @@
 import type { ZodType } from "zod";
+import { GITHUB_COM } from "@donepm/core";
+import type { Done } from "../providers/result.js";
+import type { FetchedIssue, FetchResult } from "../providers/ticket-source.js";
 import type { Exec } from "../process/exec.js";
-import { IssueStateSchema, ListIssuesSchema, SearchIssuesSchema, toSourceIssue, type FetchedIssue } from "./schema.js";
+import { hostEnv } from "./hosts.js";
+import { IssueStateSchema, ListIssuesSchema, SearchIssuesSchema, toSourceIssue } from "./schema.js";
 
 export const ISSUE_LIMIT = "1000";
 
-export type FetchResult =
-  | { ok: true; issues: FetchedIssue[] }
-  | { ok: false; kind: "command"; error: string }
-  | { ok: false; kind: "schema"; error: string; raw: string };
+export type { FetchResult };
 
 type Parsed<T> = { ok: true; value: T } | { ok: false; kind: "schema"; error: string; raw: string };
 
@@ -30,14 +31,15 @@ export function isUnknownCommand(stderr: string): boolean {
 }
 
 /**
- * Spec 6.2: open issues assigned to the current user. Uses `gh search issues`; if that command
- * does not exist, falls back to `gh issue list` per known repository (`host/owner/repo`).
+ * Spec 6.2: open issues assigned to the current user on one GitHub host (issue #140); `gh search`
+ * has no `--hostname`, so `GH_HOST` names it. Uses `gh search issues`; if that command does not
+ * exist, falls back to `gh issue list` per known repository (`host/owner/repo`) on that host.
  */
-export async function fetchAssignedIssues(exec: Exec, knownRepos: () => string[]): Promise<FetchResult> {
+export async function fetchAssignedIssues(exec: Exec, knownRepos: () => string[], host: string = GITHUB_COM): Promise<FetchResult> {
   const r = await exec("gh", [
     "search", "issues", "--assignee=@me", "--state=open",
     "--json", "id,number,title,body,createdAt,labels,repository,url", "--limit", ISSUE_LIMIT,
-  ]);
+  ], hostEnv(host));
   if (r.code !== 0) {
     if (isUnknownCommand(r.stderr)) return listPerRepo(exec, knownRepos());
     return { ok: false, kind: "command", error: r.stderr.trim() || `gh exited with ${r.code}` };
@@ -94,7 +96,8 @@ async function listPerRepo(exec: Exec, origins: string[]): Promise<FetchResult> 
 
 /**
  * `OPEN` / `CLOSED`, or undefined when gh fails or the issue cannot be read. A merged pull request
- * (an item to review, D40) counts as closed.
+ * (an item to review, D40) counts as closed. `repository` is what `--repo` takes: `owner/repo`, or
+ * `host/owner/repo` off github.com (core `parseExternalId(...).repo`).
  */
 export async function fetchIssueState(
   exec: Exec,
@@ -108,12 +111,15 @@ export async function fetchIssueState(
   return parsed.value.state === "OPEN" ? "OPEN" : "CLOSED";
 }
 
-/** Assign an issue to the gh user. Only the daemon calls this, on start, when the repo opted in. */
+/**
+ * Assign an issue to the gh user. Only the daemon calls this, on start, when the repo opted in.
+ * `repository` as for `fetchIssueState`.
+ */
 export async function assignIssueToMe(
   exec: Exec,
   repository: string,
   number: number,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<Done> {
   const r = await exec("gh", ["issue", "edit", String(number), "--repo", repository, "--add-assignee", "@me"]);
   return r.code === 0 ? { ok: true } : { ok: false, error: r.stderr.trim() || `gh exited with ${r.code}` };
 }

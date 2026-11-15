@@ -42,6 +42,7 @@ export function parsePlaybook(source: string): Playbook {
     drafts: data.drafts,
     body,
   };
+  if (data.agent !== undefined) playbook.agent = data.agent;
   if (data.effort !== undefined) playbook.effort = data.effort;
   if (data.read_only) playbook.readOnly = true;
   if (data.match !== undefined) playbook.match = data.match;

@@ -1,11 +1,10 @@
 import type { PrDraftResult } from "@donepm/core";
+import type { PrState } from "../providers/code-host.js";
 import type { Exec } from "../process/exec.js";
 import { parseJson } from "./issues.js";
 import { PrStateSchema } from "./schema.js";
 
-export type PrState =
-  | { ok: true; state: "OPEN" | "CLOSED" | "MERGED"; mergedAt: string | null; mergeable?: string; baseRefName?: string }
-  | { ok: false; error: string };
+export type { PrState };
 
 /** `host/owner/repo` from a pull request URL such as `https://github.com/owner/repo/pull/45`. */
 export function prRepository(url: string): string | undefined {

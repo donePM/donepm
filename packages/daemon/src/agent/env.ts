@@ -6,10 +6,21 @@ import { filteredPath } from "./path.js";
 export const TOKEN_VARIABLES = [
   "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
   "GLAB_TOKEN", "GITLAB_TOKEN", "JIRA_API_TOKEN",
+  // `az devops` and Atlassian's `acli` (D50).
+  "AZURE_DEVOPS_EXT_PAT", "ATLASSIAN_API_TOKEN",
+  // Names Jira tools and MCP servers read a Jira token from (D51). donePM keeps its own in the Keychain.
+  "JIRA_TOKEN", "JIRA_PAT", "JIRA_PERSONAL_TOKEN", "ATLASSIAN_TOKEN",
 ] as const;
 
+/**
+ * Which GitHub host `gh` talks to (issue #140). Not a secret, but the agent has no business with a
+ * GitHub host: dropped with the tokens. The empty config directory below holds no login for any
+ * host, github.com or GitHub Enterprise alike.
+ */
+export const HOST_VARIABLES = ["GH_HOST"] as const;
+
 /** Where `gh` and `glab` look for their logins. Pointed at an empty directory for the agent. */
-export const CONFIG_DIR_VARIABLES = ["GH_CONFIG_DIR", "GLAB_CONFIG_DIR"] as const;
+export const CONFIG_DIR_VARIABLES = ["GH_CONFIG_DIR", "GLAB_CONFIG_DIR", "AZURE_CONFIG_DIR"] as const;
 
 /**
  * Variables that describe how the daemon itself was started, not the user's machine (#115).
@@ -42,7 +53,7 @@ const isRunBinDir = (dir: string) => isAbsolute(dir) && dir.endsWith(`${sep}node
  */
 export async function agentEnv(base: NodeJS.ProcessEnv, dirs: { shimRoot: string; emptyConfigDir: string }): Promise<NodeJS.ProcessEnv> {
   const env = { ...base };
-  for (const name of TOKEN_VARIABLES) delete env[name];
+  for (const name of [...TOKEN_VARIABLES, ...HOST_VARIABLES]) delete env[name];
   for (const name of Object.keys(env)) if (isRunVariable(name)) delete env[name];
   const path = (base.PATH ?? "").split(delimiter).filter((dir) => !isRunBinDir(dir)).join(delimiter);
   env.PATH = await filteredPath(path, dirs.shimRoot);

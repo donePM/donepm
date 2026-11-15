@@ -12,7 +12,9 @@ import { runShim } from "./bridge/shim.js";
 import { createDaemon, type Daemon } from "./daemon.js";
 import { testCtx } from "./test-support/ctx.js";
 import { fakeExec, fixture, ok } from "./test-support/fake-exec.js";
+import { fakeHttp, json as jsonAnswer } from "./test-support/fake-http.js";
 import { fakeProcesses } from "./test-support/fake-process.js";
+import { memoryTokens } from "./test-support/fake-tokens.js";
 import { cloneWithOrigin, git } from "./test-support/git-repo.js";
 import { exec as realExec, type Exec } from "./process/exec.js";
 
@@ -45,6 +47,8 @@ function execWith(search: () => string, view = () => fixture("gh/issue-view-open
     "which claude": ok("/usr/local/bin/claude\n"),
     "claude --version": ok("2.1.288 (Claude Code)\n"),
     "claude auth status": ok(fixture("claude/auth-status-logged-in.json")),
+    "which playwright-cli": ok("/opt/homebrew/bin/playwright-cli\n"),
+    "playwright-cli --version": ok("0.1.1\n"),
     "gh pr create": ok("https://github.com/acme/widgets/pull/200\n"),
     "gh pr checks": { code: 1, stdout: fixture("gh/pr-checks-fail.json"), stderr: "" },
     "gh run view": ok(fixture("gh/run-view-log-failed.txt")),
@@ -284,8 +288,12 @@ describe("daemon", { timeout: 30_000 }, () => {
 
     const { body } = await get(d, "/api/playbooks");
     expect(body.globalDir).toBe(join(h, ".config/donepm/playbooks"));
-    expect(body.playbooks.map((p: any) => [p.name, p.scope.kind])).toEqual([["implement", "global"], ["review", "global"]]);
+    expect(body.playbooks.map((p: any) => [p.name, p.scope.kind, p.builtIn])).toEqual([["implement", "global", "default"], ["review", "global", "default"]]);
+    // The full content for the read-only view (#154).
+    expect(body.playbooks[1]).toMatchObject({ readOnly: true, drafts: ["review"], match: { source: "github-pr" }, body: expect.stringMatching(/^You are reviewing/) });
     expect((await get(d, "/api/repos")).body.map((r: any) => r.worktrees)).toEqual([0]);
+    await writeFile(join(h, ".config/donepm/playbooks/implement.md"), (await readFile(join(h, ".config/donepm/playbooks/implement.md"), "utf8")) + "\nMore.\n");
+    expect((await get(d, "/api/playbooks")).body.playbooks.map((p: any) => p.builtIn)).toEqual(["edited", "default"]);
   });
 
   it("restarts through launchd when it runs as a service (#127)", async () => {
@@ -306,7 +314,11 @@ describe("daemon", { timeout: 30_000 }, () => {
     const d = await start(await home());
     const { status, body } = await get(d, "/api/status/recheck", { method: "POST" });
     expect(status).toBe(200);
-    expect(body).toMatchObject({ gh: { state: "ready" }, claude: { state: "ready" } });
+    expect(body).toMatchObject({
+      gh: { state: "ready" },
+      claude: { state: "ready" },
+      helpers: { "playwright-cli": { installed: true, path: "/opt/homebrew/bin/playwright-cli", version: "0.1.1" } },
+    });
   });
 
   it("serves the web UI with a fallback to index.html for client routes", async () => {
@@ -371,6 +383,60 @@ describe("daemon", { timeout: 30_000 }, () => {
       body: JSON.stringify({ pollIntervalSeconds: 1, nope: true }),
     });
     expect(bad.status).toBe(400);
+  });
+
+  it("takes a connection for one more GitHub host, which applies after a restart (D50)", async () => {
+    const h = await home();
+    const d = await start(h);
+    const json = { "content-type": "application/json" };
+    const source = { "github.acme.com/team/api": { managed: true } };
+    const early = await get(d, "/api/settings", { method: "PUT", headers: json, body: JSON.stringify({ sources: source }) });
+    expect(early.status).toBe(400);
+    expect(early.body.issues[0].message).toBe('no connection for github.acme.com; add one under "connections"');
+
+    const connections = [
+      { id: "github", kind: "github", backend: "cli", host: "github.com" },
+      { id: "acme", kind: "github", backend: "cli", host: "github.acme.com" },
+    ];
+    const put = await get(d, "/api/settings", { method: "PUT", headers: json, body: JSON.stringify({ connections, sources: source }) });
+    expect(put.body).toMatchObject({ settings: { connections, sources: source }, restartRequired: true });
+    expect(JSON.parse(await readFile(join(h, ".config/donepm/config.json"), "utf8")).connections).toEqual(connections);
+    // Until the restart, the running connections are the old ones.
+    expect((await get(d, "/api/status")).body.connections.map((c: any) => c.id)).toEqual(["github"]);
+
+    const dropped = await get(d, "/api/settings", { method: "PUT", headers: json, body: JSON.stringify({ connections: [connections[0]] }) });
+    expect(dropped.status).toBe(400);
+  });
+
+  it("keeps a Jira connection's token in the Keychain and shows only whether it is set (D51)", async () => {
+    const h = await home();
+    mkdirSync(join(h, ".config/donepm"), { recursive: true });
+    writeFileSync(join(h, ".config/donepm/config.json"), JSON.stringify({
+      sources: FIXTURE_SOURCES,
+      connections: [
+        { id: "github", kind: "github", host: "github.com" },
+        { id: "jira", kind: "jira", baseUrl: "https://acme.atlassian.net", deployment: "cloud", email: "dana@acme.com" },
+      ],
+    }));
+    const token = "ATATT3xFfGF0-synthetic";
+    const tokens = memoryTokens();
+    const http = fakeHttp({ "GET /rest/api/3/myself": jsonAnswer(fixture("jira/cloud-myself.json")) });
+    daemon = await createDaemon({
+      home: h, exec: execWith(() => fixture("gh/search-issues.json")), ctx: testCtx(), version: "0.0.0-test", port: 0,
+      publicDir: join(h, "no-ui"), spawn: fakeProcesses(), env: { PATH: "/usr/bin:/bin" }, tokens, http,
+    });
+    await daemon.start();
+    const d = daemon;
+    const jiraStatus = async () => (await get(d, "/api/status")).body.connections.find((c: any) => c.id === "jira");
+    expect(await jiraStatus()).toMatchObject({ kind: "jira", backend: "api", host: "acme.atlassian.net", tokenSet: false, state: "unauthorized" });
+    expect(http.requests).toEqual([]);
+
+    const put = await get(d, "/api/connections/jira/token", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) });
+    expect(put.body).toEqual({ id: "jira", tokenSet: true });
+    expect(tokens.tokens.get("jira")).toBe(token);
+    await waitFor(async () => expect(await jiraStatus()).toMatchObject({ tokenSet: true, state: "ready", detail: "Dana Developer" }));
+    expect(JSON.stringify((await get(d, "/api/status")).body)).not.toContain(token);
+    expect(JSON.stringify((await get(d, "/api/settings")).body)).not.toContain(token);
   });
 
   it("rejects requests from foreign origins", async () => {
@@ -753,9 +819,35 @@ describe("daemon", { timeout: 30_000 }, () => {
     expect((await get(d, "/api/items/nope/dismiss", { method: "POST" })).status).toBe(404);
   });
 
+  it("lets the card pick Codex before a start, and starts the item with it (#137)", async () => {
+    const spawn = fakeProcesses();
+    const h = await homeWithHistory();
+    const d = await start(h, undefined, undefined, spawn);
+    const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
+    const put = (body: unknown, id = item.id) =>
+      get(d, `/api/items/${id}/agent`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    expect(item.runsWith).toBe("claude-code");
+    expect(await put({ agent: "codex" })).toMatchObject({ status: 200, body: { agentKind: "codex", runsWith: "codex", state: "ready" } });
+    expect((await get(d, `/api/items/${item.id}`)).body.events.at(-1)).toMatchObject({
+      type: "agent.kind_changed", actor: "user", payload: { from: null, to: "codex" },
+    });
+    expect((await put({ agent: "gpt" })).status).toBe(400);
+    expect((await put({ agent: "codex" }, "nope")).status).toBe(404);
+
+    await get(d, `/api/items/${item.id}/start`, { method: "POST" });
+    await waitFor(() => expect(spawn.spawned).toHaveLength(1));
+    expect(spawn.last().cmd).toMatch(/codex$/);
+    expect(spawn.last().args.slice(0, 3)).toEqual(["app-server", "--listen", "stdio://"]);
+    expect(await put({ agent: "claude-code" })).toMatchObject({ status: 409, body: { error: "the agent is still running" } });
+  });
+
   it("changes the playbook of a Ready item until it starts, and passes the composer's note to the running agent", async () => {
     const spawn = fakeProcesses();
-    const d = await start(await homeWithHistory(), undefined, undefined, spawn);
+    const h = await homeWithHistory();
+    await mkdir(join(h, ".config/donepm/playbooks"), { recursive: true });
+    await writeFile(join(h, ".config/donepm/playbooks/fix.md"), "---\nname: fix\nmodel: opus\npermission_mode: acceptEdits\ndrafts: [pr]\n---\nFix {{ title }}.\n");
+    const d = await start(h, undefined, undefined, spawn);
     const item = (await get(d, "/api/items")).body.find((i: any) => i.externalId === "acme/widgets#161");
     const put = (body: unknown) =>
       get(d, `/api/items/${item.id}/playbook`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -763,10 +855,15 @@ describe("daemon", { timeout: 30_000 }, () => {
       get(d, `/api/items/${item.id}/say`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
     expect(item.playbook).toBe("implement");
-    const changed = await put({ playbook: "review" });
-    expect(changed).toMatchObject({ status: 200, body: { playbook: "review", state: "ready" } });
+    // Issues are offered every playbook that is not read-only (#153).
+    expect(item.allowedPlaybooks).toEqual(["fix", "implement"]);
+    expect(await put({ playbook: "review" })).toMatchObject({
+      status: 409, body: { error: 'playbook "review" is not offered for issues of this repository' },
+    });
+    const changed = await put({ playbook: "fix" });
+    expect(changed).toMatchObject({ status: 200, body: { playbook: "fix", state: "ready", allowedPlaybooks: ["fix", "implement"] } });
     expect((await get(d, `/api/items/${item.id}`)).body.events.at(-1)).toMatchObject({
-      type: "item.playbook_changed", actor: "user", payload: { from: "implement", to: "review" },
+      type: "item.playbook_changed", actor: "user", payload: { from: "implement", to: "fix" },
     });
     expect((await put({ playbook: "nope" })).status).toBe(400);
     expect((await put({})).status).toBe(400);
@@ -778,7 +875,7 @@ describe("daemon", { timeout: 30_000 }, () => {
     await waitFor(() => expect(spawn.spawned).toHaveLength(1));
     const proc = spawn.last();
     proc.emit({ type: "system", subtype: "init", session_id: "s1" });
-    expect((await put({ playbook: "review" })).status).toBe(409);
+    expect((await put({ playbook: "fix" })).status).toBe(409);
     expect((await say({ text: "  " })).status).toBe(400);
     expect(await say({ text: "Keep the old tag as an alias." })).toEqual({ status: 200, body: { ok: true } });
     expect(proc.sent().at(-1)).toMatchObject({ type: "user", message: { role: "user", content: [{ type: "text", text: "Keep the old tag as an alias." }] } });

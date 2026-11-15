@@ -26,6 +26,12 @@ describe("problems", () => {
     expect(problems(withStatus({ claude: { state: "not_logged_in" } }), true)).toEqual(["claude is not logged in"]);
   });
 
+  it("names a further GitHub host gh is not logged in to (issue #140)", () => {
+    const status = withStatus({ ghHosts: { "github.acme.com": { state: "not_logged_in" }, "acme.ghe.com": { state: "ready" } } });
+    expect(problems(status, true)).toEqual(["gh is not logged in to github.acme.com"]);
+    expect(problems(status, true, tools.filter((t) => t.name === "claude"))).toEqual([]);
+  });
+
   it("reports a failed poll, but not a missing one", () => {
     expect(problems(withStatus({ lastPoll: { at: "2026-01-01T00:00:00Z", ok: false, error: "boom" } }), true)).toEqual(["last poll failed"]);
     expect(problems(withStatus({ lastPoll: undefined }), true)).toEqual([]);
@@ -74,6 +80,21 @@ describe("health", () => {
 
   it("prefers a known problem over unknown tools", () => {
     expect(health(withStatus({ gh: { state: "not_logged_in" }, claude: undefined }), true)).toBe("problem");
+  });
+});
+
+describe("a subset of the tools", () => {
+  const agents = tools.filter((t) => t.section === "agents");
+
+  it("puts claude under Agents & access and gh under Tools", () => {
+    expect(agents.map((t) => t.name)).toEqual(["claude"]);
+    expect(tools.filter((t) => t.section === "tools").map((t) => t.name)).toEqual(["gh"]);
+  });
+
+  it("can leave a failed poll out", () => {
+    const failed = withStatus({ lastPoll: { at: "x", ok: false }, gh: { state: "not_installed" } });
+    expect(problems(failed, true, agents, false)).toEqual([]);
+    expect(health(failed, true, agents, false)).toBe("ok");
   });
 });
 

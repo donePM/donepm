@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { askCopyText, askReason, askView, tildePath } from "./view";
+import { allowScopes, askCopyText, askReason, askView, tildePath } from "./view";
 
 describe("askView", () => {
   const long = `${"x".repeat(300)}\nsecond line\n  third`;
@@ -31,6 +31,16 @@ describe("askView", () => {
     expect(view).toEqual({ kind: "json", text: '{\n  "a": 1,\n  "b": [\n    "c"\n  ]\n}' });
     expect(askView("Bash", { command: "" })).toMatchObject({ kind: "json" });
   });
+
+  it("draws from the ask's subject, whatever the agent called its tool (#136)", () => {
+    expect(askView("exec", { argv: ["make"] }, "/w", { kind: "command", command: "make", cwd: "/w" })).toEqual({ kind: "command", command: "make" });
+    expect(askView("connect", { to: "x" }, undefined, { kind: "network", host: "registry.npmjs.org" })).toEqual({ kind: "target", target: "registry.npmjs.org" });
+    const patch = "--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n keep\n-old\n+new\n";
+    expect(askView("apply_patch", { patch }, undefined, { kind: "file_change", path: "/home/me/a.ts", diff: patch })).toEqual({
+      kind: "edit", path: "~/a.ts", diff: [{ op: " ", text: "keep" }, { op: "-", text: "old" }, { op: "+", text: "new" }],
+    });
+    expect(askView("odd", { a: 1 }, undefined, { kind: "tool", name: "odd", input: { a: 1 } })).toMatchObject({ kind: "json" });
+  });
 });
 
 describe("tildePath", () => {
@@ -46,5 +56,18 @@ describe("askReason", () => {
     expect(askReason("\u001b[1mThis command requires approval\u001b[22m ")).toBe("This command requires approval");
     expect(askReason(" ")).toBeUndefined();
     expect(askReason(undefined)).toBeUndefined();
+  });
+});
+
+describe("allowScopes", () => {
+  it("keeps Claude Code's buttons: for this run and always only with rules to grant", () => {
+    expect(allowScopes({})).toEqual({ run: false, always: false });
+    expect(allowScopes({ grant: "Bash(npm test)" })).toEqual({ run: true, always: false });
+    expect(allowScopes({ grant: "Bash(npm test)", repoName: "acme/widgets", agentKind: "claude-code" })).toEqual({ run: true, always: true });
+  });
+
+  it("offers Codex for this run without rules, and never always (#137)", () => {
+    expect(allowScopes({ agentKind: "codex" })).toEqual({ run: true, always: false });
+    expect(allowScopes({ grant: "x", repoName: "acme/widgets", agentKind: "codex" })).toEqual({ run: true, always: false });
   });
 });

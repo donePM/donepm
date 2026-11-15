@@ -7,6 +7,9 @@ const entry = (name: string, model: string, scope: PlaybookEntry["scope"]): Play
   model,
   permissionMode: "default",
   drafts: [],
+  body: "",
+  tools: [],
+  permissions: { allow: [], deny: [] },
   file: `${name}.md`,
   scope,
 });
@@ -24,6 +27,12 @@ describe("playbookOptions", () => {
       { name: "implement", label: "implement · sonnet" },
       { name: "triage", label: "triage · haiku" },
     ]);
+  });
+
+  it("offers only the playbooks the repository allows for the item's ingest (#153)", () => {
+    const entries = [entry("implement", "opus", { kind: "global" }), entry("review", "opus", { kind: "global" }), entry("fix", "haiku", { kind: "global" })];
+    expect(playbookOptions(entries, undefined, "implement", ["fix", "implement"]).map((o) => o.name)).toEqual(["fix", "implement"]);
+    expect(playbookOptions(entries, undefined, "review", ["fix"]).map((o) => o.name)).toEqual(["fix", "review"]);
   });
 
   it("keeps the current playbook when no file defines it", () => {

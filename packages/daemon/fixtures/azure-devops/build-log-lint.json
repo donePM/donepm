@@ -1,0 +1,11 @@
+{
+  "count": 6,
+  "value": [
+    "2026-10-03T19:49:40.0000000Z ##[section]Starting: Run lint",
+    "2026-10-03T19:49:44.0000000Z /home/vsts/work/1/s/src/orders/total.ts",
+    "2026-10-03T19:49:44.0010000Z   12:7  error  'rate' is never reassigned. Use 'const' instead  prefer-const",
+    "2026-10-03T19:49:44.0020000Z ✖ 1 problem (1 error, 0 warnings)",
+    "2026-10-03T19:49:45.0000000Z ##[error]Bash exited with code '1'.",
+    "2026-10-03T19:49:45.0100000Z ##[section]Finishing: Run lint"
+  ]
+}

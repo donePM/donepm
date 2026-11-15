@@ -1,5 +1,7 @@
-import type { ClaudeStatus } from "../claude/detect.js";
+import type { ClaudeStatus } from "../agent/claude/detect.js";
+import type { CodexStatus } from "../agent/codex/detect.js";
 import type { GhStatus } from "../gh/detect.js";
+import type { HelperStatus } from "../helpers/detect.js";
 
 /** How one repository's own query fared in the last poll. */
 export interface SourcePollStatus {
@@ -24,6 +26,21 @@ export interface PollStatus {
   discovered?: Record<string, number>;
 }
 
+/** Where one connection stands (D50), shown per connection in Settings. */
+export type ConnectionState = "not_installed" | "not_logged_in" | "unreachable" | "unauthorized" | "ready";
+
+export interface ConnectionStatus {
+  id: string;
+  kind: string;
+  backend: "cli" | "api";
+  host?: string;
+  state: ConnectionState;
+  /** The account for a `cli` connection, or why it is not ready. Never a token. */
+  detail?: string;
+  /** For an `api` connection: whether its token is in the Keychain. The token itself never leaves the daemon. */
+  tokenSet?: boolean;
+}
+
 /** A failed poll, kept for Settings > Tools. */
 export interface PollError {
   at: string;
@@ -39,8 +56,19 @@ export interface Status {
   pid: number;
   /** When this daemon process started; Settings shows the uptime. */
   startedAt: string;
+  /** `gh` for github.com. */
   gh: GhStatus | undefined;
+  /** `gh` for each other GitHub host donePM works with, by host (issue #140); unset without any. */
+  ghHosts?: Record<string, GhStatus>;
+  /** The GitHub hosts `gh` is logged in to, which Settings offers as connections (issue #140). */
+  ghKnownHosts?: string[];
+  /** Each configured connection (D50); undefined until first detected. */
+  connections?: ConnectionStatus[];
   claude: ClaudeStatus | undefined;
+  /** The Codex CLI (issue #137); undefined until first detected. */
+  codex?: CodexStatus;
+  /** Optional helper CLIs by id (issue #152); undefined until first detected. */
+  helpers: Record<string, HelperStatus> | undefined;
   lastPoll: PollStatus | undefined;
   /** When the repo root was last scanned. */
   lastScan: string | undefined;
@@ -58,7 +86,7 @@ export class StatusStore {
 
   constructor(version: string, startedAt: string, pid = process.pid) {
     this.status = {
-      version, pid, startedAt, gh: undefined, claude: undefined, lastPoll: undefined, lastScan: undefined, runningAgents: 0, pollErrors: [],
+      version, pid, startedAt, gh: undefined, claude: undefined, helpers: undefined, lastPoll: undefined, lastScan: undefined, runningAgents: 0, pollErrors: [],
     };
   }
 

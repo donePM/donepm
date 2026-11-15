@@ -21,6 +21,9 @@ Recorded with `gh` 2.102.0 on 2026-10-03.
   conflicted when recording. `pr-view-review.json` is vuejs/core#15766 (2026-10-04), an open PR
   into `minor`.
 - `auth-status-*`: `gh auth status` output; account name replaced.
+- `auth-status-hosts.json`: `gh auth status --json hosts` (never `--show-token`, so no token
+  field). The github.com entry is as recorded with the account name replaced; the two other hosts
+  are added by hand in the same shape, one of them with a failing token.
 - `search-unknown-command.stderr`: what an old `gh` without `search issues` prints.
 - `pr-checks-pass.json`: `gh pr checks 80 --json name,state,bucket,link,workflow,startedAt,completedAt`
   on this repository (2026-10-04).
@@ -52,6 +55,19 @@ Recorded with `gh` 2.102.0 on 2026-10-03.
   with a misspelt field name and the name put back, since github.com has the field.
 - `pr-status.json`: `gh api graphql -f query=<prStatusQuery(refs)>` (`src/gh/pr-status.ts`) for
   donePM/donepm#88 (Dependabot, open), vuejs/core#15766 (open, base `minor`) and donePM/donepm#129
-  (merged) on 2026-10-04 with gh 2.102.0.
-- `pr-status-not-found.json`: the same for donePM/donepm#87 and a made-up #99999 (gh exits 1, the
-  found pull request is still there).
+  (merged) on 2026-10-04 with gh 2.102.0; re-recorded the same day with `mergeStateStatus` and
+  `headRefOid` (issue #146).
+- `pr-status-not-found.json`: the same for donePM/donepm#87 (behind its base, `BEHIND`) and a
+  made-up #99999 (gh exits 1, the found pull request is still there).
+
+## Other GitHub hosts (issue #140)
+
+Written by hand, not recorded: synthetic data in the shape of the github.com recordings above,
+which is the shape gh documents for every GitHub host. The hosts are made up.
+
+- `ghe-search-issues.json`: `gh search issues --assignee=@me …` with `GH_HOST=github.acme.com` (a
+  GitHub Enterprise Server host); one issue, `team/app#7`.
+- `ghe-search-prs.json`: `gh search prs --review-requested=@me …` with `GH_HOST=acme.ghe.com` (a
+  GHE.com host); one pull request, `team/app#42`.
+- `ghe-pr-status.json`: `gh api graphql --hostname acme.ghe.com -f query=<prStatusQuery(refs)>` for
+  that pull request, waiting for checks and a review.

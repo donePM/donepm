@@ -60,7 +60,7 @@ const basename = (word: string) => word.slice(word.lastIndexOf("/") + 1);
 
 /**
  * Whether a rule may be granted for a run. Refuses anything that would allow a command on the deny
- * list (`gh`, `glab`, `jira`, `git push`) and any rule that covers every Bash command. The deny rules
+ * list (`BLOCKED_COMMANDS`, `git push`) and any rule that covers every Bash command. The deny rules
  * still win inside Claude Code; this keeps us from offering a grant that contradicts them.
  */
 export function isRuleOfferable(rule: PermissionRule): boolean {

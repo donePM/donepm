@@ -25,6 +25,9 @@ import DraftPanel from "./DraftPanel.vue";
 import FeedbackPanel from "./FeedbackPanel.vue";
 import PushDraftPanel from "./PushDraftPanel.vue";
 import ReviewDraftPanel from "./ReviewDraftPanel.vue";
+import TicketDraftPanel from "./TicketDraftPanel.vue";
+import UpdateBranchDraftPanel from "./UpdateBranchDraftPanel.vue";
+import SourceLink from "../sourcelink/SourceLink.vue";
 import WorktreeBlock from "./WorktreeBlock.vue";
 
 const route = useRoute();
@@ -82,7 +85,9 @@ const STATE_LABEL: Record<string, string> = {
   failed: "Failed",
   done: "Done",
 };
-const DRAFT_LABEL: Record<string, string> = { pr: "PR draft", push: "push draft", comment: "reply draft", review: "review draft" };
+const DRAFT_LABEL: Record<string, string> = { pr: "PR draft", push: "push draft", comment: "reply draft", review: "review draft", update_branch: "update-branch draft",
+  ticket_comment: "ticket comment draft", ticket_transition: "ticket move draft",
+};
 const BADGE_TONE: Record<string, string> = { needs_you: "attn", failed: "attn", running: "primary", checking: "primary", done: "ok", ready: "" };
 const badge = computed(() => {
   const d = detail.value;
@@ -116,7 +121,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
       <nav class="crumb" aria-label="Breadcrumb">
         <RouterLink to="/">← Board</RouterLink>
         <span aria-hidden="true">/</span>
-        <span class="mono">{{ displayId(detail.externalId).replace("#", " #") }}</span>
+        <span class="mono">{{ displayId(detail.externalId).replace(/(\S)#/, "$1 #") }}</span>
         <span class="badge state" :class="BADGE_TONE[detail.state]"><CiPendingDot v-if="detail.state === 'checking'" />{{ badge }}</span>
       </nav>
       <div class="title">
@@ -128,7 +133,7 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
           <span v-if="stats"><span class="add">+{{ stats.additions }}</span> <span class="del">−{{ stats.deletions }}</span></span>
           <span v-if="work" title="How long the agent worked · its cost">{{ work }}</span>
           <span v-if="tokensLabel" title="Tokens: input includes cache reads and writes">{{ tokensLabel }}</span>
-          <a :href="detail.externalUrl" target="_blank" rel="noreferrer" class="ext">{{ detail.source === "github-pr" ? "PR" : "issue" }} ↗</a>
+          <SourceLink :source="detail.source" :url="detail.externalUrl" class="ext">{{ detail.source === "github-pr" ? "PR" : "issue" }}</SourceLink>
         </div>
         <div v-if="detail.badges.includes('no-local-clone')" class="no-clone">
           <span>No local clone<template v-if="detail.clone">. Clone lands in <span class="mono">{{ detail.clone.target }}</span></template></span>
@@ -153,10 +158,12 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
                 :ask-id="a.id"
                 :tool-name="a.toolName"
                 :input="a.input"
+                :subject="a.subject"
                 :rules="a.rules"
                 :reason="a.reason"
                 :worktree="detail.worktreePath"
                 :repo="repo"
+                :agent-kind="a.agentKind"
                 @answered="reload"
               />
             </section>
@@ -174,6 +181,22 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
               v-else-if="draft?.type === 'review' && detail.state === 'needs_you'"
               :draft="draft"
               :repo="repo"
+              :created-at="draftCreatedAt"
+              :can-reject="detail.agent.running || !!detail.agentSessionId"
+              :publish-error="publishError"
+              @changed="reload"
+            />
+            <TicketDraftPanel
+              v-else-if="(draft?.type === 'ticket_comment' || draft?.type === 'ticket_transition') && detail.state === 'needs_you'"
+              :draft="draft"
+              :created-at="draftCreatedAt"
+              :can-reject="detail.agent.running || !!detail.agentSessionId"
+              :publish-error="publishError"
+              @changed="reload"
+            />
+            <UpdateBranchDraftPanel
+              v-else-if="draft?.type === 'update_branch' && detail.state === 'needs_you'"
+              :draft="draft"
               :created-at="draftCreatedAt"
               :can-reject="detail.agent.running || !!detail.agentSessionId"
               :publish-error="publishError"
@@ -212,23 +235,21 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
               <p v-if="retryError" class="alert" role="alert">{{ retryError }}</p>
             </section>
             <section v-if="detail.body.trim()" class="panel" aria-labelledby="issue-h">
-              <h2 id="issue-h">{{ detail.source === "github-pr" ? "Pull request" : "Issue" }}</h2>
-              <MarkdownView class="body" :source="detail.body" :repo="repo" />
+              <h2 id="issue-h">{{ detail.source === "github-pr" ? "Pull request" : detail.source === "jira-issue" ? "Ticket" : detail.source === "ado-work-item" ? "Work item" : "Issue" }}</h2>
+              <MarkdownView class="body" :source="detail.body" :repo="repo" :no-references="detail.source === 'jira-issue' || detail.source === 'ado-work-item'" />
             </section>
           </template>
           <DiffPanel v-else-if="tab === 'changes' && detail.worktreePath" :diff="diff" :loading="diffLoading" :error="diffError" @refresh="reloadDiff" />
           <TimelineList v-else-if="tab === 'timeline'" :events="detail.events" :asks="detail.asks" :now="now" />
         </div>
-        <aside class="side">
+        <aside v-if="detail.worktreePath" class="side">
           <WorktreeBlock
-            v-if="detail.worktreePath"
             :item-id="detail.id"
             :path="detail.worktreePath"
             :session-id="detail.agentSessionId"
             :removable="(detail.state === 'done' || detail.state === 'failed') && !detail.agent.running"
             @removed="reload"
           />
-          <TimelineList v-if="tab !== 'timeline'" :events="detail.events" :asks="detail.asks" :now="now" />
         </aside>
       </main>
     </template>
@@ -252,8 +273,6 @@ const failure = computed(() => (detail.value?.attention?.kind === "failed" ? det
 .layout { padding: 20px; display: flex; flex-wrap: wrap; gap: 20px; align-items: start; }
 .main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
 .side { flex: 1 1 300px; max-width: 380px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
-.tabs { overflow-x: auto; }
-.tabs a { white-space: nowrap; }
 .count { margin-left: 6px; }
 .needs {
   background: var(--attn-tint);

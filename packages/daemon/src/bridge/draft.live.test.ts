@@ -13,7 +13,7 @@ import { silentLog } from "../log.js";
 import { exec } from "../process/exec.js";
 import { draftStores } from "../test-support/draft-stores.js";
 import { TranscriptStore } from "../transcript/store.js";
-import { writeMcpConfig } from "./mcp-config.js";
+import { providerRegistry } from "../providers/registry.js";
 import { listenBridge } from "./server.js";
 import { BridgeSessions } from "./sessions.js";
 
@@ -29,17 +29,16 @@ describe.skipIf(!process.env.DONEPM_LIVE)("draft_pr (live)", () => {
     const transcript = new TranscriptStore(t.db);
     const sessions = new BridgeSessions();
     const socket = join(cwd, "mcp.sock");
-    const bridge = await listenBridge({ ...t.deps, exec, sessions, log: silentLog, version: "live" }, socket);
+    const bridge = await listenBridge({ ...t.deps, exec, providers: providerRegistry([]), sessions, log: silentLog, version: "live" }, socket);
     const runner = new AgentRunner({
       items: t.items, writer: t.deps.writer, asks: new AskStore(t.db), transcript, ctx: t.deps.ctx, log: silentLog,
       spawn: spawnProcess, push: () => {},
-      claudePath: () => "claude",
+      agentPath: () => undefined,
       env: () => agentEnv(process.env, { shimRoot: join(cwd, ".shims"), emptyConfigDir: join(cwd, ".no-credentials") }),
       maxConcurrent: () => 1,
       mcp: (item, playbook) => {
         const token = sessions.mint({ itemId: item.id, drafts: playbook.drafts });
-        const file = writeMcpConfig({ dir: cwd, itemId: item.id, nodePath: process.execPath, bridgePath: SHIM, socketPath: socket, token });
-        return { configPath: file.path, close: () => file.remove() };
+        return { server: { command: process.execPath, args: [SHIM], env: { DONEPM_SOCKET: socket, DONEPM_TOKEN: token }, dir: cwd }, close: () => {} };
       },
     });
     const playbook: Playbook = { name: "live", model: "haiku", permissionMode: "acceptEdits", drafts: ["pr"], body: "" };

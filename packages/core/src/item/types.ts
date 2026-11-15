@@ -1,10 +1,11 @@
+import type { AgentKind } from "../agent/kind.js";
 import type { PrStatus } from "../pr/status.js";
 
 /**
  * An issue to work on, or someone else's pull request that is assigned to the user or asks for their
  * review (D40, D47).
  */
-export type ItemSource = "github-issue" | "github-pr";
+export type ItemSource = "github-issue" | "github-pr" | "jira-issue" | "ado-work-item";
 
 /** `checking`: the PR is open and its CI runs; no agent runs (decision D35). */
 export type ItemState = "ready" | "running" | "needs_you" | "checking" | "done" | "failed";
@@ -17,6 +18,16 @@ export interface WorkItem {
   externalUrl: string;
   /** Local clone; absent when no clone matches the issue's repository ("no local clone"). */
   repoId?: string;
+  /**
+   * A ticket's repositories (issue #139): the normalised origins its ticket sources map to, in
+   * order. Absent for a GitHub item, whose repository is its own.
+   */
+  repoCandidates?: string[];
+  /**
+   * The repository a ticket's work goes to: the only candidate, or the one the user chose
+   * (`repoChosen`). Absent while there are several to choose from; Start waits for it.
+   */
+  repoOrigin?: string;
   title: string;
   body: string;
   labels: string[];
@@ -29,6 +40,12 @@ export interface WorkItem {
    * (D47). Absent: the repository's `autoMerge` setting decides.
    */
   autoMerge?: boolean;
+  /**
+   * The pull request's head and merge state when an automatic merge last failed for a reason that
+   * passes (D47, e.g. the branch was behind its base). Auto-merge stays on but waits until either
+   * changed, so the same refusal is not tried on every poll.
+   */
+  autoMergeHeld?: { head?: string; mergeState?: string };
   state: ItemState;
   /** Playbook name. */
   playbook: string;
@@ -47,7 +64,12 @@ export interface WorkItem {
    * pull request's base (D41). Set when the worktree is made.
    */
   baseBranch?: string;
-  /** Claude `session_id`, for `--resume`. */
+  /**
+   * The coding agent that runs the item (issue #136). Set by the first start and then kept: a session
+   * belongs to one agent. Absent: not started yet, or started before #136 (Claude Code, `agentOf`).
+   */
+  agentKind?: AgentKind;
+  /** The agent's session id (Claude `session_id`), for a resume; it belongs to `agentKind`. */
   agentSessionId?: string;
   /** The issue was closed upstream while the item was not done. */
   closedUpstream?: boolean;

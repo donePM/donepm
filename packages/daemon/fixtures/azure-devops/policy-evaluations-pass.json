@@ -1,0 +1,41 @@
+{
+  "count": 3,
+  "value": [
+    {
+      "evaluationId": "6c4ddb2e-0c6b-4a0e-9e1f-55a2a2f4b011",
+      "status": "approved",
+      "startedDate": "2026-10-03T20:01:02.000Z",
+      "completedDate": "2026-10-03T20:05:31.000Z",
+      "configuration": {
+        "id": 14,
+        "isEnabled": true,
+        "isBlocking": true,
+        "type": { "id": "0609b952-1397-4640-95ec-e00a01b2c241", "displayName": "Build" },
+        "settings": { "buildDefinitionId": 41, "displayName": null }
+      },
+      "context": { "buildId": 815, "buildDefinitionId": 41, "buildDefinitionName": "acme.api", "isExpired": false }
+    },
+    {
+      "evaluationId": "6c4ddb2e-0c6b-4a0e-9e1f-55a2a2f4b012",
+      "status": "notApplicable",
+      "configuration": {
+        "id": 17,
+        "isEnabled": true,
+        "isBlocking": true,
+        "type": { "id": "0609b952-1397-4640-95ec-e00a01b2c241", "displayName": "Build" },
+        "settings": { "buildDefinitionId": 60, "displayName": "web CI", "filenamePatterns": ["/web/*"] }
+      }
+    },
+    {
+      "evaluationId": "6c4ddb2e-0c6b-4a0e-9e1f-55a2a2f4b013",
+      "status": "approved",
+      "configuration": {
+        "id": 3,
+        "isEnabled": true,
+        "isBlocking": true,
+        "type": { "id": "fa4e907d-c16b-4a4c-9dfa-4906e5d171dd", "displayName": "Minimum number of reviewers" },
+        "settings": { "minimumApproverCount": 2 }
+      }
+    }
+  ]
+}

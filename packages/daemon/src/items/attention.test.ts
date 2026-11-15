@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { attentionOf } from "./attention.js";
 
 const ask = (state: PermissionAsk["state"]): PermissionAsk => ({
-  id: `ask-${state}`, itemId: "i", requestId: "r", toolName: "Bash", input: { command: "ls" }, state, rules: [],
+  id: `ask-${state}`, itemId: "i", agentKind: "claude-code", requestId: "r", toolName: "Bash", input: { command: "ls" }, subject: { kind: "command", command: "ls" }, state, rules: [],
 });
 const draft = (over: Partial<PrDraft> = {}): PrDraft => ({
   id: "d1", itemId: "i", type: "pr", state: "pending", payload: { title: "Agent title", body: "", base: "main" }, ...over,
@@ -17,7 +17,7 @@ const live = { agentAlive: true, hasSession: true };
 describe("attentionOf", () => {
   it("puts a pending question before a pending draft", () => {
     expect(attentionOf({ ...live, state: "needs_you", asks: [ask("allowed"), ask("pending")], drafts: [draft()], events: [] })).toEqual({
-      kind: "ask", askId: "ask-pending", toolName: "Bash", input: { command: "ls" }, rules: [],
+      kind: "ask", askId: "ask-pending", toolName: "Bash", input: { command: "ls" }, subject: { kind: "command", command: "ls" }, rules: [],
     });
   });
 
